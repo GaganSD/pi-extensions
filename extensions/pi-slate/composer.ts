@@ -13,7 +13,7 @@ export function composerPaddingX(density: "comfortable" | "compact"): number {
 }
 
 export function chromePaint(theme: Theme): (text: string) => string {
-  return (text) => theme.fg("thinkingHigh", text);
+  return (text) => theme.fg("border", text);
 }
 
 export const COMPOSER_SHELF_LINES = 4;

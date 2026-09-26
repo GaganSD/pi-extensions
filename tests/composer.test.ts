@@ -23,7 +23,7 @@ test("composer padding follows density", () => {
   assert.equal(composerPaddingX("compact"), 2);
 });
 
-test("chrome paint stays on the high thinking border", () => {
+test("chrome paint uses the theme border token", () => {
   const colors: string[] = [];
   const painted = chromePaint({
     fg: (name: string, text: string) => {
@@ -32,7 +32,7 @@ test("chrome paint stays on the high thinking border", () => {
     },
   } as Theme)("─");
   assert.equal(painted, "─");
-  assert.deepEqual(colors, ["thinkingHigh"]);
+  assert.deepEqual(colors, ["border"]);
 });
 
 test("inscribed border keeps rounded corners and truncates the right label first", () => {
