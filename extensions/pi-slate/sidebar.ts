@@ -367,13 +367,13 @@ export class Sidebar implements Component {
     );
     const resources = formatContextResources(this.contextData.spend, this.skillsLoaded, this.mcpConnected);
     const paint = this.paint(theme);
-    if (height === 1) return [inscribedTitle("Context", width, paint, "bottom")];
+    if (height === 1) return [inscribedTitle(this.titled("Context", theme), width, paint, "bottom")];
 
     const facts = [
       theme ? this.body(tokens, width, theme, "muted") : this.decorateLine(tokens, width, theme),
       theme ? this.body(resources, width, theme, "dim") : this.decorateLine(resources, width, theme),
     ];
-    const lines = [inscribedTitle("Context", width, paint, "top")];
+    const lines = [inscribedTitle(this.titled("Context", theme), width, paint, "top")];
     const inner = height - 1;
     const factCount = Math.min(facts.length, Math.max(0, inner - lines.length));
     while (lines.length + factCount < inner) lines.push(this.decorateLine("", width, theme));
@@ -407,7 +407,7 @@ export class Sidebar implements Component {
       return this.body(text, width, theme, clickable ? "muted" : "dim");
     });
     const extra = Math.max(0, height - (1 + files.length + 1 + impact.length));
-    const lines = [inscribedTitle("Summary", width, this.paint(theme), "top")];
+    const lines = [inscribedTitle(this.titled("Summary", theme), width, this.paint(theme), "top")];
     if (extra > 0) lines.push(empty);
     this.lastSlots = { ...this.lastSlots, filesStart: lines.length };
     lines.push(...files);
@@ -532,14 +532,17 @@ export class Sidebar implements Component {
     }
     this.lastPeekHits = hits;
     const action = theme ? theme.fg("dim", actions) : actions;
-    const label = theme ? theme.fg("muted", left) : left;
+    const label = this.titled(left, theme);
     const row = frameRow(` ${left}${" ".repeat(pad)}${actions}`, width, this.paint(theme));
     return row.replace(` ${left}`, ` ${label}`).replace(actions, action);
   }
 
+  private titled(label: string, theme: Theme | undefined): string {
+    return theme ? theme.fg("mdHeading", label) : label;
+  }
+
   private heading(label: string, width: number, theme: Theme | undefined): string {
-    if (!theme) return this.decorateLine(label, width, theme);
-    return this.decorateLine(theme.fg("muted", label), width, theme);
+    return this.decorateLine(this.titled(label, theme), width, theme);
   }
 
   private body(text: string, width: number, theme: Theme | undefined, color: "muted" | "dim"): string {

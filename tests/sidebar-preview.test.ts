@@ -315,6 +315,17 @@ test("context dock keeps the heading, rule, and spend", () => {
   ]);
 });
 
+test("section titles follow the theme heading color", () => {
+  const sidebar = attachSidebar();
+  sidebar.setFiles([{ index: " ", worktree: "M", path: "src/a.ts" }]);
+  const lines = sidebar.render(40);
+  assert.ok(lines.some((line) => line.includes("[mdHeading]Summary")));
+  assert.ok(lines.some((line) => line.includes("[mdHeading]Files Changed")));
+  assert.ok(lines.some((line) => line.includes("[mdHeading]Last Turn")));
+  assert.ok(lines.some((line) => line.includes("[mdHeading]Preview")));
+  assert.ok(lines.some((line) => line.includes("[mdHeading]Context")));
+});
+
 test("context facts stay on consecutive rows when the composer grows", () => {
   const sidebar = attachSidebar(24);
   sidebar.splitActive = true;
