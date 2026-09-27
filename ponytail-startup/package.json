@@ -1,0 +1,10 @@
+{
+  "name": "ponytail-startup",
+  "private": true,
+  "type": "module",
+  "description": "Quiet Ponytail startup toast.",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./ponytail-startup.ts"]
+  }
+}
