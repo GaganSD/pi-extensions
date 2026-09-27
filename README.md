@@ -15,7 +15,6 @@ Publish and npm installs stay per-package (`cd pi-slate && npm publish`).
 | Folder | Status |
 | --- | --- |
 | [pi-slate](./pi-slate) | Quiet TUI. Published as `npm:pi-slate`. |
-| [ponytail-startup](./ponytail-startup) | Hide Ponytail's off toast; toast only when on. Copied from pi-configs. |
 | [pi-clarify](./pi-clarify) | Empty. Next. |
 | [pi-subagents](./pi-subagents) | Empty. Next. |
 | [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
