@@ -4,12 +4,16 @@
   "description": "Monorepo of Pi extensions I use and build.",
   "license": "MIT",
   "scripts": {
-    "test": "npm test --prefix pi-slate",
-    "typecheck": "npm run typecheck --prefix pi-slate"
+    "test": "npm test --prefix pi-slate && npm test --prefix pi-clarify",
+    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-clarify"
   },
   "pi": {
     "extensions": [
-      "./pi-slate/extensions/pi-slate/index.ts"
+      "./pi-slate/extensions/pi-slate/index.ts",
+      "./pi-clarify/src/index.ts"
+    ],
+    "skills": [
+      "./pi-clarify/skills"
     ],
     "themes": [
       "./pi-slate/themes/*.json"
