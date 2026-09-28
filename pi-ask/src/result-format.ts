@@ -1,4 +1,3 @@
-import { ELABORATED_SUMMARY } from "./constants/text.ts";
 import { isCustomOnlyAnswer } from "./state/answers.ts";
 import type { AskResult } from "./types.ts";
 
@@ -98,50 +97,6 @@ function formatQuestionNoteLine(
 	return mode === "summary"
 		? `${questionLabel} note: ${note}`
 		: `  note: ${note}`;
-}
-
-export function formatElaborationLines(
-	result: AskResult,
-	_options: { mode: "summary" | "render" }
-): string[] {
-	const items = result.elaboration?.explain ?? [];
-	const lines = items.map((item) => {
-		const kept = result.elaboration?.keep[item.questionId];
-		const answerContext = formatElaborationAnswerContext(kept);
-		if (item.optionLabel) {
-			return `User asked to elaborate on question ${quote(item.prompt)} option ${quote(item.optionLabel)}${answerContext} with note ${quote(item.note)}`;
-		}
-		return `User asked to elaborate on question ${quote(item.prompt)}${answerContext} with note ${quote(item.note)}`;
-	});
-
-	if (lines.length > 0) {
-		return lines;
-	}
-
-	const answerLines = result.questions
-		.map((question) => {
-			const answer = result.answers[question.id];
-			return answer?.labels.length
-				? `User asked to elaborate on question ${quote(question.prompt)} after current answer ${quote(answer.labels.join(", "))}`
-				: undefined;
-		})
-		.filter((line): line is string => Boolean(line));
-
-	return answerLines.length > 0 ? answerLines : [ELABORATED_SUMMARY];
-}
-
-function formatElaborationAnswerContext(
-	answer: AskResult["answers"][string] | undefined
-): string {
-	const labels = answer?.labels ?? [];
-	if (labels.length === 0) {
-		return "";
-	}
-	return ` after current answer ${quote(labels.join(", "))}`;
-}
-
-function quote(value: string): string {
-	return JSON.stringify(value);
 }
 
 function formatOptionNoteLines(

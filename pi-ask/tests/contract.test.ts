@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Value } from "typebox/value";
 import { registerAnswerCommands } from "../src/answer-commands.ts";
-import {
-	collectExtractionBusinessIssues,
-	repairExtractionParams,
-} from "../src/answer-extraction.ts";
+import { collectExtractionBusinessIssues } from "../src/answer-extraction.ts";
 import { registerAskSettingsCommand } from "../src/ask-settings-command.ts";
 import { registerAskTool } from "../src/ask-tool.ts";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
@@ -203,7 +200,7 @@ test("/answer extraction keeps every offered option", () => {
 		],
 	};
 	assert.deepEqual(collectExtractionBusinessIssues(params), []);
-	assert.equal(repairExtractionParams(params).questions[0]?.options?.length, 5);
+	assert.equal(params.questions[0]?.options?.length, 5);
 });
 
 test("commands and config path are first-party", () => {

@@ -2,7 +2,7 @@ import type { AskConfig } from "../config/schema.ts";
 import type { AskState } from "../types.ts";
 
 export const DIRTY_DISMISS_NOTICE =
-	"Unsaved ask answers or drafts. Press cancel/dismiss again to discard.";
+	"Answers kept. Press Esc again to discard and close.";
 
 export function shouldConfirmDirtyDismiss(args: {
 	config: AskConfig;

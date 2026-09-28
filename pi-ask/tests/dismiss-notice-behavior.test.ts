@@ -30,8 +30,7 @@ function plainTheme() {
 	} as never;
 }
 
-const notice =
-	"Unsaved ask answers or drafts. Press cancel/dismiss again to discard.";
+const notice = "Answers kept. Press Esc again to discard and close.";
 
 test("dismiss notice stays visible on same tab and clears after tab change", () => {
 	const state = createInitialState({

@@ -1,12 +1,6 @@
-import {
-	CANCELLED_SUMMARY,
-	ELABORATED_SUMMARY,
-	ELABORATION_INSTRUCTION,
-	SUBMITTED_SUMMARY,
-} from "../constants/text.ts";
-import { formatElaborationLines, formatResultLines } from "../result-format.ts";
+import { CANCELLED_SUMMARY, SUBMITTED_SUMMARY } from "../constants/text.ts";
+import { formatResultLines } from "../result-format.ts";
 import type {
-	AskElaborationPayload,
 	AskResult,
 	AskResultAnswer,
 	AskResultStatus,
@@ -14,15 +8,12 @@ import type {
 	AskStateAnswer,
 } from "../types.ts";
 import {
-	cloneResultAnswer,
 	getExtraOptionNotes,
-	hasAnswerNotes,
 	isAnswerEmpty,
 	isResultAnswerCommitted,
 	isResultAnswerEmpty,
 	serializeAnswer,
 } from "./answers.ts";
-import { getQuestionOptionByValue } from "./selectors.ts";
 
 export type ReviewAnswer = AskResult["answers"][string] & {
 	extraOptionNotes?: Array<{
@@ -40,11 +31,7 @@ export function toAskResult(
 			.map(
 				([questionId, answer]) => [questionId, serializeAnswer(answer)] as const
 			)
-			.filter(([, answer]) =>
-				state.mode === "elaborate"
-					? isResultAnswerCommitted(answer)
-					: !isResultAnswerEmpty(answer)
-			)
+			.filter(([, answer]) => !isResultAnswerEmpty(answer))
 	);
 	const unanswered = state.questions
 		.filter((question) => !isResultAnswerCommitted(answers[question.id] ?? emptyResultAnswer()))
@@ -65,8 +52,6 @@ export function toAskResult(
 		})),
 		answers,
 		unanswered,
-		elaboration:
-			state.mode === "elaborate" ? serializeElaboration(state, answers) : undefined,
 	};
 }
 
@@ -80,10 +65,6 @@ export function summarizeResult(result: AskResult): string {
 	if (result.status === "invalid") {
 		return "Invalid tool payload";
 	}
-	if (result.status === "elaborated") {
-		const lines = formatElaborationLines(result, { mode: "summary" });
-		return lines.join("\n") || ELABORATED_SUMMARY;
-	}
 
 	const lines = formatResultLines(result, { mode: "summary" });
 	return lines.join("\n") || SUBMITTED_SUMMARY;
@@ -95,78 +76,16 @@ export function hasAnswerContent(state: AskState, questionId: string): boolean {
 }
 
 function resultStatusFromState(state: AskState): AskResultStatus {
-	if (state.cancelled) {
-		return "cancelled";
-	}
-	return state.mode === "elaborate" ? "elaborated" : "submitted";
+	return state.cancelled ? "cancelled" : "submitted";
 }
 
 function emptyResultAnswer(): AskResultAnswer {
 	return { values: [], labels: [] };
 }
 
-function serializeElaboration(
-	state: AskState,
-	answers: AskResult["answers"]
-): AskElaborationPayload {
-	const explain = state.questions.flatMap((question) =>
-		serializeElaborationItemsForQuestion(question, state.answers[question.id])
-	);
-	const keep = Object.fromEntries(
-		state.questions
-			.filter((question) => !hasAnswerNotes(state.answers[question.id]))
-			.flatMap((question) => {
-				const answer = answers[question.id];
-				return answer ? [[question.id, cloneResultAnswer(answer)] as const] : [];
-			})
-	);
-
-	return {
-		instruction: ELABORATION_INSTRUCTION,
-		explain,
-		keep,
-	};
-}
-
-function serializeElaborationItemsForQuestion(
-	question: AskState["questions"][number],
-	answer: AskStateAnswer | undefined
-): AskElaborationPayload["explain"] {
-	if (!(answer && hasAnswerNotes(answer))) {
-		return [];
-	}
-
-	const items: AskElaborationPayload["explain"] = [];
-
-	if (answer.note) {
-		items.push({
-			questionId: question.id,
-			prompt: question.prompt,
-			note: answer.note,
-		});
-	}
-
-	for (const [value, note] of Object.entries(answer.optionNotes ?? {})) {
-		const option = getQuestionOptionByValue(question, value);
-		if (!(option && note)) {
-			continue;
-		}
-		items.push({
-			questionId: question.id,
-			prompt: question.prompt,
-			optionValue: value,
-			optionLabel: option.label,
-			note,
-		});
-	}
-
-	return items;
-}
-
 export function toReviewAnswer(
 	question: AskState["questions"][number],
-	answer: AskStateAnswer | undefined,
-	showAllNotes: boolean
+	answer: AskStateAnswer | undefined
 ): ReviewAnswer | undefined {
 	if (!answer) {
 		return;
@@ -174,9 +93,6 @@ export function toReviewAnswer(
 
 	const serialized = serializeAnswer(answer);
 	const hasCommittedAnswer = isResultAnswerCommitted(serialized);
-	if (!showAllNotes) {
-		return hasCommittedAnswer ? serialized : undefined;
-	}
 
 	const extraOptionNotes = getExtraOptionNotes({
 		answer,

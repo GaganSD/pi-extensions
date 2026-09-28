@@ -35,7 +35,6 @@ export function buildReviewScreenModel(
 	state: AskState,
 	width: number
 ): ReviewScreenModel {
-	const showAllNotes = state.activeSubmitActionIndex === 1;
 	const actionColumnWidth = getSubmitActionColumnWidth();
 	return {
 		actionColumnWidth,
@@ -49,7 +48,7 @@ export function buildReviewScreenModel(
 		questions: state.questions.map((question) =>
 			toReviewQuestionModel(
 				question.label,
-				toReviewAnswer(question, state.answers[question.id], showAllNotes)
+				toReviewAnswer(question, state.answers[question.id])
 			)
 		),
 	};

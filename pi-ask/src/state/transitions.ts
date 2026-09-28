@@ -33,7 +33,7 @@ import {
 	submitView,
 } from "./view.ts";
 
-const SUBMIT_ACTION_COUNT = 3;
+const SUBMIT_ACTION_COUNT = 2;
 
 export function createInitialState(params: {
 	title?: string;
@@ -169,11 +169,8 @@ export function saveNote(state: AskState, rawValue: string): AskState {
 }
 
 function completeSubmitAction(state: AskState): AskState {
-	if (state.activeSubmitActionIndex === 2) {
-		return { ...state, cancelled: true, completed: true };
-	}
 	if (state.activeSubmitActionIndex === 1) {
-		return { ...state, mode: "elaborate", completed: true };
+		return { ...state, cancelled: true, completed: true };
 	}
 	return { ...state, mode: "submit", completed: true };
 }

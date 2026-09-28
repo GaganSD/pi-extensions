@@ -7,7 +7,7 @@ import {
 } from "./selectors.ts";
 import { isEditingView, navigateView, submitView } from "./view.ts";
 
-const SUBMIT_ACTION_COUNT = 3;
+const SUBMIT_ACTION_COUNT = 2;
 
 export function createInitialState(params: {
 	title?: string;

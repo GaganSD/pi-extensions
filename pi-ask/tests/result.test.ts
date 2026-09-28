@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderResultText } from "../src/result.ts";
-import { formatElaborationLines, formatResultLines } from "../src/result-format.ts";
+import { formatResultLines } from "../src/result-format.ts";
 import { serializeAnswer } from "../src/state/answers.ts";
 import { createInitialState } from "../src/state/create.ts";
 import { toAskResult } from "../src/state/result.ts";
@@ -42,7 +42,7 @@ test("submitted results include unanswered questions and omit merged custom text
 	assert.match(formatResultLines(result, { mode: "summary" }).join("\n"), /SolidStart/);
 });
 
-test("elaborate results keep settled answers and only explain noted questions", () => {
+test("submitted results include notes with settled answers", () => {
 	let state = createInitialState({
 		questions: [
 			{
@@ -61,22 +61,12 @@ test("elaborate results keep settled answers and only explain noted questions", 
 	});
 	state = confirmCurrentSelection(state);
 	state = enterQuestionNoteMode(state, "tone");
-	state = {
-		...saveNote(state, "Why quiet?"),
-		activeTabIndex: 2,
-		activeSubmitActionIndex: 1,
-		view: { kind: "submit" },
-	};
-	state = confirmCurrentSelection(state);
+	state = saveNote(state, "Why quiet?");
 	const result = toAskResult(state);
-	assert.equal(result.status, "elaborated");
-	assert.deepEqual(result.elaboration?.keep.goal.values, ["speed"]);
-	assert.equal(result.elaboration?.keep.tone, undefined);
-	assert.equal(result.elaboration?.explain[0]?.questionId, "tone");
-	assert.match(
-		formatElaborationLines(result, { mode: "summary" }).join("\n"),
-		/Why quiet\?/
-	);
+	assert.equal(result.status, "submitted");
+	assert.deepEqual(result.answers.goal.values, ["speed"]);
+	assert.equal(result.answers.tone?.note, "Why quiet?");
+	assert.deepEqual(result.unanswered, ["tone"]);
 });
 
 test("cancelled and invalid render distinctly", () => {

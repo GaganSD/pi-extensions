@@ -30,7 +30,7 @@ The agent calls `ask_user` for a material gap or an explicit interview. You can 
 | --- | --- |
 | Choose one answer or several | `single` and `multi` |
 | Type freely | `text` questions, or `Type your own` on option questions |
-| Understand a choice first | Notes and Elaborate |
+| Understand a choice first | Notes |
 | Repair a bad question | Live `single` ↔ `multi` (`t`) |
 | Reopen a form | `/answer:again`, `/ask:replay` |
 
@@ -55,11 +55,10 @@ Input: `{ title?, questions: [{ id, label?, prompt, type: single\|multi\|text, o
 
 Output:
 
-- `status`: `submitted` | `elaborated` | `cancelled` | `unavailable` | `invalid`
+- `status`: `submitted` | `cancelled` | `unavailable` | `invalid`
 - `answers[id]`: `{ values, labels, customText?, note?, optionNotes? }`
 - typed text is never merged into option `values`
 - `unanswered: id[]`
-- elaborate carries only what to explain and which answers to keep
 
 Config: `~/.pi/agent/extensions/pi-ask.json`
 

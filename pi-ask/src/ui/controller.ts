@@ -68,13 +68,14 @@ interface AskFlowController {
 	config: AskConfig;
 	configNotice?: string;
 	ctx: ExtensionContext;
-	dismissNotice?: string;
 	done: Done;
 	editor: Editor;
+	pendingDiscardConfirm: boolean;
 	pendingQuestionTypeChangeQuestionId?: string;
 	pendingReviewShortcutActionIndex?: number;
 	settingsOpen: boolean;
 	state: AskState;
+	statusNotice?: string;
 	suppressAutoInputForSelection: boolean;
 	theme: Theme;
 	tui: Tui;
@@ -114,14 +115,15 @@ function createAskFlowController(
 		config: params.config,
 		configNotice: params.configNotice,
 		ctx: params.ctx,
-		dismissNotice: undefined,
 		done,
 		editor: createEditor(tui, theme, params.cwd),
 		settingsOpen: false,
 		state: createInitialState(params),
 		suppressAutoInputForSelection: false,
+		pendingDiscardConfirm: false,
 		pendingQuestionTypeChangeQuestionId: undefined,
 		pendingReviewShortcutActionIndex: undefined,
+		statusNotice: undefined,
 		theme,
 		tui,
 		unsubscribeConfig: () => {
@@ -247,35 +249,31 @@ function handleNavigationCommand(
 ) {
 	switch (command.kind) {
 		case "moveTab":
-			clearReviewShortcutPending(controller);
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			commitState(controller, moveTab(controller.state, command.delta));
 			return;
 		case "moveOption":
-			clearReviewShortcutPending(controller);
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			commitState(controller, moveOption(controller.state, command.delta));
 			return;
 		case "toggleMulti":
-			clearReviewShortcutPending(controller);
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			handleToggleCurrentOption(controller);
 			return;
 		case "changeQuestionType":
-			clearReviewShortcutPending(controller);
+			clearPendingConfirms(controller, { keepTypeChange: true });
 			handleChangeQuestionType(controller);
 			return;
 		case "openQuestionNote":
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			openQuestionNote(controller);
 			return;
 		case "openOptionNote":
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			openOptionNote(controller);
 			return;
 		case "confirm":
-			clearReviewShortcutPending(controller);
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			commitState(controller, confirmCurrentSelection(controller.state), {
 				finish: true,
 			});
@@ -289,8 +287,7 @@ function handleNavigationCommand(
 			if (handleReviewShortcutNumber(controller, command.digit)) {
 				return;
 			}
-			clearReviewShortcutPending(controller);
-			clearQuestionTypeChangePending(controller);
+			clearPendingConfirms(controller);
 			commitState(
 				controller,
 				applyNumberShortcut(controller.state, command.digit)
@@ -332,7 +329,7 @@ function handleChangeQuestionType(controller: AskFlowController) {
 	const confirmed =
 		controller.pendingQuestionTypeChangeQuestionId === question.id;
 	const result = cycleCurrentQuestionType(controller.state, { confirmed });
-	controller.dismissNotice = result.notice;
+	controller.statusNotice = result.notice;
 	if (result.needsConfirmation) {
 		controller.pendingQuestionTypeChangeQuestionId = question.id;
 		refresh(controller);
@@ -428,11 +425,11 @@ function handleExitFlow(controller: AskFlowController, nextState: AskState) {
 		commitState(controller, nextState, { finish: true });
 		return;
 	}
-	if (shouldDiscardAfterConfirmation(!!controller.dismissNotice)) {
+	if (shouldDiscardAfterConfirmation(controller.pendingDiscardConfirm)) {
 		commitState(controller, nextState, { finish: true });
 		return;
 	}
-	controller.dismissNotice = DIRTY_DISMISS_NOTICE;
+	controller.pendingDiscardConfirm = true;
 	refresh(controller);
 }
 
@@ -450,7 +447,19 @@ function shouldRequestDismissConfirmation(
 
 function clearFooterNotices(controller: AskFlowController) {
 	controller.configNotice = undefined;
-	controller.dismissNotice = undefined;
+	controller.statusNotice = undefined;
+	controller.pendingDiscardConfirm = false;
+}
+
+function clearPendingConfirms(
+	controller: AskFlowController,
+	options: { keepTypeChange?: boolean } = {}
+) {
+	controller.pendingDiscardConfirm = false;
+	clearReviewShortcutPending(controller);
+	if (!options.keepTypeChange) {
+		clearQuestionTypeChangePending(controller);
+	}
 }
 
 function clearReviewShortcutPending(controller: AskFlowController) {
@@ -508,7 +517,10 @@ function handleReviewShortcutNumber(
 }
 
 function getFooterNotice(controller: AskFlowController): string | undefined {
-	return controller.dismissNotice ?? controller.configNotice;
+	if (controller.pendingDiscardConfirm) {
+		return DIRTY_DISMISS_NOTICE;
+	}
+	return controller.statusNotice ?? controller.configNotice;
 }
 
 function showSettingsModal(controller: AskFlowController) {

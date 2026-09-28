@@ -127,14 +127,8 @@ export async function extractAskParams(options: {
 		}
 		lastError = parsed.issues.join("\n");
 	}
-	if (lastCandidate) {
-		const repaired = repairExtractionParams(lastCandidate);
-		if (
-			repaired.questions.length === 0 ||
-			collectValidationIssues(repaired).length === 0
-		) {
-			return repaired;
-		}
+	if (lastCandidate && collectValidationIssues(lastCandidate).length === 0) {
+		return lastCandidate;
 	}
 	throw new Error(
 		"Question extraction did not return a valid ask_user tool call or JSON fallback after retries."
@@ -281,21 +275,6 @@ export function collectExtractionBusinessIssues(params: AskParams): string[] {
 		}
 	});
 	return issues;
-}
-
-export function repairExtractionParams(params: AskParams): AskParams {
-	return {
-		...params,
-		questions: params.questions
-			.filter((question) => !isGenericConversationalPrompt(question.prompt))
-			.filter((question) => {
-				const options = question.options ?? [];
-				return (
-					options.length !== 1 ||
-					!optionRestatesQuestion(options[0]?.label, question.prompt)
-				);
-			}),
-	};
 }
 
 function optionRestatesQuestion(

@@ -5,7 +5,6 @@ import {
 	createExtractionContext,
 	extractionCandidateFromContent,
 	parseExtractionCandidate,
-	repairExtractionParams,
 	selectExtractionModel,
 } from "../src/answer-extraction.ts";
 
@@ -109,25 +108,35 @@ test("extraction does not flag or truncate extra offered options", () => {
 	};
 	assert.deepEqual(collectExtractionBusinessIssues(params), []);
 	assert.deepEqual(
-		(repairExtractionParams(params).questions[0]?.options ?? []).map(
-			(option) => option.value
-		),
+		params.questions[0]?.options?.map((option) => option.value),
 		["a", "b", "c", "d", "e"]
 	);
 });
 
-test("repairExtractionParams drops generic conversational prompts", () => {
-	const repaired = repairExtractionParams({
+test("extraction flags generic prompts but does not drop questions", () => {
+	const params = {
 		questions: [
 			{
 				id: "generic",
 				prompt: "How can I help you today?",
 				options: [{ value: "help", label: "Help me" }],
 			},
+			{
+				id: "platform",
+				prompt: "Could you clarify which platform: Mac or Linux?",
+				options: [
+					{ value: "mac", label: "Mac" },
+					{ value: "linux", label: "Linux" },
+				],
+			},
 		],
-	});
+	};
 
-	assert.deepEqual(repaired.questions, []);
+	assert.ok(collectExtractionBusinessIssues(params).length > 0);
+	assert.deepEqual(
+		params.questions.map((question) => question.id),
+		["generic", "platform"]
+	);
 });
 
 test("extraction context includes the ask_user tool and preceding turn", () => {

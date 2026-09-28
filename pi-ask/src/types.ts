@@ -69,30 +69,14 @@ export interface AskQuestionSummary {
 	type: AskQuestionType;
 }
 
-export interface AskElaborationItem {
-	note: string;
-	optionLabel?: string;
-	optionValue?: string;
-	prompt: string;
-	questionId: string;
-}
-
-export interface AskElaborationPayload {
-	explain: AskElaborationItem[];
-	instruction: string;
-	keep: Record<string, AskResultAnswer>;
-}
-
 export type AskResultStatus =
 	| "submitted"
-	| "elaborated"
 	| "cancelled"
 	| "unavailable"
 	| "invalid";
 
 export interface AskResult {
 	answers: Record<string, AskResultAnswer>;
-	elaboration?: AskElaborationPayload;
 	error?: AskValidationError;
 	questions: AskQuestionSummary[];
 	status: AskResultStatus;
@@ -113,7 +97,7 @@ export interface AskState {
 	answers: Record<string, AskStateAnswer>;
 	cancelled: boolean;
 	completed: boolean;
-	mode: "submit" | "elaborate";
+	mode: "submit";
 	questions: AskQuestion[];
 	title?: string;
 	view: ViewState;
