@@ -21,6 +21,7 @@
     "directory": "pi-ask"
   },
   "files": [
+    "assets",
     "skills",
     "src",
     "README.md",
