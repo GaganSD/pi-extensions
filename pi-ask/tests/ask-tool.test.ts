@@ -110,7 +110,6 @@ test("prompt layers stay compact and route to shipped references (static)", asyn
 	for (const path of [
 		"references/interaction.md",
 		"references/decision-cases.md",
-		"../../docs/contract.md",
 		"../../docs/configuration.md",
 	]) {
 		assert.ok(skill.includes(`(${path})`), `Missing route: ${path}`);

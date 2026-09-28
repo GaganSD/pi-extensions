@@ -63,4 +63,4 @@ Output:
 
 Config: `~/.pi/agent/extensions/pi-ask.json`
 
-See [configuration](./docs/configuration.md) and [contract](./docs/contract.md).
+See [configuration](./docs/configuration.md).

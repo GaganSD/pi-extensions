@@ -16,4 +16,3 @@ After an elaboration or note, answer it first. Respect `elaboration.keep`; ask o
 
 Cancellation, skipped questions, and unclear answers are not high-risk approval. Do not repeatedly ask the same unanswered authorization question or silently pick a risky default. Continue independent authorized work. `status` is not approval.
 
-For exact result fields and lifecycle behavior, see the [contract](../../../docs/contract.md).

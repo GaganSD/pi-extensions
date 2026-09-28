@@ -23,7 +23,6 @@ Use `ask_user` to resolve a gap that changes what should be done, not to transfe
 | --- | --- |
 | Payload, notes, or a resumed interaction | [Interaction guide](references/interaction.md) |
 | Borderline decisions or model behavior evaluation | [Decision cases](references/decision-cases.md) |
-| Runtime behavior and result contract | [Contract](../../docs/contract.md) |
 | Settings or keymaps | [Configuration](../../docs/configuration.md) |
 
-The registered tool guidance works without this skill. This guidance is advisory, not a runtime authorization mechanism; the contract and package tests govern tool behavior.
+The registered tool guidance works without this skill. This guidance is advisory, not a runtime authorization mechanism; package tests govern tool behavior.
