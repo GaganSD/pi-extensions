@@ -1,38 +1,33 @@
 # pi-extensions
 
-Monorepo of Pi Coding Agent extensions I build and use.
+Monorepo of extensions I've built for the Pi Coding Agent Harness
 
-Local install of this repo still loads Slate:
+| Package | Description | Install |
+| --- |---| --- |
+| [pi-slate](./pi-slate) | Rich TUI with Graphics Support | `pi install npm:pi-slate` |
+| [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
+
+A clone of this repo loads Slate and pi-ask together:
 
 ```bash
-pi install /Users/gagandevagiri/GitHub/pi-extensions
+pi install .
 ```
-
-Publish and npm installs stay per-package (`cd pi-slate && npm publish`).
-
-## First-party
 
 | Folder | Status |
 | --- | --- |
-| [pi-slate](./pi-slate) | Quiet TUI. Published as `npm:pi-slate`. |
-| [pi-clarify](./pi-clarify) | Empty. Next. |
-| [pi-subagents](./pi-subagents) | Empty. Next. |
-| [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
+| [pi-jev-tool-output-compact] | beta-testing |
+| [pi-subagents](./pi-subagents) | beta-testing|
+| [pi-canvas-mode](./pi-canvas-mode) | TODO |
 
-## External (installed from pi-configs, not vendored)
+## External
 
-This GitHub repo is public, so third-party sources stay as install specs.
+Few third-party sources
 
 | Package | Install |
 | --- | --- |
-| pi-mcp-adapter | `git:github.com/nicobailon/pi-mcp-adapter` |
-| pi-context-view | `npm:pi-context-view` |
+| pi-mcp-adapter | `git:github.com/nicobailon/pi-mcp-adapter` | (TODO: Replace with pi's new built-in mcp)
+| pi-context-view | `npm:pi-context-view` | (TODO: Merge this with pi-slate)
 | pi-subagents | `npm:pi-subagents` |
-| pi-web-search | `npm:pi-web-search` |
-| @geoqiao/pi-ask | `npm:@geoqiao/pi-ask` |
-| @narumitw/pi-plan-mode | `npm:@narumitw/pi-plan-mode` |
-| ponytail | `git:github.com/DietrichGebert/ponytail` |
-| pi-goal-x | `npm:pi-goal-x` |
-| @dev.fast/pi-whiteboard | `npm:@dev.fast/pi-whiteboard` |
-
-Config for those lives in [pi-configs](https://github.com/GaganSD/pi-configs).
+| pi-web-search | `npm:pi-web-search` | (TODO: too bloated, re-build this) 
+| @narumitw/pi-plan-mode | `npm:@narumitw/pi-plan-mode` | (TODO: replace with canvas mode with tldraw support)
+| ponytail | `git:github.com/DietrichGebert/ponytail` | (TODO: Move to /prompts)
