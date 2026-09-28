@@ -13,11 +13,11 @@ import type {
 } from "./types.ts";
 
 export const ASK_TOOL_DESCRIPTION =
-	"After context review, ask about unresolved material requirement, preference, or authorization gaps, or conduct explicitly requested interviews. Supports single, multi, and text questions.";
+	"Interview the user to clarify gaps in context or requirements, get missing authorization, or brainstorm. Supports single, multi, and text questions.";
 
 export const ASK_TOOL_PROMPT_GUIDELINES = [
-	"Use `ask_user` for unresolved critical requirements, outcome-changing preferences, missing authorization for consequential actions, or explicitly requested interviews. Resolve facts from context; do not reconfirm settled choices, ask just because alternatives exist, or defer routine authorized work and comparisons.",
-	"In `ask_user`, ask one decision per question; bundle independent blockers. Treat notes as context, keep prior answers, and reopen only when material facts change. Cancellation or ambiguous answers do not authorize risky actions; continue independent work.",
+	"Use `ask_user` to interview for context gaps, requirements, missing authorization, or brainstorming. Check relevant context first; do not reconfirm settled decisions or ask just because alternatives exist. Continue authorized routine work.",
+	"In `ask_user`, ask one decision per question. Cancellation or ambiguity is not approval; keep risky actions blocked.",
 	"For `ask_user`, use unique `id`s and non-empty `prompt`s. Use `single` for one choice, `multi` for several, `text` for free input (no options). Choice questions need distinct non-empty `value` and `label`; no filler. Explain grounded `recommended: true` choices in `description`; never preselect them. Typed custom text is not an option value. Submission alone is not approval; unanswered questions stay unanswered.",
 ] as const;
 

@@ -51,10 +51,8 @@ test("registered ask prompts require material gaps after context review (static)
 	for (const text of [tool.description, tool.promptSnippet, guidelines]) {
 		for (const concept of [
 			"context",
-			"requirement",
-			"preference",
 			"authorization",
-			"explicitly requested interviews",
+			"brainstorm",
 		]) {
 			assert.ok(text.includes(concept), `Missing prompt concept: ${concept}`);
 		}
@@ -100,9 +98,8 @@ test("prompt layers stay compact and route to shipped references (static)", asyn
 	assert.ok(tool.description.length <= 400);
 	assert.ok(tool.promptGuidelines.join("\n").length <= 2200);
 	assert.ok(skill.length <= 2800);
-	const path = "../../docs/configuration.md";
-	assert.ok(skill.includes(`(${path})`));
-	assert.ok((await readFile(new URL(path, skillUrl), "utf-8")).length > 0);
+	assert.ok(skill.includes("/ask-settings"));
+	assert.ok(skill.includes("pi-ask.json"));
 });
 
 test("ask option schema and tool guidance support grounded recommendations", () => {

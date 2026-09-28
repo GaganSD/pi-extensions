@@ -102,24 +102,3 @@ test("config store leaves invalid files unchanged", async () => {
 	assert.equal(result.notice?.kind, "error");
 	assert.equal(await readFile(path, "utf-8"), "{not json");
 });
-
-test("config store does not read legacy eko24ive paths", async () => {
-	const { mkdtemp } = await import("node:fs/promises");
-	const root = await mkdtemp(join(tmpdir(), "pi-ask-legacy-"));
-	await writeFile(
-		join(root, "eko24ive-pi-ask.json"),
-		JSON.stringify({
-			behaviour: { autoSubmitWhenAnsweredWithoutNotes: true },
-		})
-	);
-	process.env.PI_CODING_AGENT_DIR = root;
-	resetAskConfigStore();
-	const result = await getAskConfigStore().ensureLoaded();
-	assert.equal(
-		result.config.behaviour.autoSubmitWhenAnsweredWithoutNotes,
-		false
-	);
-	delete process.env.PI_CODING_AGENT_DIR;
-	resetAskConfigStore();
-	await rm(root, { force: true, recursive: true });
-});

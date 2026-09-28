@@ -219,11 +219,7 @@ test("commands and config path are first-party", () => {
 		["answer", "ask-settings"]
 	);
 	assert.match(getAskConfigPath(), /pi-ask\.json$/);
-	assert.deepEqual(DEFAULT_ASK_CONFIG.answer.extractionModels, [
-		{ provider: "openai", id: "gpt-5.6-luna" },
-		{ provider: "openai", id: "gpt-5.6-sol" },
-		{ provider: "bedrock", id: "xai.grok-4.6" },
-	]);
+	assert.deepEqual(DEFAULT_ASK_CONFIG.answer.extractionModels, []);
 	assert.equal(DEFAULT_ASK_CONFIG.behaviour.autoSubmitWhenAnsweredWithoutNotes, false);
 	assert.equal(DEFAULT_ASK_CONFIG.behaviour.confirmDismissWhenDirty, true);
 	assert.equal(DEFAULT_ASK_CONFIG.behaviour.doublePressReviewShortcuts, true);

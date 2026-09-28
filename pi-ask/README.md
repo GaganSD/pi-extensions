@@ -6,25 +6,15 @@ Selected source is derived from [`@geoqiao/pi-ask`](https://github.com/geoqiao/p
 
 ## Install
 
-From this monorepo:
-
-```bash
-pi install /Users/gagandevagiri/GitHub/pi-extensions
-```
-
-Or from the package:
-
 ```bash
 pi install npm:pi-ask
 ```
 
-Then `/reload`. `/answer` overlaps if `@geoqiao/pi-ask` is also installed; keep only this package.
-
-Do not edit `~/.pi/agent/settings.json` for this install.
+From a clone of this repo, `pi install .` at the repo or package root, then `/reload`. Uninstall `@geoqiao/pi-ask` if both are present — `/answer` overlaps.
 
 ## Everyday use
 
-The agent calls `ask_user` for a material gap or an explicit interview. You can also run `/answer` if it asked in prose.
+The agent calls `ask_user` to interview you — gaps, requirements, authorization, or brainstorming. `/answer` if it asked in prose.
 
 | Need | Feature |
 | --- | --- |
@@ -57,6 +47,4 @@ Output:
 - typed text is never merged into option `values`
 - `unanswered: id[]`
 
-Config: `~/.pi/agent/extensions/pi-ask.json`
-
-See [configuration](./docs/configuration.md).
+Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/ask-settings` or `?` in a form. `/answer` uses the current chat model unless `answer.extractionModels` is set.

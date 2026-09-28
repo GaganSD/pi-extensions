@@ -15,11 +15,7 @@ const DEFAULT_EXTRACTION_TIMEOUT_MS = 30_000;
 
 export const DEFAULT_ASK_CONFIG: AskConfig = {
 	answer: {
-		extractionModels: [
-			{ provider: "openai", id: "gpt-5.6-luna" },
-			{ provider: "openai", id: "gpt-5.6-sol" },
-			{ provider: "bedrock", id: "xai.grok-4.6" },
-		],
+		extractionModels: [],
 		extractionRetries: DEFAULT_EXTRACTION_RETRIES,
 		extractionTimeoutMs: DEFAULT_EXTRACTION_TIMEOUT_MS,
 	},
