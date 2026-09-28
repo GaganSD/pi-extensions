@@ -4,14 +4,8 @@ Monorepo of extensions I've built for the Pi Coding Agent Harness
 
 | Package | Description | Install |
 | --- |---| --- |
-| [pi-slate](./pi-slate) | Rich TUI with Graphics Support | `pi install npm:pi-slate` |
+| [pi-slate](./pi-slate) | Minimal TUI with Graphics Support | `pi install npm:pi-slate` |
 | [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
-
-A clone of this repo loads Slate and pi-ask together:
-
-```bash
-pi install .
-```
 
 | Folder | Status |
 | --- | --- |
