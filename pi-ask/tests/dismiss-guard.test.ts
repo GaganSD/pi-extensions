@@ -9,7 +9,6 @@ import {
 import {
 	hasDirtyFlowState,
 	shouldConfirmDirtyDismiss,
-	shouldDiscardAfterConfirmation,
 } from "../src/ui/dismiss-guard.ts";
 
 test("dirty flow state is false for untouched ask flow", () => {
@@ -64,9 +63,4 @@ test("confirm dismiss when dirty respects dirty state and config", () => {
 		shouldConfirmDirtyDismiss({ config: DEFAULT_ASK_CONFIG, state }),
 		true
 	);
-});
-
-test("dismiss confirmation is active while pending", () => {
-	assert.equal(shouldDiscardAfterConfirmation(false), false);
-	assert.equal(shouldDiscardAfterConfirmation(true), true);
 });

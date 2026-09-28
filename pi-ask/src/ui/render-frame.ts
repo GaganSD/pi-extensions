@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AskConfig } from "../config/schema.ts";
+import { renderFooterKeymaps } from "../constants/keymaps.ts";
 import {
 	getCurrentQuestion,
 	isQuestionAnswered,
@@ -7,7 +8,6 @@ import {
 } from "../state/selectors.ts";
 import { wrapText } from "../text.ts";
 import type { AskState } from "../types.ts";
-import { renderFooterText } from "./render-helpers.ts";
 import type { Theme } from "./render-types.ts";
 
 export function renderFrameHeader(args: {
@@ -195,14 +195,14 @@ function renderFooter(
 	}
 	let footer: string;
 	if (state.view.kind === "input") {
-		footer = renderFooterText(config, "input");
+		footer = renderFooterKeymaps(config, "input");
 	} else if (state.view.kind === "note") {
-		footer = renderFooterText(config, "note");
+		footer = renderFooterKeymaps(config, "note");
 	} else if (isSubmitTab(state)) {
-		footer = renderFooterText(config, "submit");
+		footer = renderFooterKeymaps(config, "submit");
 	} else {
 		const question = getCurrentQuestion(state);
-		footer = renderFooterText(
+		footer = renderFooterKeymaps(
 			config,
 			question?.type === "multi" ? "multi" : "default"
 		);

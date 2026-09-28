@@ -41,7 +41,7 @@ test("answer commands do not open custom UI outside TUI mode", async () => {
 	assert.equal(customOpened, false);
 	assert.deepEqual(notifications, [
 		{ message: "/answer requires interactive TUI mode.", type: "error" },
-		{ message: "Clarify replay requires interactive TUI mode.", type: "error" },
-		{ message: "Clarify replay requires interactive TUI mode.", type: "error" },
+		{ message: "Ask replay requires interactive TUI mode.", type: "error" },
+		{ message: "Ask replay requires interactive TUI mode.", type: "error" },
 	]);
 });

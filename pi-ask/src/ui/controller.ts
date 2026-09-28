@@ -13,6 +13,12 @@ import {
 	submitEditorDraft,
 	syncStateToSelection,
 } from "../state/editor.ts";
+import {
+	cancelFlow,
+	dismissFlow,
+	moveOption,
+	moveTab,
+} from "../state/navigation.ts";
 import { cycleCurrentQuestionType } from "../state/question-type.ts";
 import { toAskResult } from "../state/result.ts";
 import {
@@ -22,13 +28,9 @@ import {
 } from "../state/selectors.ts";
 import {
 	applyNumberShortcut,
-	cancelFlow,
 	confirmCurrentSelection,
-	dismissFlow,
 	enterOptionNoteMode,
 	enterQuestionNoteMode,
-	moveOption,
-	moveTab,
 	toggleCurrentMultiOption,
 } from "../state/transitions.ts";
 import { isEditingView } from "../state/view.ts";
@@ -38,7 +40,6 @@ import { createAskAutocompleteProvider } from "./autocomplete.ts";
 import {
 	DIRTY_DISMISS_NOTICE,
 	shouldConfirmDirtyDismiss,
-	shouldDiscardAfterConfirmation,
 } from "./dismiss-guard.ts";
 import type { AskInputCommand } from "./input.ts";
 import { getInputCommand } from "./input.ts";
@@ -392,17 +393,9 @@ function commitState(
 }
 
 function submitEditor(controller: AskFlowController, value: string) {
-	controller.suppressAutoInputForSelection = false;
-	const nextState = submitEditorDraft(controller.state, value);
-	if (nextState.activeTabIndex !== controller.state.activeTabIndex) {
-		clearFooterNotices(controller);
-	}
-	controller.state = nextState;
-	syncSelection(controller);
-	controller.state = maybeAutoSubmitState(controller.state, controller.config);
-	hydrateEditor(controller);
-	refresh(controller);
-	maybeFinish(controller);
+	commitState(controller, submitEditorDraft(controller.state, value), {
+		finish: true,
+	});
 }
 
 function commitSavedEditorNavigation(
@@ -425,7 +418,7 @@ function handleExitFlow(controller: AskFlowController, nextState: AskState) {
 		commitState(controller, nextState, { finish: true });
 		return;
 	}
-	if (shouldDiscardAfterConfirmation(controller.pendingDiscardConfirm)) {
+	if (controller.pendingDiscardConfirm) {
 		commitState(controller, nextState, { finish: true });
 		return;
 	}

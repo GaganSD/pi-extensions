@@ -7,7 +7,7 @@ const DIGIT_PATTERN = /^[0-9]$/;
 const SYMBOL_PATTERN = /^[`\-=[\]\\;'.,/!@#$%^&*()_+|~{}:<>?]$/;
 const FUNCTION_KEY_PATTERN = /^f([1-9]|1[0-2])$/;
 const MODIFIER_ORDER = ["ctrl", "shift", "alt", "super"] as const;
-const KNOWN_SPECIAL_KEYS = new Set([
+const KNOWN_SPECIAL_KEYS: ReadonlySet<string> = new Set([
 	"esc",
 	"enter",
 	"tab",
@@ -36,7 +36,7 @@ const KNOWN_SPECIAL_KEYS = new Set([
 	"f10",
 	"f11",
 	"f12",
-] as const);
+]);
 const RESERVED_BINDINGS = new Set([
 	"1",
 	"2",
@@ -289,19 +289,6 @@ export function getGlobalBindings(
 	return getAskContextBindings(config, "global");
 }
 
-export function getAskKeymaps(config: AskConfig): {
-	customizable: readonly AskKeyBinding[];
-	fixed: readonly AskKeyBinding[];
-} {
-	const bindings = getAskKeyBindings(config);
-	return {
-		customizable: Object.keys(bindings)
-			.filter((id) => id !== "numberShortcut" && id !== "fileReference")
-			.map((id) => bindings[id]),
-		fixed: [bindings.numberShortcut, bindings.fileReference],
-	};
-}
-
 export function renderFooterKeymaps(
 	config: AskConfig,
 	context: FooterKeymapContext
@@ -365,7 +352,7 @@ export function normalizeConfiguredKeymaps(
 ): { ok: true; keymaps: AskConfigKeymaps } | { ok: false; error: string } {
 	const candidate = normalizeLegacyFlatKeymaps(keymaps) ?? keymaps;
 	if (!candidate) {
-		return { ok: true, keymaps: cloneKeymaps(DEFAULT_ASK_KEYMAPS) };
+		return { ok: true, keymaps: structuredClone(DEFAULT_ASK_KEYMAPS) };
 	}
 	if (!(candidate && typeof candidate === "object")) {
 		return { ok: false, error: "Keymaps must be an object." };
@@ -523,7 +510,7 @@ export function normalizeLegacyFlatKeymaps(
 		return;
 	}
 	const raw = keymaps as Record<string, unknown>;
-	const defaults = cloneKeymaps(DEFAULT_ASK_KEYMAPS);
+	const defaults = structuredClone(DEFAULT_ASK_KEYMAPS);
 	return {
 		...defaults,
 		global: {
@@ -600,49 +587,6 @@ function normalizeKeyId(
 	return { ok: true, keyId: [...modifierPrefix, baseKey].join("+") };
 }
 
-function cloneKeymaps(keymaps: AskConfigKeymaps): AskConfigKeymaps {
-	return {
-		global: {
-			dismiss: [...keymaps.global.dismiss],
-			settings: [...keymaps.global.settings],
-		},
-		main: {
-			confirm: [...keymaps.main.confirm],
-			cancel: [...keymaps.main.cancel],
-			changeQuestionType: [...keymaps.main.changeQuestionType],
-			toggle: [...keymaps.main.toggle],
-			nextTab: [...keymaps.main.nextTab],
-			previousTab: [...keymaps.main.previousTab],
-			nextOption: [...keymaps.main.nextOption],
-			previousOption: [...keymaps.main.previousOption],
-			optionNote: [...keymaps.main.optionNote],
-			questionNote: [...keymaps.main.questionNote],
-		},
-		editor: {
-			submit: [...keymaps.editor.submit],
-			close: [...keymaps.editor.close],
-			nextTabWhenEmpty: [...keymaps.editor.nextTabWhenEmpty],
-			previousTabWhenEmpty: [...keymaps.editor.previousTabWhenEmpty],
-			nextOptionWhenEmpty: [...keymaps.editor.nextOptionWhenEmpty],
-			previousOptionWhenEmpty: [...keymaps.editor.previousOptionWhenEmpty],
-		},
-		noteEditor: {
-			save: [...keymaps.noteEditor.save],
-			close: [...keymaps.noteEditor.close],
-			nextTabWhenEmpty: [...keymaps.noteEditor.nextTabWhenEmpty],
-			previousTabWhenEmpty: [...keymaps.noteEditor.previousTabWhenEmpty],
-			nextOptionWhenEmpty: [...keymaps.noteEditor.nextOptionWhenEmpty],
-			previousOptionWhenEmpty: [...keymaps.noteEditor.previousOptionWhenEmpty],
-		},
-		settingsModal: {
-			close: [...keymaps.settingsModal.close],
-			nextOption: [...keymaps.settingsModal.nextOption],
-			previousOption: [...keymaps.settingsModal.previousOption],
-			toggle: [...keymaps.settingsModal.toggle],
-		},
-	};
-}
-
 function normalizeModifierName(part: string): ModifierName | undefined {
 	switch (part) {
 		case "ctrl":
@@ -678,11 +622,7 @@ function normalizeBaseKey(part: string): string | undefined {
 	if (FUNCTION_KEY_PATTERN.test(aliased)) {
 		return aliased;
 	}
-	if (
-		KNOWN_SPECIAL_KEYS.has(
-			aliased as typeof KNOWN_SPECIAL_KEYS extends Set<infer T> ? T : never
-		)
-	) {
+	if (KNOWN_SPECIAL_KEYS.has(aliased)) {
 		return aliased;
 	}
 	return;

@@ -50,7 +50,6 @@ test("auto submit completes answered submit-tab state when enabled", () => {
 	const state = maybeAutoSubmitState(answeredSubmitState(), enabledConfig);
 
 	assert.equal(state.completed, true);
-	assert.equal(state.mode, "submit");
 });
 
 test("auto submit does nothing when disabled", () => {

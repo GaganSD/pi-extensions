@@ -1,3 +1,4 @@
+import { SUBMIT_CHOICES } from "../constants/text.ts";
 import { clamp } from "../math.ts";
 import type { AskState } from "../types.ts";
 import {
@@ -7,25 +8,7 @@ import {
 } from "./selectors.ts";
 import { isEditingView, navigateView, submitView } from "./view.ts";
 
-const SUBMIT_ACTION_COUNT = 2;
-
-export function createInitialState(params: {
-	title?: string;
-	questions: AskState["questions"];
-}): AskState {
-	return {
-		title: params.title,
-		questions: params.questions,
-		activeTabIndex: 0,
-		activeOptionIndex: 0,
-		activeSubmitActionIndex: 0,
-		view: navigateView(),
-		answers: {},
-		completed: false,
-		cancelled: false,
-		mode: "submit",
-	};
-}
+const SUBMIT_ACTION_COUNT = SUBMIT_CHOICES.length;
 
 export function moveTab(state: AskState, delta: number): AskState {
 	const normalizedDelta = delta < 0 ? -1 : 1;

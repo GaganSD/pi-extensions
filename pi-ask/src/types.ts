@@ -97,7 +97,6 @@ export interface AskState {
 	answers: Record<string, AskStateAnswer>;
 	cancelled: boolean;
 	completed: boolean;
-	mode: "submit";
 	questions: AskQuestion[];
 	title?: string;
 	view: ViewState;
@@ -107,16 +106,3 @@ export interface AskDisplayOption extends AskOption {
 	isCustomOption?: boolean;
 	isFreeformOnlyOption?: boolean;
 }
-
-export type AskAction =
-	| { type: "MOVE_TAB"; delta: 1 | -1 }
-	| { type: "MOVE_OPTION"; delta: 1 | -1 }
-	| { type: "OPEN_INPUT"; questionId: string }
-	| { type: "OPEN_QUESTION_NOTE"; questionId: string }
-	| { type: "OPEN_OPTION_NOTE"; questionId: string; optionValue: string }
-	| { type: "CONFIRM" }
-	| { type: "TOGGLE_MULTI" }
-	| { type: "NUMBER_SHORTCUT"; digit: number }
-	| { type: "SAVE_INPUT"; value: string; submit?: boolean }
-	| { type: "SAVE_NOTE"; value: string }
-	| { type: "CANCEL" };

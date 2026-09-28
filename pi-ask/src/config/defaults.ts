@@ -29,7 +29,7 @@ export const DEFAULT_ASK_CONFIG: AskConfig = {
 		doublePressReviewShortcuts: true,
 		showFooterHints: true,
 	},
-	keymaps: cloneKeymaps(DEFAULT_ASK_KEYMAPS),
+	keymaps: structuredClone(DEFAULT_ASK_KEYMAPS),
 	notifications: {
 		channels: ["bell"],
 		enabled: true,
@@ -96,7 +96,7 @@ export function toAskConfigFile(config: AskConfig): AskConfigFile {
 				normalized.behaviour.doublePressReviewShortcuts,
 			showFooterHints: normalized.behaviour.showFooterHints,
 		},
-		keymaps: cloneKeymaps(normalized.keymaps),
+		keymaps: structuredClone(normalized.keymaps),
 		notifications: {
 			channels: normalized.notifications.channels,
 			enabled: normalized.notifications.enabled,
@@ -106,50 +106,9 @@ export function toAskConfigFile(config: AskConfig): AskConfigFile {
 
 function mergeKeymaps(keymaps: unknown): AskConfigKeymaps {
 	const normalized = normalizeConfiguredKeymaps(keymaps);
-	return normalized.ok ? normalized.keymaps : cloneKeymaps(DEFAULT_ASK_KEYMAPS);
-}
-
-function cloneKeymaps(keymaps: AskConfigKeymaps): AskConfigKeymaps {
-	return {
-		global: {
-			dismiss: [...keymaps.global.dismiss],
-			settings: [...keymaps.global.settings],
-		},
-		main: {
-			cancel: [...keymaps.main.cancel],
-			changeQuestionType: [...keymaps.main.changeQuestionType],
-			confirm: [...keymaps.main.confirm],
-			nextOption: [...keymaps.main.nextOption],
-			nextTab: [...keymaps.main.nextTab],
-			optionNote: [...keymaps.main.optionNote],
-			previousOption: [...keymaps.main.previousOption],
-			previousTab: [...keymaps.main.previousTab],
-			questionNote: [...keymaps.main.questionNote],
-			toggle: [...keymaps.main.toggle],
-		},
-		editor: {
-			close: [...keymaps.editor.close],
-			nextOptionWhenEmpty: [...keymaps.editor.nextOptionWhenEmpty],
-			nextTabWhenEmpty: [...keymaps.editor.nextTabWhenEmpty],
-			previousOptionWhenEmpty: [...keymaps.editor.previousOptionWhenEmpty],
-			previousTabWhenEmpty: [...keymaps.editor.previousTabWhenEmpty],
-			submit: [...keymaps.editor.submit],
-		},
-		noteEditor: {
-			close: [...keymaps.noteEditor.close],
-			nextOptionWhenEmpty: [...keymaps.noteEditor.nextOptionWhenEmpty],
-			nextTabWhenEmpty: [...keymaps.noteEditor.nextTabWhenEmpty],
-			previousOptionWhenEmpty: [...keymaps.noteEditor.previousOptionWhenEmpty],
-			previousTabWhenEmpty: [...keymaps.noteEditor.previousTabWhenEmpty],
-			save: [...keymaps.noteEditor.save],
-		},
-		settingsModal: {
-			close: [...keymaps.settingsModal.close],
-			nextOption: [...keymaps.settingsModal.nextOption],
-			previousOption: [...keymaps.settingsModal.previousOption],
-			toggle: [...keymaps.settingsModal.toggle],
-		},
-	};
+	return normalized.ok
+		? normalized.keymaps
+		: structuredClone(DEFAULT_ASK_KEYMAPS);
 }
 
 function normalizeNotificationChannels(

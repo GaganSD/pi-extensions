@@ -18,9 +18,3 @@ export function shouldConfirmDirtyDismiss(args: {
 export function hasDirtyFlowState(state: AskState, editingText = ""): boolean {
 	return Object.keys(state.answers).length > 0 || editingText.length > 0;
 }
-
-export function shouldDiscardAfterConfirmation(
-	confirmationPending: boolean
-): boolean {
-	return confirmationPending;
-}

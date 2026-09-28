@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
 import { createInitialState } from "../src/state/create.ts";
-import { moveOption, moveTab } from "../src/state/transitions.ts";
+import { moveOption, moveTab } from "../src/state/navigation.ts";
 import { renderAskScreen } from "../src/ui/render.ts";
 
 function mockEditor() {

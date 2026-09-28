@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_ASK_CONFIG } from "../src/config/defaults.ts";
-import {
-	renderEditorBlock,
-	renderFooterText,
-} from "../src/ui/render-helpers.ts";
+import { renderFooterKeymaps } from "../src/constants/keymaps.ts";
+import { renderEditorBlock } from "../src/ui/render-helpers.ts";
 
 const ABC_PATTERN = /abc/;
 const BORDER_PATTERN = /┌|└/;
@@ -76,11 +74,11 @@ test("renderEditorBlock reapplies background after editor reset sequences", () =
 
 test("editing footers do not advertise tab navigation", () => {
 	assert.equal(
-		renderFooterText(DEFAULT_ASK_CONFIG, "input"),
+		renderFooterKeymaps(DEFAULT_ASK_CONFIG, "input"),
 		" Enter submit · Esc close · ? settings"
 	);
 	assert.equal(
-		renderFooterText(DEFAULT_ASK_CONFIG, "note"),
+		renderFooterKeymaps(DEFAULT_ASK_CONFIG, "note"),
 		" Enter save · Esc close · ? settings"
 	);
 });
@@ -99,7 +97,7 @@ test("editing footers use configured key labels", () => {
 	};
 
 	assert.equal(
-		renderFooterText(config, "note"),
+		renderFooterKeymaps(config, "note"),
 		" Ctrl+K save · Q close · ? settings"
 	);
 });

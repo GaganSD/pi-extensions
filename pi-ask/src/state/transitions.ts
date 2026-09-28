@@ -1,4 +1,5 @@
-import type { AskAction, AskState } from "../types.ts";
+import { SUBMIT_CHOICES } from "../constants/text.ts";
+import type { AskState } from "../types.ts";
 import {
 	emptyAnswer,
 	isAnswerAnswered,
@@ -10,13 +11,6 @@ import {
 	setSingleSelection,
 	toggleSelection,
 } from "./answers.ts";
-import {
-	cancelFlow as cancelFlowBase,
-	createInitialState as createInitialStateBase,
-	dismissFlow as dismissFlowBase,
-	moveOption as moveOptionBase,
-	moveTab as moveTabBase,
-} from "./navigation.ts";
 import {
 	getAnswer,
 	getCurrentOption,
@@ -33,72 +27,17 @@ import {
 	submitView,
 } from "./view.ts";
 
-const SUBMIT_ACTION_COUNT = 2;
-
-export function createInitialState(params: {
-	title?: string;
-	questions: AskState["questions"];
-}): AskState {
-	return createInitialStateBase(params);
-}
-
-export function moveTab(state: AskState, delta: number): AskState {
-	return moveTabBase(state, delta);
-}
-
-export function moveOption(state: AskState, delta: number): AskState {
-	return moveOptionBase(state, delta);
-}
-
-export function cancelFlow(state: AskState): AskState {
-	return cancelFlowBase(state);
-}
-
-export function dismissFlow(state: AskState): AskState {
-	return dismissFlowBase(state);
-}
-
-export function reduceAskState(state: AskState, action: AskAction): AskState {
-	switch (action.type) {
-		case "MOVE_TAB":
-			return moveTabBase(state, action.delta);
-		case "MOVE_OPTION":
-			return moveOptionBase(state, action.delta);
-		case "OPEN_INPUT":
-			return setView(state, inputView(action.questionId));
-		case "OPEN_QUESTION_NOTE":
-			return setView(state, questionNoteView(action.questionId));
-		case "OPEN_OPTION_NOTE":
-			return setView(
-				state,
-				optionNoteView(action.questionId, action.optionValue)
-			);
-		case "CONFIRM":
-			return confirmCurrentSelection(state);
-		case "TOGGLE_MULTI":
-			return toggleCurrentMultiOption(state);
-		case "NUMBER_SHORTCUT":
-			return applyNumberShortcut(state, action.digit);
-		case "SAVE_INPUT":
-			return saveInputValue(state, action.value, action.submit ?? false);
-		case "SAVE_NOTE":
-			return saveNoteValue(state, action.value);
-		case "CANCEL":
-			return cancelFlowBase(state);
-		default:
-			return state;
-	}
-}
+const SUBMIT_ACTION_COUNT = SUBMIT_CHOICES.length;
 
 export function enterInputMode(state: AskState, questionId: string): AskState {
-	return reduceAskState(state, { type: "OPEN_INPUT", questionId });
+	return setView(state, inputView(questionId));
 }
 
 export function enterQuestionNoteMode(
 	state: AskState,
 	questionId: string
 ): AskState {
-	return reduceAskState(state, { type: "OPEN_QUESTION_NOTE", questionId });
+	return setView(state, questionNoteView(questionId));
 }
 
 export function enterOptionNoteMode(
@@ -106,19 +45,11 @@ export function enterOptionNoteMode(
 	questionId: string,
 	optionValue: string
 ): AskState {
-	return reduceAskState(state, {
-		type: "OPEN_OPTION_NOTE",
-		questionId,
-		optionValue,
-	});
-}
-
-export function toggleCurrentOption(state: AskState): AskState {
-	return activateCurrentOption(state, "toggle");
+	return setView(state, optionNoteView(questionId, optionValue));
 }
 
 export function toggleCurrentMultiOption(state: AskState): AskState {
-	return toggleCurrentOption(state);
+	return activateCurrentOption(state, "toggle");
 }
 
 export function confirmCurrentSelection(state: AskState): AskState {
@@ -172,7 +103,7 @@ function completeSubmitAction(state: AskState): AskState {
 	if (state.activeSubmitActionIndex === 1) {
 		return { ...state, cancelled: true, completed: true };
 	}
-	return { ...state, mode: "submit", completed: true };
+	return { ...state, completed: true };
 }
 
 function activateCurrentOption(

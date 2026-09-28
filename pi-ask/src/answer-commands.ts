@@ -18,6 +18,7 @@ import {
 	successfulResponse,
 	validateParams,
 } from "./ask-tool-helpers.ts";
+import type { AskConfig } from "./config/schema.ts";
 import { getAskConfigStore } from "./config/store.ts";
 import type { AskParams, AskResult } from "./types.ts";
 import { runAskFlow } from "./ui/controller.ts";
@@ -121,7 +122,7 @@ async function extractAndValidateAnswerParams(
 	ctx: ExtensionCommandContext,
 	assistant: AssistantTextSource,
 	selected: ExtractionSelection,
-	config: Awaited<ReturnType<ReturnType<typeof getAskConfigStore>["getConfig"]>>
+	config: AskConfig
 ): Promise<AskParams | undefined> {
 	const extraction = await withHiddenWorkingRow(ctx, () =>
 		runExtractionUi(ctx, assistant, selected, config)
@@ -161,7 +162,7 @@ function runExtractionUi(
 	ctx: ExtensionCommandContext,
 	assistant: AssistantTextSource,
 	selected: ExtractionSelection,
-	config: Awaited<ReturnType<ReturnType<typeof getAskConfigStore>["getConfig"]>>
+	config: AskConfig
 ): Promise<ExtractionUiResult> {
 	return ctx.ui.custom<ExtractionUiResult>((tui, theme, _keybindings, done) => {
 		let completed = false;
@@ -242,7 +243,7 @@ async function runReplayCommand(
 	}
 ): Promise<void> {
 	if (ctx.mode !== "tui") {
-		ctx.ui.notify("Clarify replay requires interactive TUI mode.", "error");
+		ctx.ui.notify("Ask replay requires interactive TUI mode.", "error");
 		return;
 	}
 	const lookup = findLatestPayloadInCurrentBranch(ctx, options.source);
@@ -269,7 +270,7 @@ async function runAskAndSendSubmittedResult(
 ): Promise<void> {
 	const result = await withHiddenWorkingRow(ctx, () => runAskFlow(ctx, params));
 	if (result.status === "cancelled") {
-		ctx.ui.notify("Clarify form cancelled.", "info");
+		ctx.ui.notify("Ask form cancelled.", "info");
 		return;
 	}
 	sendAskResult(pi, result, ctx);
