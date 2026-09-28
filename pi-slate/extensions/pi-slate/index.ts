@@ -19,6 +19,7 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
+import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
@@ -201,6 +202,7 @@ class BranchFooter implements Component {
 export default function piSlate(pi: ExtensionAPI): void {
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
+  const selection = new ComposerSelectionController();
   let fileSnapshot = "";
   const files = new GitStatusPoller((changes) => {
     fileSnapshot = changes.map((file) => `${file.index}${file.worktree}:${file.path}:${file.origPath ?? ""}`).join("\0");
@@ -360,6 +362,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       });
     });
     ctx.ui.setEditorComponent((tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
+      images.detachEditor();
+      selection.dispose();
       const minimalEditorTheme: EditorTheme = {
         ...editorTheme,
         borderColor: chromePaint(ctx.ui.theme),
@@ -385,6 +389,14 @@ export default function piSlate(pi: ExtensionAPI): void {
           embedWorkingStatus: true,
         },
       );
+      selection.attach(activeEditor, {
+        copy: (text) => copyToClipboard(text),
+        requestRender: () => tui.requestRender(),
+        onCopyError: () => ctx.ui.notify("Could not copy", "error"),
+        imagePath: (number) => images.pathFor(number),
+        matchesImage: (number, path) => images.matchesImage(number, path),
+        onTokenExpansion: () => images.refreshEditor(),
+      });
       images.attachEditor(activeEditor);
       return activeEditor;
     });
@@ -471,6 +483,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_shutdown", (_event, ctx) => {
     tokenRate.dispose();
     images.dispose();
+    selection.dispose();
     files.dispose();
     diffs.clear();
     messageWindow?.dispose();

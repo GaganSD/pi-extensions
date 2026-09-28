@@ -72,6 +72,24 @@ Six styles: Canonical, Quiet, Mauve, Sapphire, Peach, Teal.
 
 Selection is saved and also appears in `/settings` as `catppuccin-mocha-<style>`.
 
+## Composer Keys
+
+Slate owns the prompt, not the whole terminal.
+
+| Action | Keys |
+| --- | --- |
+| Select all prompt text | `Cmd+A` / `Ctrl+Shift+A` |
+| Copy selected prompt | `Cmd+C` / selected `Ctrl+C` / `Ctrl+Shift+C` |
+| Cut selected prompt | `Cmd+X` / `Ctrl+Shift+X` |
+| Replace selection | Type, Backspace, or paste |
+| Submit selected prompt | `Enter` (does not erase it first) |
+| Clear the prompt | `Esc` `Esc` |
+| Expand a collapsed paste or `[image-N]` | `F4`, or paste matching content while the cursor is on the token |
+
+Large pastes stay collapsed as `[paste #1 +18 lines]`. Image paths stay as `[image-1]`. `F4` expands the token in place. Repeating a paste expands it only when the delivered clipboard payload matches the token; other clipboard content is inserted normally. `Cmd+V` can expand only when the terminal delivers the paste key or payload to Pi.
+
+Terminal and OS shortcuts vary: a terminal may consume `Cmd` keys before Pi sees them, and Kitty keyboard support cannot recover keys that were not forwarded. Use `Ctrl+Shift+A`, `Ctrl+Shift+C`, and `Ctrl+Shift+X` where your terminal distinguishes them. No terminal configuration is required or guaranteed to work everywhere. `Ctrl+C` copies only while the prompt is selected; otherwise Pi keeps its normal behavior.
+
 ## Commands
 
 `/slate` with no args opens the same settings picker.

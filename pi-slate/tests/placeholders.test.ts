@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -239,6 +240,59 @@ test("submits multiple raw paths and reuses tokens without losing their brackets
   assert.equal(store.get("1"), second);
   assert.equal(store.get("2"), first);
   assert.equal(transformSubmittedText(first, new Map([["1", first]]), loadFixture).text, "[image-1]");
+});
+
+test("matches repeated clipboard images by bytes and refreshes/disposes the active preview", (t) => {
+  const stored = image("stored-screenshot.png", PNG);
+  const sameBytes = image("same-screenshot-copy.png", PNG);
+  const differentBytes = image("different-screenshot.png", OTHER_PNG);
+  const editor = new Editor({} as TUI, {} as EditorTheme);
+  const sidebar = attachSidebar();
+  const pi = { on() {}, registerMarkdownTransformer() {} } as unknown as ExtensionAPI;
+  const placeholders = installImagePlaceholders(pi, sidebar);
+  placeholders.attachEditor(editor as unknown as CustomEditor);
+  t.after(() => placeholders.dispose());
+
+  editor.insertTextAtCursor(stored);
+  assert.equal(editor.getText(), "[image-1]");
+  assert.equal(placeholders.matchesImage("1", sameBytes), true);
+  assert.equal(placeholders.matchesImage("1", differentBytes), false);
+  assert.equal(placeholders.matchesImage("1", join(fixtures, "missing.png")), false);
+  assert.equal(sidebar.currentViewId(), `image:1:${stored}`);
+
+  placeholders.detachEditor();
+  assert.equal(sidebar.currentViewId(), undefined);
+  placeholders.attachEditor(editor as unknown as CustomEditor);
+  editor.setText("[image-1]");
+  placeholders.refreshEditor();
+  assert.equal(sidebar.currentViewId(), `image:1:${stored}`);
+});
+
+test("rejects nonregular clipboard image candidates without blocking", (t) => {
+  const devicePath = "/dev/zero";
+  if (!existsSync(devicePath)) {
+    t.skip("requires a Unix character device for the bounded read guard");
+    return;
+  }
+  const stored = image("nonregular-stored.png", PNG);
+  const imagePlaceholdersUrl = new URL("../extensions/pi-slate/image-placeholders.ts", import.meta.url).href;
+  const source = `
+    import { Editor } from "@earendil-works/pi-tui";
+    import { installImagePlaceholders } from ${JSON.stringify(imagePlaceholdersUrl)};
+    const placeholders = installImagePlaceholders({ on() {}, registerMarkdownTransformer() {} }, {});
+    const editor = new Editor({}, {});
+    editor.insertTextAtCursor(process.argv[1]);
+    const result = placeholders.matchesImage("1", process.argv[2]);
+    placeholders.dispose();
+    process.stdout.write(String(result));
+  `;
+  const result = spawnSync(process.execPath, ["--experimental-strip-types", "--input-type=module", "-e", source, stored, devicePath], {
+    encoding: "utf8",
+    timeout: 2000,
+  });
+  assert.equal(result.error, undefined, result.error?.message ?? "");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "false");
 });
 
 test("uses one verified path through editor insertion, preview, and submission", async (t) => {
