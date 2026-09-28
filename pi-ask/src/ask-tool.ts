@@ -2,7 +2,6 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { appendAskPayload } from "./ask-payload-store.ts";
 import {
 	ASK_TOOL_DESCRIPTION,
 	ASK_TOOL_PROMPT_GUIDELINES,
@@ -28,28 +27,18 @@ export function registerAskTool(pi: ExtensionAPI) {
 		promptGuidelines: [...ASK_TOOL_PROMPT_GUIDELINES],
 		parameters: AskParamsSchema,
 		prepareArguments: (args) => prepareAskParams(args) as AskParams,
-		execute: (toolCallId, params, signal, onUpdate, ctx) =>
-			executeAskTool(pi, toolCallId, params as AskParams, ctx),
+		execute: (_toolCallId, params, _signal, _onUpdate, ctx) =>
+			executeAskTool(params as AskParams, ctx),
 		renderCall: renderAskToolCall,
 		renderResult: renderAskToolResult,
 	});
 }
 
-async function executeAskTool(
-	pi: Pick<ExtensionAPI, "appendEntry">,
-	toolCallId: string,
-	params: AskParams,
-	ctx: ExtensionContext
-) {
+async function executeAskTool(params: AskParams, ctx: ExtensionContext) {
 	const validation = validateParams(params);
 	if (!validation.ok) {
 		return invalidPayloadResponse(params, validation.issues);
 	}
-	appendAskPayload(pi, {
-		params,
-		source: "tool",
-		sourceEntryId: toolCallId,
-	});
 	if (ctx.mode !== "tui") {
 		return nonInteractiveResponse(validation.state);
 	}

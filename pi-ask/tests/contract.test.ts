@@ -22,7 +22,6 @@ import type { AskParams } from "../src/types.ts";
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
 	registerAskTool({
-		appendEntry() {},
 		registerTool(tool: unknown) {
 			tools.push(tool as Record<string, unknown>);
 		},
@@ -217,7 +216,7 @@ test("commands and config path are first-party", () => {
 	} as never);
 	assert.deepEqual(
 		[...commands].sort(),
-		["answer", "answer:again", "ask-settings", "ask:replay"]
+		["answer", "ask-settings"]
 	);
 	assert.match(getAskConfigPath(), /pi-ask\.json$/);
 	assert.deepEqual(DEFAULT_ASK_CONFIG.answer.extractionModels, [

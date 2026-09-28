@@ -32,18 +32,15 @@ The agent calls `ask_user` for a material gap or an explicit interview. You can 
 | Type freely | `text` questions, or `Type your own` on option questions |
 | Understand a choice first | Notes |
 | Repair a bad question | Live `single` ↔ `multi` (`t`) |
-| Reopen a form | `/answer:again`, `/ask:replay` |
 
 ### Commands
 
 | Command | What it does |
 | --- | --- |
 | `/answer` | Extract questions from the latest completed assistant message |
-| `/answer:again` | Reopen the latest `/answer` form on this branch |
-| `/ask:replay` | Reopen the latest `ask_user` form on this branch |
 | `/ask-settings` | Settings overlay; `?` inside a form opens the same overlay |
 
-These commands are TUI-only. Replay is branch-aware. Non-TUI callers get `status: "unavailable"`.
+These commands are TUI-only. Non-TUI callers get `status: "unavailable"`.
 
 ## Contract
 

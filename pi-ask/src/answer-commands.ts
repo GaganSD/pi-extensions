@@ -9,11 +9,6 @@ import {
 	selectExtractionModel,
 } from "./answer-extraction.ts";
 import {
-	type AskPayloadSource,
-	appendAskPayload,
-	findLatestPayloadInCurrentBranch,
-} from "./ask-payload-store.ts";
-import {
 	invalidPayloadResponse,
 	successfulResponse,
 	validateParams,
@@ -44,27 +39,6 @@ export function registerAnswerCommands(pi: ExtensionAPI): void {
 		description:
 			"Extract questions from the latest assistant message into an ask form",
 		handler: async (_args, ctx) => runAnswerCommand(pi, ctx),
-	});
-
-	pi.registerCommand("answer:again", {
-		description: "Reopen the previous /answer form on this branch",
-		handler: async (_args, ctx) =>
-			runReplayCommand(pi, ctx, {
-				missingMessage:
-					"No previous /answer form found on this branch; use /answer first.",
-				noticePrefix: "Reopening previous /answer form on this branch",
-				source: "answer-extraction",
-			}),
-	});
-
-	pi.registerCommand("ask:replay", {
-		description: "Replay the previous ask form on this branch",
-		handler: async (_args, ctx) =>
-			runReplayCommand(pi, ctx, {
-				missingMessage: "No previous ask form found on this branch.",
-				noticePrefix: "Replaying previous ask form on this branch",
-				source: "tool",
-			}),
 	});
 }
 
@@ -108,12 +82,6 @@ async function runAnswerCommand(
 	if (!params) {
 		return;
 	}
-
-	appendAskPayload(pi, {
-		params,
-		source: "answer-extraction",
-		sourceEntryId: assistant.entryId,
-	});
 
 	await runAskAndSendSubmittedResult(pi, ctx, params);
 }
@@ -231,36 +199,6 @@ function formatExtractionError(error: string): string {
 		return "Question extraction timed out. Try again or configure a faster extraction model.";
 	}
 	return error;
-}
-
-async function runReplayCommand(
-	pi: ExtensionAPI,
-	ctx: ExtensionCommandContext,
-	options: {
-		missingMessage: string;
-		noticePrefix: string;
-		source: AskPayloadSource;
-	}
-): Promise<void> {
-	if (ctx.mode !== "tui") {
-		ctx.ui.notify("Ask replay requires interactive TUI mode.", "error");
-		return;
-	}
-	const lookup = findLatestPayloadInCurrentBranch(ctx, options.source);
-	if (!lookup.data) {
-		ctx.ui.notify(
-			lookup.invalidMatchFound
-				? "Previous form exists on this branch but is no longer compatible."
-				: options.missingMessage,
-			"info"
-		);
-		return;
-	}
-	ctx.ui.notify(
-		`${options.noticePrefix}: ${lookup.data.params.questions.length} question(s).`,
-		"info"
-	);
-	await runAskAndSendSubmittedResult(pi, ctx, lookup.data.params);
 }
 
 async function runAskAndSendSubmittedResult(

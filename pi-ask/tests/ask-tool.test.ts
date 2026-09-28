@@ -20,17 +20,12 @@ const INVALID_TYPE_RE =
 
 function registerMockTool() {
 	const tools: Record<string, unknown>[] = [];
-	const entries: Array<{ customType: string; data: unknown }> = [];
 	registerAskTool({
-		appendEntry(customType: string, data: unknown) {
-			entries.push({ customType, data });
-		},
 		registerTool(tool: unknown) {
 			tools.push(tool as Record<string, unknown>);
 		},
 	} as never);
 	return {
-		entries,
 		tool: tools[0] as {
 			description: string;
 			execute: (...args: any[]) => Promise<any>;
@@ -168,7 +163,7 @@ test("public schema requires semantic identifiers and labels", () => {
 });
 
 test("ask tool returns pending questions in non-interactive mode", async () => {
-	const { tool, entries } = registerMockTool();
+	const { tool } = registerMockTool();
 	const response = await tool.execute(
 		"call-1",
 		{
@@ -190,7 +185,6 @@ test("ask tool returns pending questions in non-interactive mode", async () => {
 	assert.match(response.content[0].text, SPEED_OPTION_RE);
 	assert.match(response.content[0].text, CUSTOM_OPTION_RE);
 	assert.equal(response.details.status, "unavailable");
-	assert.equal(entries[0]?.customType, "ask:payload");
 });
 
 test("ask tool rejects invalid payloads before UI opens with structured issues", async () => {

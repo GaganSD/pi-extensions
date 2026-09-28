@@ -35,13 +35,9 @@ test("answer commands do not open custom UI outside TUI mode", async () => {
 	};
 
 	await commands.get("answer")?.handler("", ctx);
-	await commands.get("answer:again")?.handler("", ctx);
-	await commands.get("ask:replay")?.handler("", ctx);
 
 	assert.equal(customOpened, false);
 	assert.deepEqual(notifications, [
 		{ message: "/answer requires interactive TUI mode.", type: "error" },
-		{ message: "Ask replay requires interactive TUI mode.", type: "error" },
-		{ message: "Ask replay requires interactive TUI mode.", type: "error" },
 	]);
 });
