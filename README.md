@@ -2,20 +2,25 @@
 
 Monorepo of Pi Coding Agent extensions I build and use.
 
-Local install of this repo loads Slate and pi-ask:
+## First-party
+
+| Package | Install |
+| --- | --- |
+| [pi-slate](./pi-slate) | `pi install npm:pi-slate` |
+| [pi-ask](./pi-ask) | `pi install npm:@gagansd/pi-ask` |
+
+`pi-ask` is the TUI interview tool (`ask_user`, `/answer`, `/ask-settings`). Uninstall `@geoqiao/pi-ask` if both are present.
+
+A clone of this repo loads Slate and pi-ask together:
 
 ```bash
-pi install /Users/gagandevagiri/GitHub/pi-extensions
+pi install .
 ```
 
-Publish and npm installs stay per-package (`cd pi-slate && npm publish`).
-
-## First-party
+Publish stays per-package (`cd pi-ask && npm publish`).
 
 | Folder | Status |
 | --- | --- |
-| [pi-slate](./pi-slate) | Quiet TUI. Published as `npm:pi-slate`. |
-| [pi-ask](./pi-ask) | TUI interviews. Tool `ask_user`. Published as `npm:@gagansd/pi-ask`. |
 | [pi-subagents](./pi-subagents) | Empty. Next. |
 | [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
 
@@ -29,7 +34,6 @@ This GitHub repo is public, so third-party sources stay as install specs.
 | pi-context-view | `npm:pi-context-view` |
 | pi-subagents | `npm:pi-subagents` |
 | pi-web-search | `npm:pi-web-search` |
-| @geoqiao/pi-ask | `npm:@geoqiao/pi-ask` |
 | @narumitw/pi-plan-mode | `npm:@narumitw/pi-plan-mode` |
 | ponytail | `git:github.com/DietrichGebert/ponytail` |
 | pi-goal-x | `npm:pi-goal-x` |
