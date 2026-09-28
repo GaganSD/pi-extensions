@@ -13,34 +13,27 @@ import type {
 } from "./types.ts";
 
 export const ASK_TOOL_DESCRIPTION =
-	"Ask the user to resolve material requirement, preference, or authorization gaps after context review, or conduct explicitly requested interviews. Supports single, multi, and text questions.";
+	"After context review, ask about unresolved material requirement, preference, or authorization gaps, or conduct explicitly requested interviews. Supports single, multi, and text questions.";
 
 export const ASK_TOOL_PROMPT_GUIDELINES = [
-	"Use `ask_user` only for critical requirements, outcome-changing preferences, or missing authorization for consequential/hard-to-reverse actions still unresolved by relevant context; also for explicitly requested interviews, requirements gathering, or interactive questions.",
-	"Before `ask_user`, resolve facts from available evidence. Do not reconfirm settled choices or authorization, or ask merely because alternatives exist. Complete clear comparisons/research directly; proceed with authorized routine work and delegated choices, stating useful assumptions.",
-	"In `ask_user`, ask one decision per question and only current blockers or the requested interview topic; bundle independent questions. Answer elaborations first, preserve prior answers, and reopen decisions only for materially new information. Cancellation, missing or ambiguous answers are not high-risk approval; keep that action blocked and continue independent authorized work.",
-	"For `ask_user`, use stable unique question `id`s and non-empty `prompt`s. Use `single` for one answer, `multi` for several, and `text` when the user should type freely. `text` questions have no options. `single`/`multi` need real distinct options with non-empty `value` and `label`; do not invent filler. Explain grounded `recommended: true` choices in `description`; recommendations are not preselected.",
-	"Neither submission nor non-cancellation proves approval. Unanswered questions stay unanswered. Typed custom text is never a canonical option value.",
+	"Use `ask_user` for unresolved critical requirements, outcome-changing preferences, missing authorization for consequential actions, or explicitly requested interviews. Resolve facts from context; do not reconfirm settled choices, ask just because alternatives exist, or defer routine authorized work and comparisons.",
+	"In `ask_user`, ask one decision per question; bundle independent blockers. Answer elaboration notes first, keep prior answers, and reopen only when material facts change. Cancellation or ambiguous answers do not authorize risky actions; continue independent work.",
+	"For `ask_user`, use unique `id`s and non-empty `prompt`s. Use `single` for one choice, `multi` for several, `text` for free input (no options). Choice questions need distinct non-empty `value` and `label`; no filler. Explain grounded `recommended: true` choices in `description`; never preselect them. Typed custom text is not an option value. Submission alone is not approval; unanswered questions stay unanswered.",
 ] as const;
 
-interface ValidateParamsOptions {
-	allowFreeform?: boolean;
-}
-
 export function validateParams(
-	params: AskParams,
-	options: ValidateParamsOptions = {}
+	params: AskParams
 ):
 	| { ok: true; state: ReturnType<typeof createInitialState> }
 	| { ok: false; issues: AskValidationIssue[] } {
-	const issues = collectValidationIssues(params, options);
+	const issues = collectValidationIssues(params);
 	if (issues.length > 0) {
 		return { ok: false, issues };
 	}
 
 	return {
 		ok: true,
-		state: createInitialState(params, options),
+		state: createInitialState(params),
 	};
 }
 

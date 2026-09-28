@@ -1,4 +1,4 @@
-import { UI_DIMENSIONS, UI_TEXT } from "../../constants/ui.ts";
+import { UI_TEXT } from "../../constants/ui.ts";
 import { isOptionSelected } from "../../state/answers.ts";
 import {
 	getAnswer,
@@ -35,12 +35,8 @@ export interface OptionRowModel {
 }
 
 export interface QuestionScreenModel {
-	mode: "preview" | "standard";
-	previewLayout?: "custom" | "stacked" | "wide";
 	questionNote?: QuestionNoteModel;
 	rows: OptionRowModel[];
-	selectedOption?: AskDisplayOption;
-	selectedOptionDetail?: OptionDetailModel;
 }
 
 export function buildQuestionScreenModel(
@@ -51,7 +47,6 @@ export function buildQuestionScreenModel(
 	);
 	const questionNote = buildQuestionNoteModel(context);
 	return {
-		mode: "standard",
 		questionNote,
 		rows,
 	};
@@ -150,19 +145,6 @@ function buildOptionDetailModel(
 		return { kind: "saved-note", text: note, withGap: false };
 	}
 	return;
-}
-
-function getPreviewLayout(
-	context: QuestionRenderContext,
-	selectedOption: AskDisplayOption | undefined
-): "custom" | "stacked" | "wide" {
-	if (selectedOption?.isCustomOption) {
-		return "custom";
-	}
-	return context.width >= UI_DIMENSIONS.previewWideMinWidth &&
-		context.options.length > 0
-		? "wide"
-		: "stacked";
 }
 
 function getOptionPrefix(

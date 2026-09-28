@@ -5,9 +5,7 @@ import {
 	type FooterKeymapContext,
 	renderFooterKeymaps,
 } from "../constants/keymaps.ts";
-import { NO_PREVIEW_TEXT } from "../constants/text.ts";
 import { UI_DIMENSIONS, UI_TEXT } from "../constants/ui.ts";
-import { clamp } from "../math.ts";
 import { wrapText } from "../text.ts";
 
 type Theme = ExtensionContext["ui"]["theme"];
@@ -110,51 +108,6 @@ export function renderEditorBlock(args: {
 	}
 }
 
-export function renderLabeledEditorBlock(args: {
-	lines: string[];
-	label: string;
-	editorLines: string[];
-	width: number;
-	theme: Theme;
-	indent: string;
-	availableWidth: number;
-	placeholder?: string;
-	placeholderColor?: ThemeColor;
-	isEmpty?: boolean;
-}) {
-	const {
-		lines,
-		label,
-		editorLines,
-		width,
-		theme,
-		indent,
-		availableWidth,
-		placeholder,
-		placeholderColor = "muted",
-		isEmpty = false,
-	} = args;
-	const contentLines = getEditorContentLines(editorLines);
-	const labelText = theme.fg("accent", label);
-	const contentIndent = `${indent}${" ".repeat(visibleWidth(label) + 1)}`;
-	const editorWidth = Math.max(4, availableWidth - visibleWidth(label) - 1);
-	const firstLine =
-		isEmpty && placeholder
-			? renderInputLine(placeholder, editorWidth, theme, placeholderColor)
-			: renderEditorLine(contentLines[0] ?? "", editorWidth, theme);
-
-	lines.push(truncateToWidth(`${indent}${labelText} ${firstLine}`, width));
-
-	for (const editorLine of contentLines.slice(1)) {
-		lines.push(
-			truncateToWidth(
-				`${contentIndent}${renderEditorLine(editorLine, availableWidth, theme)}`,
-				width
-			)
-		);
-	}
-}
-
 function getEditorContentLines(editorLines: string[]): string[] {
 	if (editorLines.length <= 2) {
 		return editorLines;
@@ -236,63 +189,6 @@ function renderPersistentBackground(
 	return `${prefix} ${reopenedText} ${suffix}`;
 }
 
-export function renderBox(
-	content: Array<{ text: string; color: ThemeColor }>,
-	width: number,
-	theme: Theme
-): string[] {
-	const boxWidth = Math.max(UI_DIMENSIONS.boxMinWidth, width);
-	const innerWidth = Math.max(4, boxWidth - 2);
-	const top = theme.fg("accent", `┌${"─".repeat(innerWidth)}┐`);
-	const bottom = theme.fg("accent", `└${"─".repeat(innerWidth)}┘`);
-	const lines = [top];
-	for (const item of content) {
-		for (const rawLine of wrapText(item.text, innerWidth)) {
-			const line = theme.fg(item.color, rawLine);
-			const padding = " ".repeat(Math.max(0, innerWidth - visibleWidth(line)));
-			lines.push(
-				theme.fg("accent", "│") + line + padding + theme.fg("accent", "│")
-			);
-		}
-	}
-	lines.push(bottom);
-	return lines;
-}
-
-export function renderPreviewPaneContent(
-	selectedOption:
-		| {
-				label: string;
-				description?: string;
-				preview?: string;
-		  }
-		| undefined,
-	theme: Theme,
-	width: number
-): string[] {
-	if (!selectedOption) {
-		return renderBox([{ text: NO_PREVIEW_TEXT, color: "dim" }], width, theme);
-	}
-
-	const content: Array<{ text: string; color: ThemeColor }> = [
-		{ text: selectedOption.label, color: "accent" },
-	];
-	if (selectedOption.description) {
-		content.push({ text: selectedOption.description, color: "muted" });
-	}
-	content.push({ text: "", color: "dim" });
-
-	for (const previewLine of (selectedOption.preview ?? NO_PREVIEW_TEXT).split(
-		"\n"
-	)) {
-		content.push({
-			text: previewLine,
-			color: selectedOption.preview ? "text" : "dim",
-		});
-	}
-	return renderBox(content, width, theme);
-}
-
 export function mergeColumns(
 	left: string[],
 	right: string[],
@@ -308,39 +204,6 @@ export function mergeColumns(
 		lines.push(truncateToWidth(`${paddedLeft}  ${rightLine}`, width));
 	}
 	return lines;
-}
-
-export function measurePreviewLeftWidth(
-	options: Array<{
-		description?: string;
-		label: string;
-		recommended?: boolean;
-	}>,
-	width: number
-): number {
-	let widest = 0;
-	for (let index = 0; index < options.length; index++) {
-		const option = options[index];
-		const description = option.recommended
-			? `${UI_TEXT.recommendedMarker}${option.description ? ` | ${option.description}` : ""}`
-			: option.description;
-		widest = Math.max(
-			widest,
-			visibleWidth(`${index + 1}. ${option.label}`),
-			description ? visibleWidth(description) : 0
-		);
-	}
-
-	const preferred = widest + 4;
-	const maxWidth = Math.min(
-		UI_DIMENSIONS.previewLeftMaxWidth,
-		Math.floor(width * UI_DIMENSIONS.previewLeftRatio)
-	);
-	return clamp(
-		preferred,
-		UI_DIMENSIONS.previewLeftMinWidth,
-		Math.max(UI_DIMENSIONS.previewLeftMinWidth, maxWidth)
-	);
 }
 
 export function getSavedNotePrefixes(

@@ -57,16 +57,11 @@ type Tui = CustomCallbackArgs[0];
 type Theme = CustomCallbackArgs[1];
 type Keybindings = CustomCallbackArgs[2];
 type Done = (result: AskResult) => void;
-interface AskFlowOptions {
-	allowFreeform?: boolean;
-}
-
 type AskFlowParams = AskParams &
 	Pick<ExtensionContext, "cwd"> & {
 		config: AskConfig;
 		configNotice?: string;
 		ctx: ExtensionContext;
-		flowOptions: AskFlowOptions;
 	};
 
 interface AskFlowController {
@@ -88,14 +83,12 @@ interface AskFlowController {
 
 export async function runAskFlow(
 	ctx: ExtensionContext,
-	params: AskParams,
-	options: AskFlowOptions = {}
+	params: AskParams
 ): Promise<AskResult> {
 	const store = getAskConfigStore();
 	const { config, notice } = await store.ensureLoaded();
-	const flowOptions = { ...options };
 	if (ctx.mode !== "tui") {
-		return toAskResult(createInitialState(params, flowOptions), "unavailable");
+		return toAskResult(createInitialState(params), "unavailable");
 	}
 	return ctx.ui.custom<AskResult>((...args) =>
 		createAskFlowController(args, {
@@ -104,7 +97,6 @@ export async function runAskFlow(
 			configNotice: notice?.text,
 			cwd: ctx.cwd,
 			ctx,
-			flowOptions,
 		})
 	);
 }
@@ -126,7 +118,7 @@ function createAskFlowController(
 		done,
 		editor: createEditor(tui, theme, params.cwd),
 		settingsOpen: false,
-		state: createInitialState(params, params.flowOptions),
+		state: createInitialState(params),
 		suppressAutoInputForSelection: false,
 		pendingQuestionTypeChangeQuestionId: undefined,
 		pendingReviewShortcutActionIndex: undefined,

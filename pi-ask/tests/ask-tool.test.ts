@@ -64,7 +64,7 @@ test("registered ask prompts require material gaps after context review (static)
 			assert.ok(text.includes(concept), `Missing prompt concept: ${concept}`);
 		}
 	}
-	assert.ok(tool.promptGuidelines.every((text) => text.includes("`ask_user`") || text.includes("Typed custom text") || text.includes("Neither submission")));
+	assert.ok(tool.promptGuidelines.every((text) => text.includes("`ask_user`")));
 	assert.equal(tool.name, "ask_user");
 });
 
@@ -93,11 +93,9 @@ test("registered prompts and bundled skill omit blanket interview triggers (stat
 			);
 		}
 	}
-	assert.ok(
-		skill.includes("Check relevant context and existing authorization")
-	);
+	assert.ok(skill.includes("Check relevant context first"));
 	assert.ok(skill.includes("do not reconfirm settled decisions"));
-	assert.ok(skill.includes("not a runtime authorization mechanism"));
+	assert.ok(skill.includes("Cancellation or ambiguity is not approval"));
 });
 
 test("prompt layers stay compact and route to shipped references (static)", async () => {
@@ -107,14 +105,9 @@ test("prompt layers stay compact and route to shipped references (static)", asyn
 	assert.ok(tool.description.length <= 400);
 	assert.ok(tool.promptGuidelines.join("\n").length <= 2200);
 	assert.ok(skill.length <= 2800);
-	for (const path of [
-		"references/interaction.md",
-		"references/decision-cases.md",
-		"../../docs/configuration.md",
-	]) {
-		assert.ok(skill.includes(`(${path})`), `Missing route: ${path}`);
-		assert.ok((await readFile(new URL(path, skillUrl), "utf-8")).length > 0);
-	}
+	const path = "../../docs/configuration.md";
+	assert.ok(skill.includes(`(${path})`));
+	assert.ok((await readFile(new URL(path, skillUrl), "utf-8")).length > 0);
 });
 
 test("ask option schema and tool guidance support grounded recommendations", () => {

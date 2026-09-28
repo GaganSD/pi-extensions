@@ -5,12 +5,9 @@ import {
 } from "@earendil-works/pi-tui";
 import { UI_DIMENSIONS, UI_TEXT } from "../constants/ui.ts";
 import {
-	measurePreviewLeftWidth,
-	mergeColumns,
 	pushSavedNote,
 	pushWrappedText,
 	renderEditorBlock,
-	renderPreviewPaneContent,
 } from "./render-helpers.ts";
 import type { QuestionRenderContext, Theme } from "./render-types.ts";
 import {
@@ -25,11 +22,6 @@ export function renderQuestionScreen(context: QuestionRenderContext) {
 
 	pushWrappedText(lines, question.prompt, width, theme, "text", " ", " ");
 	renderQuestionNote(lines, model.questionNote, context);
-
-	if (model.mode === "preview") {
-		renderPreviewQuestion(context, model);
-		return;
-	}
 
 	for (const row of model.rows) {
 		renderStandardOption(lines, row, context);
@@ -97,92 +89,6 @@ function renderStandardOption(
 	renderOptionDetail(lines, row.detail, context, {
 		suppressLeadingGap: !!row.description,
 	});
-}
-
-function renderPreviewQuestion(
-	context: QuestionRenderContext,
-	model: ReturnType<typeof buildQuestionScreenModel>
-) {
-	if (model.mode !== "preview") {
-		return;
-	}
-
-	const { lines, width, theme } = context;
-	const add = (text = "") => lines.push(truncateToWidth(text, width));
-
-	if (model.previewLayout === "custom") {
-		renderPreviewOptionList(model.rows, theme, width).forEach(add);
-	} else if (model.previewLayout === "wide") {
-		renderWidePreviewLayout(
-			add,
-			model.rows,
-			theme,
-			width,
-			model.selectedOption
-		);
-	} else {
-		renderStackedPreviewLayout(
-			add,
-			model.rows,
-			theme,
-			width,
-			model.selectedOption
-		);
-	}
-
-	renderOptionDetail(lines, model.selectedOptionDetail, context);
-}
-
-function renderWidePreviewLayout(
-	add: (text?: string) => void,
-	rows: OptionRowModel[],
-	theme: Theme,
-	width: number,
-	selectedOption: ReturnType<typeof buildQuestionScreenModel>["selectedOption"]
-) {
-	const leftWidth = measurePreviewLeftWidth(rows, width);
-	const rightWidth = Math.max(
-		UI_DIMENSIONS.previewMinRightWidth,
-		width - leftWidth - 2
-	);
-	const leftPane = renderPreviewOptionList(rows, theme, leftWidth);
-	const rightPane = renderPreviewPaneContent(selectedOption, theme, rightWidth);
-	for (const line of mergeColumns(leftPane, rightPane, leftWidth, width)) {
-		add(line);
-	}
-}
-
-function renderStackedPreviewLayout(
-	add: (text?: string) => void,
-	rows: OptionRowModel[],
-	theme: Theme,
-	width: number,
-	selectedOption: ReturnType<typeof buildQuestionScreenModel>["selectedOption"]
-) {
-	renderPreviewOptionList(rows, theme, width).forEach(add);
-	add("");
-	renderPreviewPaneContent(selectedOption, theme, width).forEach(add);
-}
-
-function renderPreviewOptionList(
-	rows: OptionRowModel[],
-	theme: Theme,
-	width: number
-): string[] {
-	const lines: string[] = [];
-	for (const row of rows) {
-		pushWrappedText(
-			lines,
-			`${row.index + 1}. ${row.label}`,
-			width,
-			theme,
-			row.color,
-			row.pointer,
-			"  "
-		);
-		renderOptionSubtitle(lines, row.description, row.recommended, width, theme);
-	}
-	return lines;
 }
 
 function renderOptionDetail(

@@ -11,15 +11,8 @@ interface IssueCollector {
 	issues: AskValidationIssue[];
 }
 
-interface ValidationOptions {
-	allowFreeform?: boolean;
-}
-
-export function normalizeQuestions(
-	params: AskParams,
-	options: ValidationOptions = {}
-): AskQuestion[] {
-	const issues = collectValidationIssues(params, options);
+export function normalizeQuestions(params: AskParams): AskQuestion[] {
+	const issues = collectValidationIssues(params);
 	if (issues.length > 0) {
 		throw new Error(issues[0]?.message ?? "Invalid ask_user payload");
 	}
@@ -29,11 +22,10 @@ export function normalizeQuestions(
 }
 
 export function collectValidationIssues(
-	params: AskParams,
-	options: ValidationOptions = {}
+	params: AskParams
 ): AskValidationIssue[] {
 	const collector = createIssueCollector();
-	validateQuestions(params.questions, collector, options);
+	validateQuestions(params.questions, collector);
 	return collector.issues;
 }
 
@@ -109,8 +101,7 @@ function normalizeOption(option: AskOption): AskOption {
 
 function validateQuestions(
 	questions: AskParams["questions"],
-	collector: IssueCollector,
-	_options: ValidationOptions
+	collector: IssueCollector
 ) {
 	if (questions.length === 0) {
 		collector.add("questions", "At least one question is required");

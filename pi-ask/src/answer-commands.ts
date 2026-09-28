@@ -145,7 +145,7 @@ async function extractAndValidateAnswerParams(
 		);
 		return;
 	}
-	const validation = validateParams(extraction.params, { allowFreeform: true });
+	const validation = validateParams(extraction.params);
 	if (!validation.ok) {
 		const response = invalidPayloadResponse(
 			extraction.params,

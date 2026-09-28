@@ -51,7 +51,6 @@ test("question view model marks active custom option as inline editor", () => {
 	state = applyNumberShortcut(state, 2);
 
 	const model = buildQuestionScreenModel(buildContext(state));
-	assert.equal(model.mode, "standard");
 	assert.equal(model.rows[1]?.detail?.kind, "editor");
 	assert.equal(model.rows[1]?.detail?.placeholder, "Type answer...");
 });
