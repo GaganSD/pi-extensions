@@ -1,36 +1,38 @@
 # pi-ask
 
-First-party TUI clarification for [Pi](https://pi.dev). Answer, correct, or question the agent's question without losing the thread.
+Interview the user in the Pi TUI. One decision at a time.
 
-Selected source is derived from [`@geoqiao/pi-ask`](https://github.com/geoqiao/pi-tools) under MIT. See [NOTICE](./NOTICE).
+The agent asks when something is actually missing — a gap, a requirement, authorization, or a brainstorm. You answer, type your own, add a note, or fix the question. The thread stays intact.
 
 ## Install
 
 ```bash
-pi install npm:pi-ask
+pi install npm:@gagansd/pi-ask
 ```
 
-From a clone of this repo, `pi install .` at the repo or package root, then `/reload`. Uninstall `@geoqiao/pi-ask` if both are present — `/answer` overlaps.
+Then `/reload`. Uninstall `@geoqiao/pi-ask` if both are present — `/answer` overlaps.
+
+From a clone of this repo: `pi install .` at the repo or package root.
 
 ## Everyday use
 
-The agent calls `ask_user` to interview you — gaps, requirements, authorization, or brainstorming. `/answer` if it asked in prose.
+The agent calls `ask_user`. `/answer` if it asked in prose instead.
 
-| Need | Feature |
+| Need | What you do |
 | --- | --- |
-| Choose one answer or several | `single` and `multi` |
-| Type freely | `text` questions, or `Type your own` on option questions |
+| Choose one, or several | `single` / `multi` |
+| Type freely | `text`, or **Type your own** on a choice question |
 | Understand a choice first | Notes |
-| Repair a bad question | Live `single` ↔ `multi` (`t`) |
+| The question is the wrong shape | `t` switches `single` ↔ `multi` |
 
 ### Commands
 
 | Command | What it does |
 | --- | --- |
-| `/answer` | Extract questions from the latest completed assistant message |
-| `/ask-settings` | Settings overlay; `?` inside a form opens the same overlay |
+| `/answer` | Turn the latest completed assistant message into a form |
+| `/ask-settings` | Settings overlay. `?` inside a form opens the same overlay |
 
-These commands are TUI-only. Non-TUI callers get `status: "unavailable"`.
+TUI-only. Non-TUI callers get `status: "unavailable"`.
 
 ## Contract
 
@@ -38,13 +40,13 @@ Input: `{ title?, questions: [{ id, label?, prompt, type: single\|multi\|text, o
 
 - `text` questions have no options.
 - `single` / `multi` need real options. Do not invent filler.
-- Recommended options are labeled, never preselected.
+- Recommended options get a `description`. Never preselected.
+- Typed text is never merged into option `values`.
 
 Output:
 
 - `status`: `submitted` | `cancelled` | `unavailable` | `invalid`
 - `answers[id]`: `{ values, labels, customText?, note?, optionNotes? }`
-- typed text is never merged into option `values`
 - `unanswered: id[]`
 
-Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/ask-settings` or `?` in a form. `/answer` uses the current chat model unless `answer.extractionModels` is set.
+Optional config: `~/.pi/agent/extensions/pi-ask.json`. `/answer` uses the current chat model unless `answer.extractionModels` is set.

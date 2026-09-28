@@ -15,7 +15,7 @@ Publish and npm installs stay per-package (`cd pi-slate && npm publish`).
 | Folder | Status |
 | --- | --- |
 | [pi-slate](./pi-slate) | Quiet TUI. Published as `npm:pi-slate`. |
-| [pi-ask](./pi-ask) | First-party TUI ask. Tool `ask_user`. |
+| [pi-ask](./pi-ask) | TUI interviews. Tool `ask_user`. Published as `npm:@gagansd/pi-ask`. |
 | [pi-subagents](./pi-subagents) | Empty. Next. |
 | [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
 

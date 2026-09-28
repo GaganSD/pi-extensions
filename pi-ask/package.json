@@ -1,7 +1,7 @@
 {
-  "name": "pi-ask",
+  "name": "@gagansd/pi-ask",
   "version": "0.1.0",
-  "description": "First-party TUI clarification for Pi.",
+  "description": "TUI interviews for Pi. Ask one decision at a time.",
   "type": "module",
   "license": "MIT",
   "author": "Gagan Devagiri",
@@ -24,8 +24,7 @@
     "skills",
     "src",
     "README.md",
-    "LICENSE",
-    "NOTICE"
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
@@ -33,7 +32,8 @@
   "scripts": {
     "test": "node --test --experimental-strip-types tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "prepublishOnly": "npm test && npm run typecheck"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
