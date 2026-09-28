@@ -247,12 +247,12 @@ export function getAskKeyBindings(
 	entries.push([
 		"numberShortcut",
 		{
-			contexts: ["Main flow", "Submit tab"],
-			description: "Quick-select option or submit action",
+			contexts: ["Submit tab"],
+			description: "Review actions",
 			id: "numberShortcut",
-			keys: ["1..9"],
+			keys: ["1..2"],
 			kind: "command",
-			label: "1..9",
+			label: "1..2",
 		},
 	]);
 	entries.push([
@@ -324,7 +324,6 @@ export function renderFooterKeymaps(
 			footerHint(global.settings, "settings"),
 		],
 		submit: [
-			footerHint(bindings.numberShortcut, "hotkeys"),
 			footerHint(main.confirm, "confirm"),
 			footerHint(main.cancel, "cancel"),
 			footerHint(global.settings, "settings"),

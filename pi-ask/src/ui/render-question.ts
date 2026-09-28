@@ -166,9 +166,7 @@ function renderEditorWithIndent(args: {
 }
 
 function formatOptionLabel(row: OptionRowModel): string {
-	return row.isFreeformOnly
-		? row.label
-		: `${row.index + 1}. ${row.prefix}${row.label}`;
+	return `${row.prefix}${row.label}`;
 }
 
 function renderInteractiveCustomOption(

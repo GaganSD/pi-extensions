@@ -7,6 +7,7 @@ import {
 	matchesBinding,
 	matchesDigitShortcut,
 } from "../constants/keymaps.ts";
+import { isSubmitTab } from "../state/selectors.ts";
 import type { AskState } from "../types.ts";
 
 export type AskInputCommand =
@@ -49,7 +50,7 @@ export function getInputCommand(
 		return getNoteEditorInputCommand(config, data, editingText);
 	}
 
-	return getNavigationInputCommand(config, data);
+	return getNavigationInputCommand(state, config, data);
 }
 
 function getAnswerEditorInputCommand(
@@ -118,6 +119,7 @@ function isNativeEditorSubmit(data: string): boolean {
 }
 
 function getNavigationInputCommand(
+	state: AskState,
 	config: AskConfig,
 	data: string
 ): AskInputCommand {
@@ -153,6 +155,9 @@ function getNavigationInputCommand(
 		return { kind: "openOptionNote" };
 	}
 
+	if (!isSubmitTab(state)) {
+		return { kind: "ignore" };
+	}
 	const digit = matchesDigitShortcut(data);
 	return digit === null
 		? { kind: "ignore" }

@@ -300,18 +300,11 @@ test("custom editor submit key controls actual editor submission", async () => {
 			},
 		} as never,
 		{
-			questions: [
-				{
-					id: "q1",
-					prompt: "Question?",
-					options: [{ value: "a", label: "A" }],
-				},
-			],
+			questions: [{ id: "q1", prompt: "Question?", type: "text" }],
 		}
 	);
 
 	await new Promise((resolve) => setImmediate(resolve));
-	component?.handleInput("2");
 	component?.handleInput("x");
 	component?.handleInput("\r");
 	component?.handleInput("\u000b");
