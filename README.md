@@ -7,7 +7,7 @@ Monorepo of Pi Coding Agent extensions I build and use.
 | Package | Install |
 | --- | --- |
 | [pi-slate](./pi-slate) | `pi install npm:pi-slate` |
-| [pi-ask](./pi-ask) | `pi install npm:@gagansd/pi-ask` |
+| [pi-ask](./pi-ask) | `pi install npm:@gagansd/pi-ask`. [github.com/GaganSD/pi-ask](https://github.com/GaganSD/pi-ask) points here. |
 
 `pi-ask` is the TUI interview tool (`ask_user`, `/answer`, `/ask-settings`). Uninstall `@geoqiao/pi-ask` if both are present.
 
