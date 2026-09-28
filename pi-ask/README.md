@@ -1,8 +1,14 @@
 # pi-ask
 
-Interview the user in the Pi TUI. One decision at a time.
+Gives your agent a way to interview you in a structured form — brainstorming, auth, missing requirements. Structured answers keep the thread small.
 
-The agent asks when something is actually missing — a gap, a requirement, authorization, or a brainstorm. You answer, type your own, add a note, or fix the question. The thread stays intact.
+One skill (~20-token description), built for context minimisation.
+
+![Multi-select](assets/multi.png)
+
+![Single-select](assets/single.png)
+
+![Text](assets/text.png)
 
 ## Install
 
@@ -10,7 +16,7 @@ The agent asks when something is actually missing — a gap, a requirement, auth
 pi install npm:@gagansd/pi-ask
 ```
 
-Then `/reload`. Uninstall `@geoqiao/pi-ask` if both are present — `/answer` overlaps.
+Then `/reload`.
 
 From a clone of this repo: `pi install .` at the repo or package root.
 
