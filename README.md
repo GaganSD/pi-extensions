@@ -2,7 +2,7 @@
 
 Monorepo of Pi Coding Agent extensions I build and use.
 
-Local install of this repo loads Slate and pi-clarify:
+Local install of this repo loads Slate and pi-ask:
 
 ```bash
 pi install /Users/gagandevagiri/GitHub/pi-extensions
@@ -15,7 +15,7 @@ Publish and npm installs stay per-package (`cd pi-slate && npm publish`).
 | Folder | Status |
 | --- | --- |
 | [pi-slate](./pi-slate) | Quiet TUI. Published as `npm:pi-slate`. |
-| [pi-clarify](./pi-clarify) | First-party TUI clarify. Tool `clarify`. [PRD](./pi-clarify/PRD.md). |
+| [pi-ask](./pi-ask) | First-party TUI clarify. Tool `ask_user`. [PRD](./pi-ask/PRD.md). |
 | [pi-subagents](./pi-subagents) | Empty. Next. |
 | [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
 
