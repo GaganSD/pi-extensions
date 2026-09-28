@@ -1,15 +1,11 @@
 # pi-extensions
 
-Monorepo of Pi Coding Agent extensions I build and use.
+Monorepo of extensions I've built for the Pi Coding Agent Harness
 
-## First-party
-
-| Package | Install |
-| --- | --- |
-| [pi-slate](./pi-slate) | `pi install npm:pi-slate` |
-| [pi-ask](./pi-ask) | `pi install npm:@gagansd/pi-ask`. [github.com/GaganSD/pi-ask](https://github.com/GaganSD/pi-ask) points here. |
-
-`pi-ask` is the TUI interview tool (`ask_user`, `/answer`, `/ask-settings`). Uninstall `@geoqiao/pi-ask` if both are present.
+| Package | Description | Install |
+| --- |---| --- |
+| [pi-slate](./pi-slate) | Rich TUI with Graphics Support | `pi install npm:pi-slate` |
+| [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
 
 A clone of this repo loads Slate and pi-ask together:
 
@@ -17,26 +13,21 @@ A clone of this repo loads Slate and pi-ask together:
 pi install .
 ```
 
-Publish stays per-package (`cd pi-ask && npm publish`).
-
 | Folder | Status |
 | --- | --- |
-| [pi-subagents](./pi-subagents) | Empty. Next. |
-| [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
+| [pi-jev-tool-output-compact] | beta-testing |
+| [pi-subagents](./pi-subagents) | beta-testing|
+| [pi-canvas-mode](./pi-canvas-mode) | TODO |
 
-## External (installed from pi-configs, not vendored)
+## External
 
-This GitHub repo is public, so third-party sources stay as install specs.
+Few third-party sources
 
 | Package | Install |
 | --- | --- |
-| pi-mcp-adapter | `git:github.com/nicobailon/pi-mcp-adapter` |
-| pi-context-view | `npm:pi-context-view` |
+| pi-mcp-adapter | `git:github.com/nicobailon/pi-mcp-adapter` | (TODO: Replace with pi's new built-in mcp)
+| pi-context-view | `npm:pi-context-view` | (TODO: Merge this with pi-slate)
 | pi-subagents | `npm:pi-subagents` |
-| pi-web-search | `npm:pi-web-search` |
-| @narumitw/pi-plan-mode | `npm:@narumitw/pi-plan-mode` |
-| ponytail | `git:github.com/DietrichGebert/ponytail` |
-| pi-goal-x | `npm:pi-goal-x` |
-| @dev.fast/pi-whiteboard | `npm:@dev.fast/pi-whiteboard` |
-
-Config for those lives in [pi-configs](https://github.com/GaganSD/pi-configs).
+| pi-web-search | `npm:pi-web-search` | (TODO: too bloated, re-build this) 
+| @narumitw/pi-plan-mode | `npm:@narumitw/pi-plan-mode` | (TODO: replace with canvas mode with tldraw support)
+| ponytail | `git:github.com/DietrichGebert/ponytail` | (TODO: Move to /prompts)
