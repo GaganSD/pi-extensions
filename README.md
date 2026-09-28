@@ -15,7 +15,7 @@ Publish and npm installs stay per-package (`cd pi-slate && npm publish`).
 | Folder | Status |
 | --- | --- |
 | [pi-slate](./pi-slate) | Quiet TUI. Published as `npm:pi-slate`. |
-| [pi-clarify](./pi-clarify) | Empty. Next. |
+| [pi-clarify](./pi-clarify) | First-party TUI clarify. [PRD](./pi-clarify/PRD.md). |
 | [pi-subagents](./pi-subagents) | Empty. Next. |
 | [pi-canvas-mode](./pi-canvas-mode) | Empty. Next. |
 
