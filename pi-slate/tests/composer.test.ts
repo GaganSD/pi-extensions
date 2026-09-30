@@ -9,6 +9,7 @@ import {
   composerContextEdge,
   composerLabels,
   composerStatusContextEdge,
+  composerStatusLabel,
   composerPaddingX,
   frameComposerLines,
   padComposerFrame,
@@ -145,19 +146,48 @@ test("vertical composer token label uses compact percent placement", () => {
   assert.doesNotMatch(labels.right, /5% used/);
 });
 
+test("composerStatusLabel strips indicator paint and uses accent", () => {
+  const colors: string[] = [];
+  const label = composerStatusLabel(
+    { renderInBorder: () => "\x1b[90mCompacting context...\x1b[0m" },
+    {
+      fg: (name: string, text: string) => {
+        colors.push(name);
+        return text;
+      },
+      italic: (text: string) => text,
+    } as Theme,
+  );
+  assert.equal(label, "Compacting context...");
+  assert.deepEqual(colors, ["accent"]);
+});
+
 test("working status stays left of the vertical context edge", () => {
   const line = composerStatusContextEdge(
     "$7.47 · 14 skills loaded · 2 MCPs enabled",
     80,
     (text) => text,
     0,
-    (width) => `── pondering... ${"─".repeat(Math.max(0, width - 16))}`,
-    12,
+    "pondering...",
   );
   assert.equal(visibleWidth(line), 80);
   assert.match(line, /^╭── pondering\.\.\./);
   assert.ok(line.indexOf("pondering") < line.indexOf("$7.47"));
   assert.match(line, /\$7\.47 · 14 skills loaded · 2 MCPs enabled ╮$/);
+});
+
+test("compacting status keeps its label when resources are long", () => {
+  const line = composerStatusContextEdge(
+    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    64,
+    (text) => text,
+    0,
+    "Compacting context... (esc to cancel)",
+  );
+  const plain = stripVTControlCharacters(line);
+  assert.equal(visibleWidth(line), 64);
+  assert.match(plain, /Compacting context/);
+  assert.ok(!plain.includes("2 MCPs enabled"));
 });
 
 test("empty composer frames sides and prompt without a hint row", () => {

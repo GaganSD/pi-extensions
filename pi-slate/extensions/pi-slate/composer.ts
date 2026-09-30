@@ -230,30 +230,43 @@ export function composerContextEdge(
   return inscribedBorder(more, resources ? ` ${resources} ` : "", width, paint, "╭", "╮");
 }
 
+export function composerStatusLabel(
+  indicator: { renderInBorder(width: number): string } | undefined,
+  theme: Theme,
+): string {
+  if (!indicator) return "";
+  const text = stripVTControlCharacters(indicator.renderInBorder(240)).trim();
+  if (!text) return "";
+  return theme.italic(theme.fg("accent", text));
+}
+
 export function composerStatusContextEdge(
   resources: string,
   width: number,
   paint: (text: string) => string,
-  hiddenLineCount: number,
-  renderLeft: (width: number, hiddenLineCount: number) => string,
-  reserveLeftWidth = 1,
+  hiddenLineCount = 0,
+  status = "",
 ): string {
   if (width <= 0) return "";
   if (width === 1) return paint("╭");
   if (width === 2) return paint("╭╮");
 
   const innerWidth = width - 2;
-  const reserveLeft = Math.min(Math.max(1, reserveLeftWidth), innerWidth);
+  const more = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
+  let left = status ? `${paint("── ")}${status} ` : more ? paint(more) : "";
   let right = resources ? ` ${resources} ` : "";
-  const maxRightWidth = Math.max(0, innerWidth - reserveLeft);
-  if (visibleWidth(right) > maxRightWidth) {
-    right = truncateToWidth(right, maxRightWidth, "");
-  }
+  const minFill = 1;
 
-  const leftWidth = Math.max(0, innerWidth - visibleWidth(right));
-  let left = renderLeft(leftWidth, hiddenLineCount);
-  if (visibleWidth(left) > leftWidth) left = truncateToWidth(left, leftWidth, "");
-  const fill = Math.max(0, innerWidth - visibleWidth(left) - visibleWidth(right));
+  while (visibleWidth(left) + visibleWidth(right) + minFill > innerWidth && visibleWidth(right) > 0) {
+    right = truncateToWidth(right, Math.max(0, visibleWidth(right) - 1), "");
+  }
+  if (status && more && visibleWidth(left) + visibleWidth(paint(more)) + visibleWidth(right) + minFill <= innerWidth) {
+    left = `${left}${paint(more)}`;
+  }
+  while (visibleWidth(left) + visibleWidth(right) + minFill > innerWidth && visibleWidth(left) > 0) {
+    left = truncateToWidth(left, Math.max(0, visibleWidth(left) - 1), "");
+  }
+  const fill = Math.max(minFill, innerWidth - visibleWidth(left) - visibleWidth(right));
   return `${paint("╭")}${left}${paint("─".repeat(fill))}${right}${paint("╮")}`;
 }
 
@@ -291,17 +304,18 @@ export class ComposerEditor extends CustomEditor {
   protected renderTopBorder(width: number, hiddenLineCount: number): string {
     if (width <= 2) return super.renderTopBorder(width, hiddenLineCount);
     const src = this.source();
-    if (src.context) {
+    const paint = (text: string) => this.borderColor(text);
+    const status = this.embedWorkingStatus ? composerStatusLabel(this.statusIndicator, src.theme) : "";
+    if (src.context || status) {
       return composerStatusContextEdge(
-        src.theme.fg("dim", src.context.resources),
+        src.context ? src.theme.fg("dim", src.context.resources) : "",
         width,
-        (text) => this.borderColor(text),
+        paint,
         hiddenLineCount,
-        (leftWidth, hidden) => super.renderTopBorder(leftWidth, hidden),
-        this.embedWorkingStatus && this.statusIndicator ? 12 : 1,
+        status,
       );
     }
-    return this.borderColor("╭") + super.renderTopBorder(width - 2, hiddenLineCount) + this.borderColor("╮");
+    return paint("╭") + super.renderTopBorder(width - 2, hiddenLineCount) + paint("╮");
   }
 
   protected renderBottomBorder(width: number, hiddenLineCount: number): string {
