@@ -15,7 +15,7 @@ test("header is left-leaning and inserts a blank line above a centered hairline"
   const lines = renderSlateHeader({
     width: 72,
     version: "0.99.1",
-    model: "bedrock/xai.grok-4.6 · medium",
+    model: "grok-4.6 (bedrock) · medium",
     path: "~/GitHub/pi-extensions",
     notice: "update available · @dev.fast/pi-whiteboard · pi update --extensions",
     ascii: true,
@@ -25,7 +25,7 @@ test("header is left-leaning and inserts a blank line above a centered hairline"
   const plain = lines.map((line) => stripVTControlCharacters(line));
   assert.equal(plain[0]?.startsWith(PI_LOGO_ASCII[0] ?? ""), true);
   assert.match(plain[0] ?? "", /Pi Agent v0\.99\.1/);
-  assert.match(plain[1] ?? "", /bedrock\/xai\.grok-4\.6/);
+  assert.match(plain[1] ?? "", /grok-4\.6 \(bedrock\)/);
   assert.match(plain[2] ?? "", /pi-extensions/);
   assert.equal(plain[3], PI_LOGO_ASCII[3]);
   assert.equal(plain[4], "");
@@ -43,7 +43,7 @@ test("header omits the hairline when there is no update", () => {
   const lines = renderSlateHeader({
     width: 72,
     version: "0.99.1",
-    model: "bedrock/xai.grok-4.6 · medium",
+    model: "grok-4.6 (bedrock) · medium",
     path: "~/GitHub/pi-extensions",
     ascii: true,
     truecolor: false,

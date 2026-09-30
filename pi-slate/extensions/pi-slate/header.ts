@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-import { compactPath, modelLabel, PI_LOGO, PI_LOGO_ASCII, paintLogo } from "./layout.ts";
+import { compactPath, isBedrockProvider, modelLabel, PI_LOGO, PI_LOGO_ASCII, paintLogo } from "./layout.ts";
 import { hairlineTextWidth, wrapHairlineText, symmetricHairline } from "./hairline.ts";
 import { formatUpdateNotice, type UpdateNotice } from "./updates.ts";
 
@@ -101,7 +101,7 @@ export class SlateHeader implements Component {
     return renderSlateHeader({
       width: this.columnWidth(width),
       version: this.version,
-      model: `${ctx.model?.provider ?? "provider"}/${modelLabel(ctx.model)}${effort}`,
+      model: `${ctx.model?.provider && !isBedrockProvider(ctx.model.provider) ? `${ctx.model.provider}/` : ""}${modelLabel(ctx.model)}${effort}`,
       path: compactPath(ctx.cwd, homedir()),
       ...(notice ? { notice } : {}),
       ascii: process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1",

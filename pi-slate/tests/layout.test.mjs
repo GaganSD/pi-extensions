@@ -110,6 +110,20 @@ test("model label stays safe with missing data", () => {
   assert.equal(modelLabel(undefined), "no model");
 });
 
+test("bedrock model labels drop region, vendor, and provider suffix noise", () => {
+  assert.equal(modelLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }), "kimi-k3 (bedrock)");
+  assert.equal(modelLabel({ id: "xai.grok-4.6", provider: "bedrock" }), "grok-4.6 (bedrock)");
+  assert.equal(modelLabel({ id: "xai.grok-4.6", provider: "bedrock-priority" }), "grok-4.6 (bedrock)");
+  assert.equal(modelLabel({ id: "us.anthropic.claude-opus-4-7", provider: "bedrock" }), "claude-opus-4-7 (bedrock)");
+  assert.equal(modelLabel({ id: "amazon.nova-pro-v1:0", provider: "bedrock-runtime" }), "nova-pro-v1:0 (bedrock)");
+});
+
+test("non-bedrock model labels stay untouched", () => {
+  assert.equal(modelLabel({ id: "gpt-5.6", provider: "openai" }), "gpt-5.6");
+  assert.equal(modelLabel({ id: "claude-sonnet-4-5", provider: "anthropic" }), "claude-sonnet-4-5");
+  assert.equal(modelLabel({ id: "kimi-k3" }), "kimi-k3");
+});
+
 test("workspace column is 20% once the terminal is wide enough", () => {
   assert.equal(workspaceColumnWidth(50), 0);
   assert.equal(workspaceColumnWidth(100), 28);
@@ -184,8 +198,8 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("width 30%"), { ok: true, kind: "width", width: 30 });
   assert.deepEqual(parseSlateArgs("width narrow"), { ok: true, kind: "width", width: 0 });
   assert.deepEqual(parseSlateArgs("vertical"), { ok: true, kind: "vertical" });
-  assert.deepEqual(parseSlateArgs("vertical on"), { ok: true, kind: "vertical", value: true });
-  assert.deepEqual(parseSlateArgs("vertical off"), { ok: true, kind: "vertical", value: false });
+  assert.deepEqual(parseSlateArgs("vertical on"), { ok: true, kind: "vertical", value: false });
+  assert.deepEqual(parseSlateArgs("vertical off"), { ok: true, kind: "vertical", value: true });
   assert.deepEqual(parseSlateArgs("vertical nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });

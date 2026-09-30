@@ -31,9 +31,40 @@ export function compactDisplayText(text: string, cwd?: string, home?: string): s
   return out;
 }
 
-export function modelLabel(model: { id?: string; name?: string } | undefined): string {
+const BEDROCK_REGIONS = new Set(["us", "eu", "ap", "sa", "ca", "me", "af", "apac", "global", "us-gov"]);
+const BEDROCK_VENDORS = new Set([
+  "ai21",
+  "amazon",
+  "anthropic",
+  "cohere",
+  "deepseek",
+  "google",
+  "meta",
+  "mistral",
+  "moonshotai",
+  "openai",
+  "qwen",
+  "stability",
+  "writer",
+  "xai",
+]);
+
+export function isBedrockProvider(provider: string | undefined): boolean {
+  return provider === "bedrock" || provider?.startsWith("bedrock-") === true;
+}
+
+export function conciseModelId(id: string): string {
+  const parts = id.split(".");
+  if (parts.length > 1 && BEDROCK_REGIONS.has(parts[0] ?? "")) parts.shift();
+  if (parts.length > 1 && BEDROCK_VENDORS.has(parts[0] ?? "")) parts.shift();
+  return parts.join(".");
+}
+
+export function modelLabel(model: { id?: string; name?: string; provider?: string } | undefined): string {
   if (!model) return "no model";
-  return model.id || model.name || "unknown model";
+  const base = model.id || model.name || "unknown model";
+  if (isBedrockProvider(model.provider)) return `${conciseModelId(base)} (bedrock)`;
+  return base;
 }
 
 const INTEGERS = new Intl.NumberFormat("en");
@@ -314,7 +345,7 @@ export function parseSlateArgs(raw: string): SlateArgs {
   }
   if (head === "vertical") {
     if (!tail) return { ok: true, kind: "vertical" };
-    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail === "on" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail !== "on" };
     return { ok: false };
   }
   if (head === "message-length") {
