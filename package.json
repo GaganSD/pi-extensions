@@ -4,13 +4,14 @@
   "description": "Monorepo of Pi extensions I use and build.",
   "license": "MIT",
   "scripts": {
-    "test": "npm test --prefix pi-slate && npm test --prefix pi-ask",
-    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask"
+    "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search",
+    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search"
   },
   "pi": {
     "extensions": [
       "./pi-slate/extensions/pi-slate/index.ts",
-      "./pi-ask/src/index.ts"
+      "./pi-ask/src/index.ts",
+      "./pi-web-search/src/index.ts"
     ],
     "skills": [
       "./pi-ask/skills"
