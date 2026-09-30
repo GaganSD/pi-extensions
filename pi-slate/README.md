@@ -57,20 +57,23 @@ Slate keeps usage and spend visible at the bottom. Context usage may be estimate
   <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.4/assets/slate-context.png" alt="Context usage, spend, skills, and MCP count" width="567" />
 </p>
 
-### Catppuccin Themes
+### Themes
 
-The prompt, Summary, and Context share one frame. The Pi logo stays white in every theme. Colors are official [Catppuccin Mocha](https://catppuccin.com/palette/) tokens only.
+The prompt, Summary, and Context share one frame. The Pi logo stays white in every theme.
 
-Six styles: Canonical, Quiet, Mauve, Sapphire, Peach, Teal.
+Catppuccin Mocha styles: Canonical, Quiet, Mauve, Sapphire, Peach, Teal.
 
-`/slate` → Theme picks a style. Or set it directly:
+Charmtone Pantera is Crush's default palette plus chrome: Charple composer, Dolly→Charple model name, › ::: prompt. No diagonal field around the mark.
+
+`/slate` → Theme picks one. Or set it directly:
 
 ```text
 /slate theme mauve
+/slate theme pantera
 /slate style quiet
 ```
 
-Selection is saved and also appears in `/settings` as `catppuccin-mocha-<style>`.
+Selection is saved and also appears in `/settings`.
 
 ## Commands
 
@@ -83,7 +86,7 @@ Selection is saved and also appears in `/settings` as `catppuccin-mocha-<style>`
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Footer | `/slate footer [standard\|minimal]` | Standard shows model and thinking on the composer; minimal hides them. |
-| Theme | `/slate theme [canonical\|quiet\|mauve\|sapphire\|peach\|teal]` | Mocha style. `/slate style` is the same switch. |
+| Theme | `/slate theme [canonical\|quiet\|mauve\|sapphire\|peach\|teal\|pantera]` | Mocha style or Charmtone Pantera. `/slate style` is Mocha only. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Minimal By Design

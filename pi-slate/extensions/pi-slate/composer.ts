@@ -6,6 +6,7 @@ import {
   type EditorTheme,
   type TUI,
 } from "@earendil-works/pi-tui";
+import { isCharmtonePantera, paintContextResources } from "./charmtone.ts";
 import { footerVisibility, modelLabel } from "./layout.ts";
 
 export function composerPaddingX(density: "comfortable" | "compact"): number {
@@ -13,7 +14,8 @@ export function composerPaddingX(density: "comfortable" | "compact"): number {
 }
 
 export function chromePaint(theme: Theme): (text: string) => string {
-  return (text) => theme.fg("border", text);
+  const token = isCharmtonePantera(theme) ? "borderAccent" : "border";
+  return (text) => theme.fg(token, text);
 }
 
 export const COMPOSER_SHELF_LINES = 4;
@@ -117,14 +119,14 @@ export function composerLabels(
   width: number,
 ): { left: string; right: string } {
   const visible = footerVisibility(width);
-  const project = theme.fg("accent", input.project);
+  const project = theme.fg(isCharmtonePantera(theme) ? "success" : "accent", input.project);
   const branch = visible.showBranch && input.branch ? theme.fg("muted", ` / ${input.branch}`) : "";
   const projectLabel = ` ${project}${branch} `;
   if (input.footer === "minimal") return { left: projectLabel, right: "" };
 
   const parts: string[] = [];
   if (visible.showTokens && input.tokens) parts.push(theme.fg("muted", input.tokens));
-  if (visible.showModel) parts.push(theme.fg("muted", input.model));
+  if (visible.showModel) parts.push(theme.fg(isCharmtonePantera(theme) ? "success" : "muted", input.model));
   if (visible.showThinking && input.thinking) parts.push(theme.fg("dim", input.thinking));
   const modelLabelText = parts.length ? ` ${parts.join(theme.fg("borderMuted", " · "))} ` : "";
   return { left: projectLabel, right: modelLabelText };
@@ -137,6 +139,7 @@ export function frameComposerLines(
     empty: boolean;
     paddingX: number;
     paint: (text: string) => string;
+    theme?: Theme;
   },
 ): string[] {
   if (lines.length < 2) return lines;
@@ -152,17 +155,22 @@ export function frameComposerLines(
   const out = lines.slice();
   const prompt = opts.empty && opts.paddingX >= 4;
   for (let i = 1; i < bottom; i++) {
-    out[i] = sideBorder(out[i] ?? "", opts.width, opts.paint, prompt && i === 1);
+    out[i] = sideBorder(out[i] ?? "", opts.width, opts.paint, prompt && i === 1, opts.theme);
   }
   return out;
 }
 
-function sideBorder(line: string, width: number, paint: (text: string) => string, prompt: boolean): string {
-  const leftCols = prompt ? 4 : 1;
+function sideBorder(line: string, width: number, paint: (text: string) => string, prompt: boolean, theme?: Theme): string {
+  const glam = prompt && isCharmtonePantera(theme);
+  const leftCols = prompt ? (glam ? 8 : 4) : 1;
   const prefix = " ".repeat(leftCols);
   let body = line.startsWith(prefix) ? line.slice(leftCols) : line;
   if (body.endsWith(" ")) body = body.slice(0, -1);
-  const left = prompt ? `${paint("│")} › ` : paint("│");
+  const left = !prompt
+    ? paint("│")
+    : glam && theme
+      ? `${paint("│")}${theme.fg("success", " › ")}${theme.fg("borderAccent", ":::")} `
+      : `${paint("│")} › `;
   const inner = Math.max(0, width - leftCols - 1);
   if (visibleWidth(body) > inner) body = truncateToWidth(body, inner, "");
   const gap = Math.max(0, inner - visibleWidth(body));
@@ -216,7 +224,7 @@ export class ComposerEditor extends CustomEditor {
     const src = this.source();
     if (src.context) {
       return composerContextEdge(
-        src.theme.fg("dim", src.context.resources),
+        paintContextResources(src.theme, src.context.resources),
         width,
         (text) => this.borderColor(text),
         hiddenLineCount,
@@ -251,6 +259,7 @@ export class ComposerEditor extends CustomEditor {
         empty: this.getText().length === 0,
         paddingX: this.getPaddingX(),
         paint,
+        theme: this.source().theme,
       }),
       width,
       paint,

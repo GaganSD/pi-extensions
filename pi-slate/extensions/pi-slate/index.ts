@@ -77,6 +77,15 @@ import {
   type Flavor,
   type Style,
 } from "./catppuccin.ts";
+import {
+  CHARMTONE_FROM,
+  CHARMTONE_LABEL,
+  CHARMTONE_PANTERA,
+  CHARMTONE_TO,
+  isCharmtonePantera,
+  paintForegroundGrad,
+  workingFrames,
+} from "./charmtone.ts";
 import { applySlateTheme, persistFullscreen, persistTheme, shouldApplyInstallDefault } from "./install-defaults.ts";
 
 type SlateConfig = {
@@ -174,18 +183,20 @@ class MinimalHeader implements Component {
     const path = compactPath(ctx.cwd, homedir());
     const model = modelLabel(ctx.model);
     const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
+    const truecolor = this.theme.getColorMode() === "truecolor";
     const logoLines = process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1"
       ? PI_LOGO_ASCII
       : PI_LOGO;
     const column = this.columnWidth(width);
+    const provider = `${ctx.model?.provider ?? "provider"}/`;
+    const modelLine = isCharmtonePantera(this.theme)
+      ? `${this.theme.fg("muted", provider)}${paintForegroundGrad(model, CHARMTONE_FROM, CHARMTONE_TO, truecolor)}${this.theme.fg("muted", effort)}`
+      : this.theme.fg("muted", `${provider}${model}${effort}`);
     return [
-      ...logoLines.map((line) => centeredLine(paintLogo(line, this.theme.getColorMode() === "truecolor"), column)),
+      ...logoLines.map((line) => centeredLine(paintLogo(line, truecolor), column)),
       "",
       centeredLine(this.theme.fg("muted", `Pi Agent v${VERSION}`), column),
-      centeredLine(
-        this.theme.fg("muted", `${ctx.model?.provider ?? "provider"}/${model}${effort}`),
-        column,
-      ),
+      centeredLine(modelLine, column),
       centeredLine(this.theme.fg("dim", path), column),
     ];
   }
@@ -376,6 +387,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       tokenRate.setOnChange(() => syncSidebar(getContext()));
       syncSidebar(ctx);
       queueMicrotask(syncVisibleMessages);
+      ctx.ui.setWorkingIndicator({ frames: workingFrames(theme), intervalMs: 240 });
       return new MinimalHeader(theme, getContext, columnWidth);
     });
     ctx.ui.setFooter((tui, _theme, footerData) => {
@@ -415,15 +427,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       );
       images.attachEditor(activeEditor);
       return activeEditor;
-    });
-    ctx.ui.setWorkingIndicator({
-      frames: [
-        ctx.ui.theme.fg("dim", "·"),
-        ctx.ui.theme.fg("muted", "•"),
-        ctx.ui.theme.fg("accent", "●"),
-        ctx.ui.theme.fg("muted", "•"),
-      ],
-      intervalMs: 240,
     });
     requestRender(true);
   };
@@ -568,15 +571,40 @@ export default function piSlate(pi: ExtensionAPI): void {
     return STYLES.find((style) => STYLE_LABELS[style] === key);
   };
 
-  const applyCatppuccin = (ctx: ExtensionContext, flavor: Flavor, style: Style): void => {
-    const next = resolveCatppuccinTheme(ctx.ui.theme.name, flavor, style);
-    const result = ctx.ui.setTheme(next.name);
+  const applyNamedTheme = (ctx: ExtensionContext, name: string, message: string): void => {
+    const result = ctx.ui.setTheme(name);
     if (!result.success) {
-      ctx.ui.notify(result.error ?? `Could not load ${next.name}. Run /reload first.`, "error");
+      ctx.ui.notify(result.error ?? `Could not load ${name}. Run /reload first.`, "error");
       return;
     }
-    persistTheme(ctx.cwd, next.name);
-    ctx.ui.notify(themeMessage(next.flavor, next.style), "info");
+    persistTheme(ctx.cwd, name);
+    ctx.ui.notify(message, "info");
+  };
+
+  const applyCatppuccin = (ctx: ExtensionContext, flavor: Flavor, style: Style): void => {
+    const next = resolveCatppuccinTheme(ctx.ui.theme.name, flavor, style);
+    applyNamedTheme(ctx, next.name, themeMessage(next.flavor, next.style));
+  };
+
+  const applyCharmtone = (ctx: ExtensionContext): void => {
+    applyNamedTheme(ctx, CHARMTONE_PANTERA, `Theme set to ${CHARMTONE_LABEL}`);
+  };
+
+  const pickTheme = async (ctx: ExtensionContext): Promise<void> => {
+    const current = ctx.ui.theme.name;
+    const mocha = currentCatppuccin(ctx).style;
+    const value = await ctx.ui.select("Theme", [
+      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], !isCharmtonePantera(current) && style === mocha)),
+      withCurrent(CHARMTONE_LABEL, isCharmtonePantera(current)),
+    ]);
+    if (!value) return;
+    const key = withoutCurrent(value);
+    if (key === CHARMTONE_LABEL) {
+      applyCharmtone(ctx);
+      return;
+    }
+    const style = STYLES.find((item) => STYLE_LABELS[item] === key);
+    if (style) applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
   };
 
   const pickWidth = async (ctx: ExtensionContext): Promise<{ picked: true; width?: number } | undefined> => {
@@ -718,7 +746,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar, vertical mode, message length, Catppuccin theme, or file a bug",
+    description: "Density, footer, sidebar, vertical mode, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -782,13 +810,15 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (kind === "theme-menu") {
-        const style = await pickStyle(ctx);
-        if (!style) return;
-        applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
+        await pickTheme(ctx);
         return;
       }
 
       if (parsed.kind === "theme") {
+        if (parsed.name === CHARMTONE_PANTERA) {
+          applyCharmtone(ctx);
+          return;
+        }
         const style = parsed.style ?? (parsed.flavor ? currentCatppuccin(ctx).style : await pickStyle(ctx));
         if (!style) return;
         applyCatppuccin(ctx, parsed.flavor ?? currentCatppuccin(ctx).flavor, style);

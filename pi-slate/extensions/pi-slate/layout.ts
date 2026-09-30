@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseFlavor, parseStyle, type Flavor, type Style } from "./catppuccin.ts";
+import { parseCharmtoneTheme } from "./charmtone.ts";
 
 // The source SVG is a 4×4 square grid. Terminal cells are approximately twice
 // as tall as they are wide, so every source square occupies two columns.
@@ -217,7 +218,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [canonical|quiet|mauve|sapphire|peach|teal] | style [canonical|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [canonical|quiet|mauve|sapphire|peach|teal|pantera] | style [canonical|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -248,6 +249,9 @@ const SLATE_COMPLETIONS = [
   "message-length all",
   "theme",
   ...THEME_STYLES.map((style) => `theme ${style}`),
+  "theme pantera",
+  "theme charmtone",
+  "theme charmtone-pantera",
   "style",
   ...THEME_STYLES.map((style) => `style ${style}`),
   "bug",
@@ -265,7 +269,7 @@ export type SlateArgs =
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
-  | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style }
+  | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style; name?: string }
   | { ok: true; kind: "style"; value?: Style }
   | { ok: true; kind: "bug-menu" }
   | { ok: true; kind: "bug"; action: "file" | "open" }
@@ -278,6 +282,8 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (head === "theme") {
     if (words.length > 3) return { ok: false };
     if (!tail) return { ok: true, kind: "theme-menu" };
+    const crush = parseCharmtoneTheme(tail);
+    if (crush && !extra) return { ok: true, kind: "theme", name: crush };
     const flavor = parseFlavor(tail);
     if (flavor) {
       if (!extra) return { ok: true, kind: "theme", flavor };
