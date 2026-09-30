@@ -23,6 +23,8 @@ import {
   mainColumnWidth,
   maxSidebarWidth,
   modelLabel,
+  modelStatusLabel,
+  providerLabel,
   parseSidebarPercent,
   parseSidebarWidthArg,
   parseSlateArgs,
@@ -110,18 +112,30 @@ test("model label stays safe with missing data", () => {
   assert.equal(modelLabel(undefined), "no model");
 });
 
-test("bedrock model labels drop region, vendor, and provider suffix noise", () => {
-  assert.equal(modelLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }), "kimi-k3 (bedrock)");
-  assert.equal(modelLabel({ id: "xai.grok-4.6", provider: "bedrock" }), "grok-4.6 (bedrock)");
-  assert.equal(modelLabel({ id: "xai.grok-4.6", provider: "bedrock-priority" }), "grok-4.6 (bedrock)");
-  assert.equal(modelLabel({ id: "us.anthropic.claude-opus-4-7", provider: "bedrock" }), "claude-opus-4-7 (bedrock)");
-  assert.equal(modelLabel({ id: "amazon.nova-pro-v1:0", provider: "bedrock-runtime" }), "nova-pro-v1:0 (bedrock)");
+test("model labels are untouched without display config", () => {
+  assert.equal(modelLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }), "us.moonshotai.kimi-k3");
+  assert.equal(modelLabel({ id: "gpt-5.6", provider: "openai" }), "gpt-5.6");
+  assert.equal(modelStatusLabel({ id: "xai.grok-4.6", provider: "bedrock" }), "xai.grok-4.6");
 });
 
-test("non-bedrock model labels stay untouched", () => {
-  assert.equal(modelLabel({ id: "gpt-5.6", provider: "openai" }), "gpt-5.6");
-  assert.equal(modelLabel({ id: "claude-sonnet-4-5", provider: "anthropic" }), "claude-sonnet-4-5");
-  assert.equal(modelLabel({ id: "kimi-k3" }), "kimi-k3");
+test("model display config strips prefixes, aliases providers, and supports suffix style", () => {
+  const display = {
+    stripPrefixes: ["us.", "moonshotai.", "xai.", "amazon."],
+    providerAliases: { "bedrock-runtime": "bedrock", "bedrock-priority": "bedrock" },
+    providerSuffix: true,
+  };
+  assert.equal(modelLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }, display), "kimi-k3");
+  assert.equal(modelLabel({ id: "xai.grok-4.6", provider: "bedrock" }, display), "grok-4.6");
+  assert.equal(modelLabel({ id: "amazon.nova-pro-v1:0", provider: "bedrock" }, display), "nova-pro-v1:0");
+  assert.equal(modelStatusLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }, display), "kimi-k3 (bedrock)");
+  assert.equal(modelStatusLabel({ id: "xai.grok-4.6", provider: "bedrock-priority" }, display), "grok-4.6 (bedrock)");
+  assert.equal(providerLabel("bedrock-runtime", display), "bedrock");
+  assert.equal(providerLabel("openai", display), "openai");
+});
+
+test("model display config never strips an id down to nothing", () => {
+  assert.equal(modelLabel({ id: "us.", provider: "bedrock" }, { stripPrefixes: ["us."] }), "us.");
+  assert.equal(modelLabel({ id: "kimi-k3" }, { stripPrefixes: ["us."] }), "kimi-k3");
 });
 
 test("workspace column is 20% once the terminal is wide enough", () => {

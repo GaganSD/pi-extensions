@@ -86,6 +86,24 @@ Selection is saved and also appears in `/settings`.
 | Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal]` | Mocha style. `/slate style` does the same. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
+### Model display
+
+`~/.pi/agent/pi-slate.json` accepts a `modelDisplay` object to restyle model labels in the header and composer footer. It is provider-agnostic and display-only; the model id sent to the API never changes.
+
+```json
+{
+  "modelDisplay": {
+    "stripPrefixes": ["us.", "eu.", "global.", "anthropic.", "xai.", "moonshotai."],
+    "providerAliases": { "bedrock-runtime": "bedrock", "bedrock-priority": "bedrock" },
+    "providerSuffix": true
+  }
+}
+```
+
+- `stripPrefixes`: literal prefixes removed from displayed model ids, applied repeatedly. `us.moonshotai.kimi-k3` becomes `kimi-k3`.
+- `providerAliases`: renames a provider for display. Aliased providers collapse to the same label.
+- `providerSuffix`: render `kimi-k3 (bedrock)` instead of `bedrock/kimi-k3` in both the header and the footer.
+
 ## Minimal By Design
 
 Slate adds no context bloat; no tools, prompts, or model calls. It's entirely deterministic and made to be customizable and improve your Pi experience while your Pi remains yours.

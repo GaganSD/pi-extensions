@@ -1,7 +1,16 @@
 import { homedir } from "node:os";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-import { compactPath, isBedrockProvider, modelLabel, PI_LOGO, PI_LOGO_ASCII, paintLogo } from "./layout.ts";
+import {
+  compactPath,
+  modelLabel,
+  modelStatusLabel,
+  PI_LOGO,
+  PI_LOGO_ASCII,
+  paintLogo,
+  providerLabel,
+  type ModelDisplay,
+} from "./layout.ts";
 import { hairlineTextWidth, wrapHairlineText, symmetricHairline } from "./hairline.ts";
 import { formatUpdateNotice, type UpdateNotice } from "./updates.ts";
 
@@ -77,6 +86,7 @@ export class SlateHeader implements Component {
   private readonly columnWidth: (width: number) => number;
   private readonly getNotice: () => UpdateNotice;
   private readonly version: string;
+  private readonly getModelDisplay: () => ModelDisplay | undefined;
 
   constructor(
     theme: Theme,
@@ -84,12 +94,14 @@ export class SlateHeader implements Component {
     columnWidth: (width: number) => number,
     getNotice: () => UpdateNotice,
     version: string,
+    getModelDisplay: () => ModelDisplay | undefined = () => undefined,
   ) {
     this.theme = theme;
     this.getContext = getContext;
     this.columnWidth = columnWidth;
     this.getNotice = getNotice;
     this.version = version;
+    this.getModelDisplay = getModelDisplay;
   }
 
   invalidate(): void {}
@@ -98,10 +110,16 @@ export class SlateHeader implements Component {
     const ctx = this.getContext();
     const notice = formatUpdateNotice(this.getNotice());
     const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
+    const display = this.getModelDisplay();
+    const provider = providerLabel(ctx.model?.provider, display);
+    const modelText =
+      display?.providerSuffix && provider
+        ? modelStatusLabel(ctx.model, display)
+        : `${provider ? `${provider}/` : ""}${modelLabel(ctx.model, display)}`;
     return renderSlateHeader({
       width: this.columnWidth(width),
       version: this.version,
-      model: `${ctx.model?.provider && !isBedrockProvider(ctx.model.provider) ? `${ctx.model.provider}/` : ""}${modelLabel(ctx.model)}${effort}`,
+      model: `${modelText}${effort}`,
       path: compactPath(ctx.cwd, homedir()),
       ...(notice ? { notice } : {}),
       ascii: process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1",

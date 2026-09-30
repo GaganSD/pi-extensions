@@ -6,6 +6,7 @@ import {
   chromePaint,
   composerContextEdge,
   composerLabels,
+  composerStatusContextEdge,
   composerPaddingX,
   frameComposerLines,
   padComposerFrame,
@@ -119,6 +120,21 @@ test("vertical context sits on the composer top edge", () => {
   const squeezed = composerContextEdge("$7.47 · 14 skills loaded", 28, (text) => text, 3);
   assert.equal(visibleWidth(squeezed), 28);
   assert.match(squeezed, /↑ 3 more/);
+});
+
+test("working status stays left of the vertical context edge", () => {
+  const line = composerStatusContextEdge(
+    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    80,
+    (text) => text,
+    0,
+    (width) => `── pondering... ${"─".repeat(Math.max(0, width - 16))}`,
+    12,
+  );
+  assert.equal(visibleWidth(line), 80);
+  assert.match(line, /^╭── pondering\.\.\./);
+  assert.ok(line.indexOf("pondering") < line.indexOf("$7.47"));
+  assert.match(line, /\$7\.47 · 14 skills loaded · 2 MCPs enabled ╮$/);
 });
 
 test("empty composer frames sides and prompt without a hint row", () => {

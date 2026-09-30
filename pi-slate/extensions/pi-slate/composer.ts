@@ -6,7 +6,7 @@ import {
   type EditorTheme,
   type TUI,
 } from "@earendil-works/pi-tui";
-import { footerVisibility, modelLabel } from "./layout.ts";
+import { footerVisibility, modelStatusLabel, type ModelDisplay } from "./layout.ts";
 
 export function composerPaddingX(density: "comfortable" | "compact"): number {
   return density === "compact" ? 2 : 4;
@@ -174,6 +174,7 @@ export type ComposerSource = {
   project: string;
   branch: string | null;
   model: { id?: string; name?: string; provider?: string } | undefined;
+  modelDisplay?: ModelDisplay;
   thinking?: string;
   footer: "standard" | "minimal";
   theme: Theme;
@@ -270,7 +271,7 @@ export class ComposerEditor extends CustomEditor {
       {
         project: src.project,
         branch: src.branch,
-        model: modelLabel(src.model),
+        model: modelStatusLabel(src.model, src.modelDisplay),
         thinking: src.thinking,
         tokens: src.context?.tokens,
         footer: src.footer,

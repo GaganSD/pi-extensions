@@ -31,39 +31,47 @@ export function compactDisplayText(text: string, cwd?: string, home?: string): s
   return out;
 }
 
-const BEDROCK_REGIONS = new Set(["us", "eu", "ap", "sa", "ca", "me", "af", "apac", "global", "us-gov"]);
-const BEDROCK_VENDORS = new Set([
-  "ai21",
-  "amazon",
-  "anthropic",
-  "cohere",
-  "deepseek",
-  "google",
-  "meta",
-  "mistral",
-  "moonshotai",
-  "openai",
-  "qwen",
-  "stability",
-  "writer",
-  "xai",
-]);
+export type ModelDisplay = {
+  /** Literal prefixes stripped from displayed model ids, applied repeatedly. */
+  stripPrefixes?: string[];
+  /** Provider id -> display name. */
+  providerAliases?: Record<string, string>;
+  /** When true, render "model-id (provider)" instead of "provider/model-id". */
+  providerSuffix?: boolean;
+};
 
-export function isBedrockProvider(provider: string | undefined): boolean {
-  return provider === "bedrock" || provider?.startsWith("bedrock-") === true;
-}
-
-export function conciseModelId(id: string): string {
-  const parts = id.split(".");
-  if (parts.length > 1 && BEDROCK_REGIONS.has(parts[0] ?? "")) parts.shift();
-  if (parts.length > 1 && BEDROCK_VENDORS.has(parts[0] ?? "")) parts.shift();
-  return parts.join(".");
-}
-
-export function modelLabel(model: { id?: string; name?: string; provider?: string } | undefined): string {
+export function modelLabel(
+  model: { id?: string; name?: string; provider?: string } | undefined,
+  display?: ModelDisplay,
+): string {
   if (!model) return "no model";
-  const base = model.id || model.name || "unknown model";
-  if (isBedrockProvider(model.provider)) return `${conciseModelId(base)} (bedrock)`;
+  let base = model.id || model.name || "unknown model";
+  const prefixes = display?.stripPrefixes ?? [];
+  let stripping = true;
+  while (stripping) {
+    stripping = false;
+    for (const prefix of prefixes) {
+      if (prefix && base.startsWith(prefix) && base.length > prefix.length) {
+        base = base.slice(prefix.length);
+        stripping = true;
+      }
+    }
+  }
+  return base;
+}
+
+export function providerLabel(provider: string | undefined, display?: ModelDisplay): string | undefined {
+  if (!provider) return undefined;
+  return display?.providerAliases?.[provider] ?? provider;
+}
+
+export function modelStatusLabel(
+  model: { id?: string; name?: string; provider?: string } | undefined,
+  display?: ModelDisplay,
+): string {
+  const base = modelLabel(model, display);
+  const provider = providerLabel(model?.provider, display);
+  if (display?.providerSuffix && provider) return `${base} (${provider})`;
   return base;
 }
 

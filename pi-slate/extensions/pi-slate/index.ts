@@ -51,6 +51,7 @@ import {
   MESSAGE_LENGTH_SHORT,
   withCurrent,
   withoutCurrent,
+  type ModelDisplay,
 } from "./layout.ts";
 import { SlateHeader } from "./header.ts";
 import { UpdateWatcher } from "./updates.ts";
@@ -77,6 +78,7 @@ type SlateConfig = {
   sidebarPercent?: number;
   vertical?: boolean;
   messageLength?: number | "all";
+  modelDisplay?: ModelDisplay;
   themeApplied?: boolean;
   fullscreenApplied?: boolean;
 };
@@ -101,17 +103,38 @@ function readOptionalJson(path: string): unknown {
   }
 }
 
+function loadModelDisplay(value: unknown): ModelDisplay | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Partial<ModelDisplay>;
+  const display: ModelDisplay = {};
+  if (Array.isArray(raw.stripPrefixes)) {
+    const prefixes = raw.stripPrefixes.filter((p): p is string => typeof p === "string" && p.length > 0);
+    if (prefixes.length > 0) display.stripPrefixes = prefixes;
+  }
+  if (typeof raw.providerAliases === "object" && raw.providerAliases !== null) {
+    const aliases: Record<string, string> = {};
+    for (const [key, alias] of Object.entries(raw.providerAliases)) {
+      if (typeof alias === "string" && alias.length > 0) aliases[key] = alias;
+    }
+    if (Object.keys(aliases).length > 0) display.providerAliases = aliases;
+  }
+  if (raw.providerSuffix === true) display.providerSuffix = true;
+  return Object.keys(display).length > 0 ? display : undefined;
+}
+
 function loadConfig(): SlateConfig {
   try {
     const value = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Partial<SlateConfig>;
     const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
     const messageLength = loadMessageLength(value.messageLength);
+    const modelDisplay = loadModelDisplay(value.modelDisplay);
     return {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
       vertical: value.vertical !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
+      ...(modelDisplay === undefined ? {} : { modelDisplay }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
     };
@@ -343,7 +366,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       });
       updates.setOnChange(() => tui.requestRender());
       updates.start(ctx.cwd);
-      return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION);
+      return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
     });
     ctx.ui.setFooter((tui, _theme, footerData) => {
       activeTui = tui;
@@ -368,6 +391,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             project: basename(current.cwd) || current.cwd,
             branch: gitBranch,
             model: current.model,
+            modelDisplay: config.modelDisplay,
             thinking: current.thinkingLevel,
             footer: config.footer,
             theme: current.ui.theme,
@@ -687,7 +711,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         ctx.ui.notify("Usage: /vertical [on|off]", "error");
         return;
       }
-      applyVertical(ctx, tail === "" ? undefined : tail === "on");
+      applyVertical(ctx, tail === "" ? undefined : tail !== "on");
     },
   });
 
