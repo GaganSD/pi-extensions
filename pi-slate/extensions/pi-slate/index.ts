@@ -1,5 +1,4 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
   copyToClipboard,
@@ -9,11 +8,8 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type KeybindingsManager,
-  type Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
-  truncateToWidth,
-  visibleWidth,
   type Component,
   type EditorTheme,
   type TUI,
@@ -30,17 +26,11 @@ import { resolveContextTokens, sessionSpend } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import {
-  PI_LOGO,
-  PI_LOGO_ASCII,
-  paintLogo,
-  centerOffset,
-  compactPath,
   countSkillCommands,
   formatContextResources,
   formatContextTokens,
   mainColumnWidth,
   mergeMcpServerMaps,
-  modelLabel,
   parseMcpEnabledCount,
   parseMessageLength,
   parseMessageLengthArg,
@@ -62,6 +52,8 @@ import {
   withCurrent,
   withoutCurrent,
 } from "./layout.ts";
+import { SlateHeader } from "./header.ts";
+import { UpdateWatcher } from "./updates.ts";
 import {
   formatBugReport,
   issueTemplate,
@@ -154,43 +146,6 @@ function widthMessage(percent: number | undefined): string {
   return `Sidebar width set to ${percent}%`;
 }
 
-function centeredLine(content: string, width: number): string {
-  const clipped = truncateToWidth(content, width, "…");
-  return `${" ".repeat(centerOffset(width, visibleWidth(clipped)))}${clipped}`;
-}
-
-class MinimalHeader implements Component {
-  constructor(
-    private readonly theme: Theme,
-    private readonly getContext: () => ExtensionContext,
-    private readonly columnWidth: (width: number) => number,
-  ) {}
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    if (width < 20) return [];
-    const ctx = this.getContext();
-    const path = compactPath(ctx.cwd, homedir());
-    const model = modelLabel(ctx.model);
-    const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
-    const truecolor = this.theme.getColorMode() === "truecolor";
-    const logoLines = process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1"
-      ? PI_LOGO_ASCII
-      : PI_LOGO;
-    const column = this.columnWidth(width);
-    const provider = `${ctx.model?.provider ?? "provider"}/`;
-    const modelLine = this.theme.fg("muted", `${provider}${model}${effort}`);
-    return [
-      ...logoLines.map((line) => centeredLine(paintLogo(line, truecolor), column)),
-      "",
-      centeredLine(this.theme.fg("muted", `Pi Agent v${VERSION}`), column),
-      centeredLine(modelLine, column),
-      centeredLine(this.theme.fg("dim", path), column),
-    ];
-  }
-}
-
 class BranchFooter implements Component {
   private readonly unsubscribe: () => void;
 
@@ -232,6 +187,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let activeTui: TUI | undefined;
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
+  const updates = new UpdateWatcher();
   let contextEdge = {
     tokens: formatContextTokens(null, null, null),
     resources: formatContextResources(null, 0, 0),
@@ -385,7 +341,9 @@ export default function piSlate(pi: ExtensionAPI): void {
         ],
         intervalMs: 240,
       });
-      return new MinimalHeader(theme, getContext, columnWidth);
+      updates.setOnChange(() => tui.requestRender());
+      updates.start(ctx.cwd);
+      return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION);
     });
     ctx.ui.setFooter((tui, _theme, footerData) => {
       activeTui = tui;
