@@ -11,7 +11,6 @@ import { paintSelectedContent } from "./composer.ts";
 export type ComposerSelectionEditor = {
   getText(): string;
   setText(text: string): void;
-  getExpandedText(): string;
   getCursor(): { line: number; col: number };
   handleInput(data: string): void;
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined;
@@ -22,9 +21,7 @@ export type ComposerSelectionEditor = {
 };
 
 export type ComposerSelectionOptions = {
-  copy(text: string): void | Promise<void>;
   requestRender?(): void;
-  onCopyError?(error: unknown): void;
 };
 
 type PasteableEditor = ComposerSelectionEditor & {
@@ -54,14 +51,6 @@ function isSelectAll(data: string): boolean {
   return matchesKey(data, "ctrl+a") || matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
 }
 
-function isCopy(data: string): boolean {
-  return matchesKey(data, "ctrl+c") || matchesKey(data, "super+c") || matchesKey(data, "ctrl+shift+c");
-}
-
-function isCut(data: string): boolean {
-  return matchesKey(data, "ctrl+x") || matchesKey(data, "super+x") || matchesKey(data, "ctrl+shift+x");
-}
-
 function isPrintable(data: string): boolean {
   return data.length > 0 && !/[\x00-\x1f\x7f]/.test(data);
 }
@@ -76,22 +65,29 @@ function isReplace(data: string): boolean {
 
 const PASTE_TOKEN = /\[paste #(\d+)(?: \+\d+ lines| \d+ chars)?\]/g;
 
+/** Same threshold Pi uses before collapsing a paste to `[paste #N]`. */
+export function isCollapsedPaste(text: string): boolean {
+  return text.split("\n").length > 10 || text.length > 1000;
+}
+
 export function pasteTokenAtCursor(
   text: string,
   cursor: { line: number; col: number },
-): { start: number; end: number; number: string } | undefined {
+): { start: number; end: number; number: string; token: string } | undefined {
   const line = text.split("\n")[cursor.line];
   if (line === undefined) return undefined;
   for (const match of line.matchAll(PASTE_TOKEN)) {
     const start = match.index ?? 0;
     const end = start + match[0].length;
-    if (cursor.col >= start && cursor.col <= end) return { start, end, number: match[1]! };
+    if (cursor.col >= start && cursor.col <= end) {
+      return { start, end, number: match[1]!, token: match[0] };
+    }
   }
   return undefined;
 }
 
 function isPasteClick(event: TuiMouseEvent): boolean {
-  return event.button === "left" && (event.type === "click" || event.type === "press");
+  return event.button === "left" && event.type === "click";
 }
 
 type EditorPasteState = {
@@ -103,42 +99,42 @@ type EditorPasteState = {
   invalidate?: () => void;
 };
 
-/** Reveal one composer paste marker. Sibling markers and submit text stay as Pi stored them. */
-function revealPasteAtCursor(editor: ComposerSelectionEditor): boolean {
-  const token = pasteTokenAtCursor(editor.getText(), editor.getCursor());
-  if (!token) return false;
+type RevealedPaste = {
+  id: number;
+  token: string;
+  body: string;
+  startLine: number;
+  startCol: number;
+};
+
+function replaceRange(
+  editor: ComposerSelectionEditor,
+  startLine: number,
+  startCol: number,
+  endLine: number,
+  endCol: number,
+  replacement: string,
+): boolean {
   const internals = editor as unknown as Partial<EditorPasteState>;
   const state = internals.state;
-  const pastes = internals.pastes;
-  const cursor = editor.getCursor();
-  const id = Number(token.number);
-  const body = pastes instanceof Map ? pastes.get(id) : undefined;
-  if (
-    !state || !Array.isArray(state.lines) || typeof body !== "string"
-    || state.cursorLine !== cursor.line || state.cursorCol !== cursor.col
-    || cursor.line < 0 || cursor.line >= state.lines.length
-  ) return false;
-  const line = state.lines[cursor.line];
-  if (!line || token.end > line.length || token.start < 0) return false;
+  if (!state || !Array.isArray(state.lines) || startLine < 0 || endLine >= state.lines.length) return false;
+  const startLineText = state.lines[startLine];
+  const endLineText = state.lines[endLine];
+  if (!startLineText || !endLineText || startCol < 0 || endCol > endLineText.length) return false;
 
   internals.cancelAutocomplete?.call(editor);
   internals.exitHistoryBrowsing?.call(editor);
 
-  const inserted = body.split("\n");
-  const before = line.slice(0, token.start);
-  const after = line.slice(token.end);
+  const inserted = replacement.split("\n");
+  const before = startLineText.slice(0, startCol);
+  const after = endLineText.slice(endCol);
   const nextLines = [...state.lines];
-  if (inserted.length === 1) nextLines[cursor.line] = `${before}${inserted[0] ?? ""}${after}`;
-  else nextLines.splice(cursor.line, 1, `${before}${inserted[0] ?? ""}`, ...inserted.slice(1, -1), `${inserted.at(-1) ?? ""}${after}`);
-
-  const stillReferenced = nextLines.some((nextLine) =>
-    [...nextLine.matchAll(PASTE_TOKEN)].some((match) => Number(match[1]) === id),
-  );
-  if (!stillReferenced) pastes.delete(id);
+  if (inserted.length === 1) nextLines.splice(startLine, endLine - startLine + 1, `${before}${inserted[0] ?? ""}${after}`);
+  else nextLines.splice(startLine, endLine - startLine + 1, `${before}${inserted[0] ?? ""}`, ...inserted.slice(1, -1), `${inserted.at(-1) ?? ""}${after}`);
 
   internals.state = {
     lines: nextLines,
-    cursorLine: cursor.line + inserted.length - 1,
+    cursorLine: startLine + inserted.length - 1,
     cursorCol: inserted.length === 1 ? before.length + (inserted[0] ?? "").length : (inserted.at(-1) ?? "").length,
   };
   internals.onChange?.(nextLines.join("\n"));
@@ -146,20 +142,35 @@ function revealPasteAtCursor(editor: ComposerSelectionEditor): boolean {
   return true;
 }
 
-/** Adds prompt selection and public-API paste expansion to one composer editor. */
+function revealedRange(item: RevealedPaste): { endLine: number; endCol: number } {
+  const lines = item.body.split("\n");
+  if (lines.length === 1) return { endLine: item.startLine, endCol: item.startCol + (lines[0] ?? "").length };
+  return { endLine: item.startLine + lines.length - 1, endCol: (lines.at(-1) ?? "").length };
+}
+
+function cursorInRevealed(item: RevealedPaste, cursor: { line: number; col: number }): boolean {
+  const { endLine, endCol } = revealedRange(item);
+  if (cursor.line < item.startLine || cursor.line > endLine) return false;
+  if (cursor.line === item.startLine && cursor.col < item.startCol) return false;
+  if (cursor.line === endLine && cursor.col > endCol) return false;
+  return true;
+}
+
+/** Adds prompt selection and click-to-toggle paste expansion to one composer editor. */
 export class ComposerSelectionController {
   private installed?: InstalledEditor;
   private selected = false;
   private escapeArmedText?: string;
   private escapeArmedAt = 0;
   private revision = 0;
+  private revealed: RevealedPaste[] = [];
   private readonly now: () => number;
 
   constructor(now: () => number = Date.now) {
     this.now = now;
   }
 
-  attach(editor: ComposerSelectionEditor, options: ComposerSelectionOptions): void {
+  attach(editor: ComposerSelectionEditor, options: ComposerSelectionOptions = {}): void {
     this.dispose();
 
     const pasteable = editor as unknown as PasteableEditor;
@@ -180,33 +191,39 @@ export class ComposerSelectionController {
     const disarmEscape = (): void => {
       this.escapeArmedText = undefined;
     };
+    const clearRevealed = (): void => {
+      this.revealed = [];
+    };
     const clearInteraction = (): void => {
       collapse();
       disarmEscape();
       this.revision += 1;
     };
-    const copySelected = (cut: boolean): void => {
-      const rawText = editor.getText();
-      const expandedText = editor.getExpandedText();
-      const revision = this.revision;
-      collapse();
-      try {
-        void Promise.resolve(options.copy(expandedText)).then(
-          () => {
-            if (cut && this.installed?.editor === editor && this.revision === revision && editor.getText() === rawText) {
-              editor.setText("");
-              options.requestRender?.();
-            }
-          },
-          (error: unknown) => options.onCopyError?.(error),
-        );
-      } catch (error) {
-        options.onCopyError?.(error);
+
+    const togglePasteAtCursor = (): boolean => {
+      const cursor = editor.getCursor();
+      const open = [...this.revealed].reverse().find((item) => cursorInRevealed(item, cursor));
+      if (open) {
+        const { endLine, endCol } = revealedRange(open);
+        if (!replaceRange(editor, open.startLine, open.startCol, endLine, endCol, open.token)) return false;
+        this.revealed = this.revealed.filter((item) => item !== open);
+        return true;
       }
+
+      const token = pasteTokenAtCursor(editor.getText(), cursor);
+      if (!token) return false;
+      const internals = editor as unknown as Partial<EditorPasteState>;
+      const id = Number(token.number);
+      const body = internals.pastes instanceof Map ? internals.pastes.get(id) : undefined;
+      if (typeof body !== "string") return false;
+      if (!replaceRange(editor, cursor.line, token.start, cursor.line, token.end, body)) return false;
+      this.revealed.push({ id, token: token.token, body, startLine: cursor.line, startCol: token.start });
+      return true;
     };
 
     const setText = (text: string): void => {
       clearInteraction();
+      clearRevealed();
       originalSetText.call(editor, text);
     };
 
@@ -249,10 +266,6 @@ export class ComposerSelectionController {
       }
 
       if (this.selected) {
-        if (isCopy(data) || isCut(data)) {
-          copySelected(isCut(data));
-          return;
-        }
         if (matchesKey(data, "backspace") || matchesKey(data, "delete")) {
           editor.setText("");
           return;
@@ -271,7 +284,7 @@ export class ComposerSelectionController {
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
       clearInteraction();
       const result = originalHandleMouse.call(editor, event);
-      if (isPasteClick(event) && revealPasteAtCursor(editor)) options.requestRender?.();
+      if (isPasteClick(event) && togglePasteAtCursor()) options.requestRender?.();
       return result;
     };
 
@@ -294,6 +307,7 @@ export class ComposerSelectionController {
       ? (text: string): void => {
         this.revision += 1;
         disarmEscape();
+        clearRevealed();
         if (this.selected) {
           editor.setText("");
           collapse();
@@ -309,6 +323,11 @@ export class ComposerSelectionController {
         if (this.selected) {
           editor.setText("");
           collapse();
+        }
+        if (isCollapsedPaste(text) && pasteable.handlePaste) {
+          clearRevealed();
+          pasteable.handlePaste(text);
+          return;
         }
         originalInsertTextAtCursor.call(editor, text);
       }
@@ -385,6 +404,7 @@ export class ComposerSelectionController {
     this.installed = undefined;
     this.selected = false;
     this.escapeArmedText = undefined;
+    this.revealed = [];
     this.revision += 1;
   }
 }

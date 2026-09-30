@@ -35,7 +35,6 @@ Slate renders cleanly into your terminal and stays customizable without adding t
 
 Vertical mode is the default. It unmounts the sidebar, gives chat the full window, and keeps the prompt compact.
 
-- `/vertical` toggles vertical mode.
 - `/slate vertical [on|off]` sets the saved vertical-mode state.
 - Choosing a sidebar width returns to standard sidebar mode.
 - Working status stays on the left of the prompt's top edge.
@@ -108,14 +107,12 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 | Action | Keys |
 | --- | --- |
 | Select all prompt text | `Ctrl+A` |
-| Copy selected prompt | selected `Ctrl+C` |
-| Cut selected prompt | selected `Ctrl+X` |
 | Replace selection | Type, Backspace, or paste |
 | Submit selected prompt | `Enter` |
 | Clear the prompt | `Esc` `Esc` |
-| Expand a collapsed paste | Click the `[paste #N]` token |
+| Expand or collapse a paste | Click the `[paste #N]` token |
 
-`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. Copy uses the expanded paste body. Unselected `Ctrl+C` and `Ctrl+X` keep Pi's normal behavior. Image tokens stay as `[image-N]`. Clicking a paste token only reveals that token in the composer; submit text is unchanged.
+`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. Large pastes stay collapsed as `[paste #N]` until you click that token. Image tokens stay as `[image-N]`. Submit text is unchanged.
 
 ## Commands
 
@@ -123,7 +120,7 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 | Setting | Commands | Effect |
 | --- | --- | --- |
-| Vertical | `/vertical` or `/slate vertical [on\|off]` | Toggle or set vertical mode. Vertical mode hides the sidebar; standard mode restores it. |
+| Vertical | `/slate vertical [on\|off]` | Set vertical mode. Vertical mode hides the sidebar; standard mode restores it. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |

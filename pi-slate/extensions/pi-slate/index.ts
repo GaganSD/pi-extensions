@@ -409,9 +409,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         },
       );
       selection.attach(activeEditor, {
-        copy: (text) => copyToClipboard(text),
         requestRender: () => tui.requestRender(),
-        onCopyError: () => ctx.ui.notify("Could not copy", "error"),
       });
       images.attachEditor(activeEditor);
       return activeEditor;
@@ -712,18 +710,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     const on = value ?? !config.vertical;
     apply({ ...config, vertical: on }, on ? "Vertical mode on" : "Vertical mode off", ctx);
   };
-
-  pi.registerCommand("vertical", {
-    description: "Hide the sidebar and use the full window",
-    handler: async (args, ctx) => {
-      const tail = args.trim().toLowerCase();
-      if (tail && tail !== "on" && tail !== "off") {
-        ctx.ui.notify("Usage: /vertical [on|off]", "error");
-        return;
-      }
-      applyVertical(ctx, tail === "" ? undefined : tail !== "on");
-    },
-  });
 
   pi.registerCommand("slate", {
     description: "Density, footer, sidebar, vertical mode, message length, theme, or file a bug",

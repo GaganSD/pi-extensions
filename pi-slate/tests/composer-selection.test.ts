@@ -21,11 +21,11 @@ import {
 
 class FakeEditor implements ComposerSelectionEditor {
   text: string;
-  expandedText?: string;
   pastes = new Map<number, string>();
   setTextCalls: string[] = [];
   inputCalls: string[] = [];
   pasteCalls: string[] = [];
+  insertCalls: string[] = [];
   mouseCalls = 0;
   cursor?: { line: number; col: number };
   renderedLines = ["TOP", "prompt", "BOTTOM"];
@@ -55,16 +55,17 @@ class FakeEditor implements ComposerSelectionEditor {
     this.text = text;
   }
 
-  getExpandedText(): string {
-    return this.expandedText ?? this.text;
-  }
-
   getCursor(): { line: number; col: number } {
     return this.cursor ?? { line: 0, col: this.text.length };
   }
 
   handlePaste = (text: string): void => {
     this.pasteCalls.push(text);
+    this.text += text;
+  };
+
+  insertTextAtCursor = (text: string): void => {
+    this.insertCalls.push(text);
     this.text += text;
   };
 
@@ -91,17 +92,14 @@ class FakeEditor implements ComposerSelectionEditor {
 
 function attach(
   editor: FakeEditor,
-  copy: (text: string) => void = () => {},
   now: () => number = Date.now,
 ): ComposerSelectionController {
   const selection = new ComposerSelectionController(now);
-  selection.attach(editor, { copy });
+  selection.attach(editor, {});
   return selection;
 }
 
 const SELECT_ALL = "\x01";
-const COPY = "\x03";
-const CUT = "\x18";
 
 test("Ctrl+A selects all without inserting a", () => {
   const editor = new FakeEditor("hello");
@@ -146,6 +144,15 @@ test("Backspace and printable input replace a select-all range", async (t) => {
   });
 });
 
+test("Ctrl+C and Ctrl+X pass through to Pi", () => {
+  const editor = new FakeEditor("hello");
+  attach(editor);
+  editor.handleInput("\x03");
+  editor.handleInput("\x18");
+  assert.deepEqual(editor.inputCalls, ["\x03", "\x18"]);
+  assert.equal(editor.getText(), "hello");
+});
+
 test("Enter, Tab, and Ctrl+D keep selected text and pass through", () => {
   for (const key of ["\r", "\t", "\x04"]) {
     const editor = new FakeEditor("keep me");
@@ -158,44 +165,10 @@ test("Enter, Tab, and Ctrl+D keep selected text and pass through", () => {
   }
 });
 
-test("selected Ctrl+C copies expanded text without calling the editor", () => {
-  const editor = new FakeEditor("[paste #1]");
-  editor.expandedText = "full pasted text";
-  const copied: string[] = [];
-  attach(editor, (text) => copied.push(text));
-  editor.handleInput(SELECT_ALL);
-  editor.handleInput(COPY);
-  assert.deepEqual(copied, ["full pasted text"]);
-  assert.deepEqual(editor.inputCalls, []);
-  assert.equal(editor.getText(), "[paste #1]");
-});
-
-test("unselected Ctrl+C and Ctrl+X pass through", () => {
-  const editor = new FakeEditor("hello");
-  const copied: string[] = [];
-  attach(editor, (text) => copied.push(text));
-  editor.handleInput(COPY);
-  editor.handleInput(CUT);
-  assert.deepEqual(copied, []);
-  assert.deepEqual(editor.inputCalls, [COPY, CUT]);
-  assert.equal(editor.getText(), "hello");
-});
-
-test("selected Ctrl+X cuts after a successful copy", async () => {
-  const editor = new FakeEditor("hello");
-  const copied: string[] = [];
-  attach(editor, (text) => copied.push(text));
-  editor.handleInput(SELECT_ALL);
-  editor.handleInput(CUT);
-  await Promise.resolve();
-  assert.deepEqual(copied, ["hello"]);
-  assert.equal(editor.getText(), "");
-});
-
 test("a first unchanged Escape passes through and a second within 500ms clears", () => {
   let time = 1_000;
   const editor = new FakeEditor("hello");
-  attach(editor, () => {}, () => time);
+  attach(editor, () => time);
 
   editor.handleInput("\x1b");
   assert.equal(editor.getText(), "hello");
@@ -229,13 +202,16 @@ test("clicking a paste token reveals only that token", () => {
   editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
   assert.deepEqual(editor.setTextCalls, []);
   assert.equal(editor.getText(), "see one\ntwo and [paste #2 +5 lines]");
-  assert.equal(editor.pastes.has(1), false);
+  assert.equal(editor.pastes.get(1), "one\ntwo");
   assert.equal(editor.pastes.get(2), "keep");
+
+  editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+  assert.equal(editor.getText(), "see [paste #1 +10 lines] and [paste #2 +5 lines]");
+  assert.equal(editor.pastes.get(1), "one\ntwo");
 });
 
 test("clicking away from a paste token does not expand", () => {
   const editor = new FakeEditor("see [paste #1 +10 lines]");
-  editor.expandedText = "see body";
   editor.cursor = { line: 0, col: 1 };
   attach(editor);
   editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
@@ -290,10 +266,6 @@ function createIntegratedEditor(t: TestContext): { editor: CustomEditor; tui: Tu
   return { editor, tui };
 }
 
-function send(tui: TuiBase, data: string): void {
-  (tui as unknown as { handleTerminalInput(data: string): void }).handleTerminalInput(data);
-}
-
 test("select-all then Enter submits the prompt instead of erasing it", () => {
   const submitted: string[] = [];
   const editor = new Editor({
@@ -302,7 +274,7 @@ test("select-all then Enter submits the prompt instead of erasing it", () => {
   } as TUI, { borderColor: (text) => text } as EditorTheme);
   editor.onSubmit = (text) => submitted.push(text);
   const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy() {} });
+  selection.attach(editor, {});
   editor.setText("keep this prompt");
   editor.handleInput(SELECT_ALL);
   editor.handleInput("\r");
@@ -310,62 +282,32 @@ test("select-all then Enter submits the prompt instead of erasing it", () => {
   selection.dispose();
 });
 
-test("selected Ctrl+C copies while unselected Ctrl+C keeps Pi clear behavior", async (t) => {
-  const { editor, tui } = createIntegratedEditor(t);
-  const copied: string[] = [];
-  let clears = 0;
-  editor.onAction("app.clear", () => { clears += 1; });
+test("large insertTextAtCursor stays collapsed as a paste token", async (t) => {
+  const { editor } = createIntegratedEditor(t);
   const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy: (text) => { copied.push(text); } });
-  editor.setText("prompt");
-  send(tui, COPY);
-  assert.equal(clears, 1);
-  send(tui, SELECT_ALL);
-  send(tui, COPY);
-  await Promise.resolve();
-  assert.deepEqual(copied, ["prompt"]);
-  assert.equal(clears, 1);
-  assert.equal(editor.getText(), "prompt");
+  selection.attach(editor, {});
+  const pasted = `${"stack trace line\n".repeat(20)}end`;
+  editor.insertTextAtCursor(pasted);
+  assert.match(editor.getText(), /^\[paste #1 /);
+  assert.notEqual(editor.getText(), pasted);
+  assert.equal(editor.getExpandedText(), pasted);
   selection.dispose();
 });
 
-test("selected Ctrl+X cuts; unselected Ctrl+X keeps the last-message copy action", async (t) => {
-  const { editor, tui } = createIntegratedEditor(t);
-  const copied: string[] = [];
-  let messageCopies = 0;
-  editor.onAction("app.message.copy", () => { messageCopies += 1; });
-  const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy: (text) => { copied.push(text); } });
-  editor.setText("keep");
-  send(tui, CUT);
-  assert.equal(messageCopies, 1);
-  assert.equal(editor.getText(), "keep");
-  send(tui, SELECT_ALL);
-  send(tui, CUT);
-  await Promise.resolve();
-  assert.deepEqual(copied, ["keep"]);
-  assert.equal(editor.getText(), "");
-  assert.equal(messageCopies, 1);
-  selection.dispose();
+test("large insertTextAtCursor uses handlePaste instead of inserting raw text", () => {
+  const editor = new FakeEditor();
+  attach(editor);
+  const pasted = "x".repeat(1001);
+  editor.insertTextAtCursor(pasted);
+  assert.deepEqual(editor.pasteCalls, [pasted]);
+  assert.deepEqual(editor.insertCalls, []);
 });
 
-test("async cuts repaint only after successful guarded prompt clearing", async (t) => {
-  const successful = createIntegratedEditor(t);
-  let finish!: () => void;
-  let successfulRenders = 0;
+test("short insertTextAtCursor is not collapsed", async (t) => {
+  const { editor } = createIntegratedEditor(t);
   const selection = new ComposerSelectionController();
-  selection.attach(successful.editor, {
-    copy: () => new Promise<void>((resolve) => { finish = resolve; }),
-    requestRender: () => { successfulRenders += 1; },
-  });
-  successful.editor.setText("cut after copy completes");
-  send(successful.tui, SELECT_ALL);
-  send(successful.tui, CUT);
-  assert.equal(successful.editor.getText(), "cut after copy completes");
-  assert.equal(successfulRenders, 0);
-  finish();
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(successful.editor.getText(), "");
-  assert.equal(successfulRenders, 1);
+  selection.attach(editor, {});
+  editor.insertTextAtCursor("hello");
+  assert.equal(editor.getText(), "hello");
   selection.dispose();
 });
