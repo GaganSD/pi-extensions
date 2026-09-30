@@ -127,11 +127,13 @@ export function footerVisibility(width: number): {
   showBranch: boolean;
   showModel: boolean;
   showThinking: boolean;
+  showTokens: boolean;
 } {
   return {
     showBranch: width >= 42,
     showModel: width >= 66,
     showThinking: width >= 80,
+    showTokens: width >= 110,
   };
 }
 

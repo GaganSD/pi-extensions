@@ -110,6 +110,7 @@ export function composerLabels(
     branch: string | null;
     model: string;
     thinking?: string;
+    tokens?: string;
     footer: "standard" | "minimal";
   },
   theme: Theme,
@@ -118,14 +119,15 @@ export function composerLabels(
   const visible = footerVisibility(width);
   const project = theme.fg("accent", input.project);
   const branch = visible.showBranch && input.branch ? theme.fg("muted", ` / ${input.branch}`) : "";
-  const left = ` ${project}${branch} `;
-  if (input.footer === "minimal") return { left, right: "" };
+  const projectLabel = ` ${project}${branch} `;
+  if (input.footer === "minimal") return { left: projectLabel, right: "" };
 
   const parts: string[] = [];
+  if (visible.showTokens && input.tokens) parts.push(theme.fg("muted", input.tokens));
   if (visible.showModel) parts.push(theme.fg("muted", input.model));
   if (visible.showThinking && input.thinking) parts.push(theme.fg("dim", input.thinking));
-  const right = parts.length ? ` ${parts.join(theme.fg("borderMuted", " · "))} ` : "";
-  return { left, right };
+  const modelLabelText = parts.length ? ` ${parts.join(theme.fg("borderMuted", " · "))} ` : "";
+  return { left: projectLabel, right: modelLabelText };
 }
 
 export function frameComposerLines(
@@ -178,14 +180,13 @@ export type ComposerSource = {
 };
 
 export function composerContextEdge(
-  tokens: string,
   resources: string,
   width: number,
   paint: (text: string) => string,
   hiddenLineCount = 0,
 ): string {
   const more = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
-  return inscribedBorder(`${more} ${tokens} `, ` ${resources} `, width, paint, "╭", "╮");
+  return inscribedBorder(more, ` ${resources} `, width, paint, "╭", "╮");
 }
 
 export class ComposerEditor extends CustomEditor {
@@ -215,7 +216,6 @@ export class ComposerEditor extends CustomEditor {
     const src = this.source();
     if (src.context) {
       return composerContextEdge(
-        src.theme.fg("muted", src.context.tokens),
         src.theme.fg("dim", src.context.resources),
         width,
         (text) => this.borderColor(text),
@@ -234,6 +234,7 @@ export class ComposerEditor extends CustomEditor {
         branch: src.branch,
         model: modelLabel(src.model),
         thinking: src.thinking,
+        tokens: src.context?.tokens,
         footer: src.footer,
       },
       src.theme,

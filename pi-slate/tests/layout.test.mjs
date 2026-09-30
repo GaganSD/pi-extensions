@@ -76,11 +76,19 @@ test("footer progressively reveals optional metadata", () => {
     showBranch: false,
     showModel: false,
     showThinking: false,
+    showTokens: false,
   });
   assert.deepEqual(footerVisibility(100), {
     showBranch: true,
     showModel: true,
     showThinking: true,
+    showTokens: false,
+  });
+  assert.deepEqual(footerVisibility(110), {
+    showBranch: true,
+    showModel: true,
+    showThinking: true,
+    showTokens: true,
   });
 });
 

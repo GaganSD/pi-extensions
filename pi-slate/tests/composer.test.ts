@@ -58,6 +58,37 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
   assert.match(wide.right, /grok-4.6/);
   assert.match(wide.right, /medium/);
 
+  const withTokens = composerLabels(
+    {
+      project: "pi-configs",
+      branch: "main",
+      model: "grok-4.6",
+      thinking: "medium",
+      tokens: "0 tokens · 0% used · 0 tokens/sec",
+      footer: "standard",
+    },
+    theme,
+    140,
+  );
+  assert.match(withTokens.left, /pi-configs \/ main/);
+  assert.match(withTokens.right, /0 tokens · 0% used · 0 tokens\/sec · grok-4.6 · medium/);
+
+  const mid = composerLabels(
+    {
+      project: "pi-configs",
+      branch: "main",
+      model: "grok-4.6",
+      thinking: "medium",
+      tokens: "0 tokens · 0% used · 0 tokens/sec",
+      footer: "standard",
+    },
+    theme,
+    100,
+  );
+  assert.doesNotMatch(mid.right, /tokens/);
+  assert.match(mid.left, /pi-configs \/ main/);
+  assert.match(mid.right, /grok-4.6/);
+
   const minimal = composerLabels(
     { project: "pi-configs", branch: "main", model: "grok-4.6", thinking: "medium", footer: "minimal" },
     theme,
@@ -77,16 +108,15 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
 
 test("vertical context sits on the composer top edge", () => {
   const line = composerContextEdge(
-    "123,118 tokens · 25% used · 2,011 tokens/sec",
     "$7.47 · 14 skills loaded · 2 MCPs enabled",
     80,
     (text) => text,
   );
   assert.equal(line[0], "╭");
   assert.equal(line.at(-1), "╮");
-  assert.match(line, /123,118 tokens/);
+  assert.doesNotMatch(line, /tokens/);
   assert.match(line, /\$7\.47/);
-  const squeezed = composerContextEdge("123,118 tokens", "$7.47 · 14 skills loaded", 28, (text) => text, 3);
+  const squeezed = composerContextEdge("$7.47 · 14 skills loaded", 28, (text) => text, 3);
   assert.equal(visibleWidth(squeezed), 28);
   assert.match(squeezed, /↑ 3 more/);
 });
