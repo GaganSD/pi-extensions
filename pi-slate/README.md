@@ -61,15 +61,12 @@ Slate keeps usage and spend visible at the bottom. Context usage may be estimate
 
 The prompt, Summary, and Context share one frame. The Pi logo stays white in every theme.
 
-Catppuccin Mocha styles: Default, Quiet, Mauve, Sapphire, Peach, Teal.
-
-Charmtone Pantera is Crush's default palette plus chrome: Charple composer, Dolly→Charple model name, › ::: prompt. No diagonal field around the mark.
+Black Metal is the install default. Catppuccin Mocha styles: Default, Quiet, Mauve, Sapphire, Peach, Teal.
 
 `/slate` → Theme picks one. Or set it directly:
 
 ```text
 /slate theme mauve
-/slate theme pantera
 /slate style quiet
 ```
 
@@ -86,7 +83,7 @@ Selection is saved and also appears in `/settings`.
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Footer | `/slate footer [standard\|minimal]` | Standard shows model and thinking on the composer; minimal hides them. |
-| Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal\|pantera]` | Mocha style or Charmtone Pantera. `/slate style` is Mocha only. |
+| Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal]` | Mocha style. `/slate style` does the same. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Minimal By Design

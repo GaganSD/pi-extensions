@@ -77,15 +77,6 @@ import {
   type Flavor,
   type Style,
 } from "./catppuccin.ts";
-import {
-  CHARMTONE_FROM,
-  CHARMTONE_LABEL,
-  CHARMTONE_PANTERA,
-  CHARMTONE_TO,
-  isCharmtonePantera,
-  paintForegroundGrad,
-  workingFrames,
-} from "./charmtone.ts";
 import { applySlateTheme, persistFullscreen, persistTheme, shouldApplyInstallDefault } from "./install-defaults.ts";
 
 type SlateConfig = {
@@ -189,9 +180,7 @@ class MinimalHeader implements Component {
       : PI_LOGO;
     const column = this.columnWidth(width);
     const provider = `${ctx.model?.provider ?? "provider"}/`;
-    const modelLine = isCharmtonePantera(this.theme)
-      ? `${this.theme.fg("muted", provider)}${paintForegroundGrad(model, CHARMTONE_FROM, CHARMTONE_TO, truecolor)}${this.theme.fg("muted", effort)}`
-      : this.theme.fg("muted", `${provider}${model}${effort}`);
+    const modelLine = this.theme.fg("muted", `${provider}${model}${effort}`);
     return [
       ...logoLines.map((line) => centeredLine(paintLogo(line, truecolor), column)),
       "",
@@ -387,7 +376,15 @@ export default function piSlate(pi: ExtensionAPI): void {
       tokenRate.setOnChange(() => syncSidebar(getContext()));
       syncSidebar(ctx);
       queueMicrotask(syncVisibleMessages);
-      ctx.ui.setWorkingIndicator({ frames: workingFrames(theme), intervalMs: 240 });
+      ctx.ui.setWorkingIndicator({
+        frames: [
+          theme.fg("dim", "·"),
+          theme.fg("muted", "•"),
+          theme.fg("accent", "●"),
+          theme.fg("muted", "•"),
+        ],
+        intervalMs: 240,
+      });
       return new MinimalHeader(theme, getContext, columnWidth);
     });
     ctx.ui.setFooter((tui, _theme, footerData) => {
@@ -586,23 +583,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     applyNamedTheme(ctx, next.name, themeMessage(next.flavor, next.style));
   };
 
-  const applyCharmtone = (ctx: ExtensionContext): void => {
-    applyNamedTheme(ctx, CHARMTONE_PANTERA, `Theme set to ${CHARMTONE_LABEL}`);
-  };
-
   const pickTheme = async (ctx: ExtensionContext): Promise<void> => {
     const current = ctx.ui.theme.name;
     const mocha = currentCatppuccin(ctx).style;
     const value = await ctx.ui.select("Theme", [
-      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], !isCharmtonePantera(current) && style === mocha)),
-      withCurrent(CHARMTONE_LABEL, isCharmtonePantera(current)),
+      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], style === mocha)),
     ]);
     if (!value) return;
     const key = withoutCurrent(value);
-    if (key === CHARMTONE_LABEL) {
-      applyCharmtone(ctx);
-      return;
-    }
     const style = STYLES.find((item) => STYLE_LABELS[item] === key);
     if (style) applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
   };
@@ -815,10 +803,6 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (parsed.kind === "theme") {
-        if (parsed.name === CHARMTONE_PANTERA) {
-          applyCharmtone(ctx);
-          return;
-        }
         const style = parsed.style ?? (parsed.flavor ? currentCatppuccin(ctx).style : await pickStyle(ctx));
         if (!style) return;
         applyCatppuccin(ctx, parsed.flavor ?? currentCatppuccin(ctx).flavor, style);
