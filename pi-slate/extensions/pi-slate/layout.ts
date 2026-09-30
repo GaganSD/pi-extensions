@@ -31,9 +31,48 @@ export function compactDisplayText(text: string, cwd?: string, home?: string): s
   return out;
 }
 
-export function modelLabel(model: { id?: string; name?: string } | undefined): string {
+export type ModelDisplay = {
+  /** Literal prefixes stripped from displayed model ids, applied repeatedly. */
+  stripPrefixes?: string[];
+  /** Provider id -> display name. */
+  providerAliases?: Record<string, string>;
+  /** When true, render "model-id (provider)" instead of "provider/model-id". */
+  providerSuffix?: boolean;
+};
+
+export function modelLabel(
+  model: { id?: string; name?: string; provider?: string } | undefined,
+  display?: ModelDisplay,
+): string {
   if (!model) return "no model";
-  return model.id || model.name || "unknown model";
+  let base = model.id || model.name || "unknown model";
+  const prefixes = display?.stripPrefixes ?? [];
+  let stripping = true;
+  while (stripping) {
+    stripping = false;
+    for (const prefix of prefixes) {
+      if (prefix && base.startsWith(prefix) && base.length > prefix.length) {
+        base = base.slice(prefix.length);
+        stripping = true;
+      }
+    }
+  }
+  return base;
+}
+
+export function providerLabel(provider: string | undefined, display?: ModelDisplay): string | undefined {
+  if (!provider) return undefined;
+  return display?.providerAliases?.[provider] ?? provider;
+}
+
+export function modelStatusLabel(
+  model: { id?: string; name?: string; provider?: string } | undefined,
+  display?: ModelDisplay,
+): string {
+  const base = modelLabel(model, display);
+  const provider = providerLabel(model?.provider, display);
+  if (display?.providerSuffix && provider) return `${base} (${provider})`;
+  return base;
 }
 
 const INTEGERS = new Intl.NumberFormat("en");
@@ -71,6 +110,14 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
+export function formatVerticalContextTokens(
+  tokens: number | null | undefined,
+  percent: number | null | undefined,
+  rate: number | null | undefined,
+): string {
+  return `${formatTokenCount(tokens)} (${formatPercent(percent)}) · ${formatTokenRate(rate)}`;
+}
+
 export function formatMcpEnabled(count: number): string {
   const servers = Math.max(0, Math.round(count));
   return `${servers} MCPs enabled`;
@@ -87,6 +134,21 @@ export function formatContextResources(
   mcpCount: number | null,
 ): string {
   return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
+}
+
+export function formatVerticalContextResources(
+  spend: number | null | undefined,
+  skills: number,
+  mcpCount: number | null,
+): string {
+  const skillCount = Math.max(0, Math.round(skills));
+  const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
+  if (skillCount === 0 && serverCount === 0) return "";
+
+  const parts = [formatSpend(spend)];
+  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"} loaded`);
+  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"} enabled`);
+  return parts.join(" · ");
 }
 
 export function countSkillCommands(commands: readonly { source?: string; sourceInfo?: { path?: string }; name?: string }[]): number {
@@ -314,7 +376,7 @@ export function parseSlateArgs(raw: string): SlateArgs {
   }
   if (head === "vertical") {
     if (!tail) return { ok: true, kind: "vertical" };
-    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail === "on" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail !== "on" };
     return { ok: false };
   }
   if (head === "message-length") {

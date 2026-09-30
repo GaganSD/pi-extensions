@@ -6,7 +6,7 @@ import {
   type EditorTheme,
   type TUI,
 } from "@earendil-works/pi-tui";
-import { footerVisibility, modelLabel } from "./layout.ts";
+import { footerVisibility, modelStatusLabel, type ModelDisplay } from "./layout.ts";
 
 export function composerPaddingX(density: "comfortable" | "compact"): number {
   return density === "compact" ? 2 : 4;
@@ -173,7 +173,8 @@ function sideBorder(line: string, width: number, paint: (text: string) => string
 export type ComposerSource = {
   project: string;
   branch: string | null;
-  model: { id?: string; name?: string } | undefined;
+  model: { id?: string; name?: string; provider?: string } | undefined;
+  modelDisplay?: ModelDisplay;
   thinking?: string;
   footer: "standard" | "minimal";
   theme: Theme;
@@ -187,11 +188,41 @@ export function composerContextEdge(
   hiddenLineCount = 0,
 ): string {
   const more = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
-  return inscribedBorder(more, ` ${resources} `, width, paint, "╭", "╮");
+  return inscribedBorder(more, resources ? ` ${resources} ` : "", width, paint, "╭", "╮");
 }
+
+export function composerStatusContextEdge(
+  resources: string,
+  width: number,
+  paint: (text: string) => string,
+  hiddenLineCount: number,
+  renderLeft: (width: number, hiddenLineCount: number) => string,
+  reserveLeftWidth = 1,
+): string {
+  if (width <= 0) return "";
+  if (width === 1) return paint("╭");
+  if (width === 2) return paint("╭╮");
+
+  const innerWidth = width - 2;
+  const reserveLeft = Math.min(Math.max(1, reserveLeftWidth), innerWidth);
+  let right = resources ? ` ${resources} ` : "";
+  const maxRightWidth = Math.max(0, innerWidth - reserveLeft);
+  if (visibleWidth(right) > maxRightWidth) {
+    right = truncateToWidth(right, maxRightWidth, "");
+  }
+
+  const leftWidth = Math.max(0, innerWidth - visibleWidth(right));
+  let left = renderLeft(leftWidth, hiddenLineCount);
+  if (visibleWidth(left) > leftWidth) left = truncateToWidth(left, leftWidth, "");
+  const fill = Math.max(0, innerWidth - visibleWidth(left) - visibleWidth(right));
+  return `${paint("╭")}${left}${paint("─".repeat(fill))}${right}${paint("╮")}`;
+}
+
+type WorkingStatusIndicatorParameter = Parameters<CustomEditor["setWorkingStatusIndicator"]>[0];
 
 export class ComposerEditor extends CustomEditor {
   private readonly source: () => ComposerSource;
+  private statusIndicator: WorkingStatusIndicatorParameter;
 
   constructor(
     tui: TUI,
@@ -212,15 +243,22 @@ export class ComposerEditor extends CustomEditor {
     });
   }
 
+  override setWorkingStatusIndicator(indicator: WorkingStatusIndicatorParameter): void {
+    this.statusIndicator = indicator;
+    super.setWorkingStatusIndicator(indicator);
+  }
+
   protected renderTopBorder(width: number, hiddenLineCount: number): string {
     if (width <= 2) return super.renderTopBorder(width, hiddenLineCount);
     const src = this.source();
     if (src.context) {
-      return composerContextEdge(
+      return composerStatusContextEdge(
         src.theme.fg("dim", src.context.resources),
         width,
         (text) => this.borderColor(text),
         hiddenLineCount,
+        (leftWidth, hidden) => super.renderTopBorder(leftWidth, hidden),
+        this.embedWorkingStatus && this.statusIndicator ? 12 : 1,
       );
     }
     return this.borderColor("╭") + super.renderTopBorder(width - 2, hiddenLineCount) + this.borderColor("╮");
@@ -233,7 +271,7 @@ export class ComposerEditor extends CustomEditor {
       {
         project: src.project,
         branch: src.branch,
-        model: modelLabel(src.model),
+        model: modelStatusLabel(src.model, src.modelDisplay),
         thinking: src.thinking,
         tokens: src.context?.tokens,
         footer: src.footer,
