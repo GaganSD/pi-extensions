@@ -4,7 +4,7 @@ Monorepo of extensions I've built for the Pi Coding Agent Harness
 
 | Package | Description | Install |
 | --- |---| --- |
-| [pi-slate](./pi-slate) | Minimal TUI with Graphics Support | `pi install npm:pi-slate` |
+| [pi-slate](./pi-slate) | Minimal vertical-first TUI with graphics, observability, and context controls | `pi install npm:pi-slate` |
 | [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
 
 | Folder | Status |
