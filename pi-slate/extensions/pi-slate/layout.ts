@@ -218,7 +218,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [canonical|quiet|mauve|sapphire|peach|teal|pantera] | style [canonical|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal|pantera] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -228,7 +228,7 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = ["canonical", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
+const THEME_STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 const SLATE_COMPLETIONS = [
   "density",
   "density comfortable",
