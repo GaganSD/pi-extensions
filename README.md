@@ -4,7 +4,7 @@ Monorepo of extensions I've built for the Pi Coding Agent Harness
 
 | Package | Description | Install |
 | --- |---| --- |
-| [pi-slate](./pi-slate) | Minimal TUI with Graphics Support | `pi install npm:pi-slate` |
+| [pi-slate](./pi-slate) | Minimal vertical-first TUI with graphics, observability, and context controls | `pi install npm:pi-slate` |
 | [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
 
 | Folder | Status |
@@ -19,7 +19,6 @@ Few third-party sources
 
 | Package | Install |
 | --- | --- |
-| pi-mcp-adapter | `git:github.com/nicobailon/pi-mcp-adapter` | (TODO: Replace with pi's new built-in mcp)
 | pi-context-view | `npm:pi-context-view` | (TODO: Merge this with pi-slate)
 | pi-subagents | `npm:pi-subagents` |
 | pi-web-search | `npm:pi-web-search` | (TODO: too bloated, re-build this) 

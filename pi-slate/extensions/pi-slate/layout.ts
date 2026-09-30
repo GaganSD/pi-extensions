@@ -31,9 +31,48 @@ export function compactDisplayText(text: string, cwd?: string, home?: string): s
   return out;
 }
 
-export function modelLabel(model: { id?: string; name?: string } | undefined): string {
+export type ModelDisplay = {
+  /** Literal prefixes stripped from displayed model ids, applied repeatedly. */
+  stripPrefixes?: string[];
+  /** Provider id -> display name. */
+  providerAliases?: Record<string, string>;
+  /** When true, render "model-id (provider)" instead of "provider/model-id". */
+  providerSuffix?: boolean;
+};
+
+export function modelLabel(
+  model: { id?: string; name?: string; provider?: string } | undefined,
+  display?: ModelDisplay,
+): string {
   if (!model) return "no model";
-  return model.id || model.name || "unknown model";
+  let base = model.id || model.name || "unknown model";
+  const prefixes = display?.stripPrefixes ?? [];
+  let stripping = true;
+  while (stripping) {
+    stripping = false;
+    for (const prefix of prefixes) {
+      if (prefix && base.startsWith(prefix) && base.length > prefix.length) {
+        base = base.slice(prefix.length);
+        stripping = true;
+      }
+    }
+  }
+  return base;
+}
+
+export function providerLabel(provider: string | undefined, display?: ModelDisplay): string | undefined {
+  if (!provider) return undefined;
+  return display?.providerAliases?.[provider] ?? provider;
+}
+
+export function modelStatusLabel(
+  model: { id?: string; name?: string; provider?: string } | undefined,
+  display?: ModelDisplay,
+): string {
+  const base = modelLabel(model, display);
+  const provider = providerLabel(model?.provider, display);
+  if (display?.providerSuffix && provider) return `${base} (${provider})`;
+  return base;
 }
 
 const INTEGERS = new Intl.NumberFormat("en");
@@ -71,7 +110,13 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
-export const MCP_STATUS_EVENT = "pi-mcp-adapter/status/v1";
+export function formatVerticalContextTokens(
+  tokens: number | null | undefined,
+  percent: number | null | undefined,
+  rate: number | null | undefined,
+): string {
+  return `${formatTokenCount(tokens)} (${formatPercent(percent)}) · ${formatTokenRate(rate)}`;
+}
 
 export function formatMcpEnabled(count: number): string {
   const servers = Math.max(0, Math.round(count));
@@ -91,6 +136,21 @@ export function formatContextResources(
   return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
 }
 
+export function formatVerticalContextResources(
+  spend: number | null | undefined,
+  skills: number,
+  mcpCount: number | null,
+): string {
+  const skillCount = Math.max(0, Math.round(skills));
+  const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
+  if (skillCount === 0 && serverCount === 0) return "";
+
+  const parts = [formatSpend(spend)];
+  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"} loaded`);
+  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"} enabled`);
+  return parts.join(" · ");
+}
+
 export function countSkillCommands(commands: readonly { source?: string; sourceInfo?: { path?: string }; name?: string }[]): number {
   const seen = new Set<string>();
   for (const command of commands) {
@@ -100,26 +160,42 @@ export function countSkillCommands(commands: readonly { source?: string; sourceI
   return seen.size;
 }
 
+/** Later sources override the same server name (project over global). */
+export function mergeMcpServerMaps(...sources: unknown[]): Record<string, unknown> {
+  const servers: Record<string, unknown> = {};
+  for (const data of sources) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    const next = (data as { mcpServers?: unknown }).mcpServers;
+    if (!next || typeof next !== "object" || Array.isArray(next)) continue;
+    Object.assign(servers, next);
+  }
+  return servers;
+}
+
 export function parseMcpEnabledCount(data: unknown): number | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const servers = (data as { servers?: unknown }).servers;
-  if (!Array.isArray(servers)) return null;
-  return servers.filter(isEnabledMcpServer).length;
+  const servers = (data as { mcpServers?: unknown }).mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return null;
+  return Object.values(servers).filter(isEnabledMcpServer).length;
 }
 
 function isEnabledMcpServer(server: unknown): boolean {
-  return !!server && typeof server === "object" && !Array.isArray(server) && (server as { disabled?: unknown }).disabled !== true;
+  if (!server || typeof server !== "object" || Array.isArray(server)) return false;
+  const entry = server as { enabled?: unknown; disabled?: unknown };
+  return entry.enabled !== false && entry.disabled !== true;
 }
 
 export function footerVisibility(width: number): {
   showBranch: boolean;
   showModel: boolean;
   showThinking: boolean;
+  showTokens: boolean;
 } {
   return {
     showBranch: width >= 42,
     showModel: width >= 66,
     showThinking: width >= 80,
+    showTokens: width >= 110,
   };
 }
 
@@ -143,6 +219,7 @@ export const SIDEBAR_PERCENT_MAX = 80;
 export const SIDEBAR_PERCENT_NARROW = 0;
 export const SIDEBAR_PERCENT_MEDIUM = 30;
 export const SIDEBAR_PERCENT_WIDE = 40;
+export const SIDEBAR_HIDDEN = -1;
 
 export function parseSidebarPercent(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
@@ -202,7 +279,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | message-length [default|all|<count>] | theme [canonical|quiet|mauve|sapphire|peach|teal] | style [canonical|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -212,7 +289,7 @@ export function withoutCurrent(label: string): string {
   return label.endsWith(" (current)") ? label.slice(0, -" (current)".length) : label;
 }
 
-const THEME_STYLES = ["canonical", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
+const THEME_STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 const SLATE_COMPLETIONS = [
   "density",
   "density comfortable",
@@ -225,6 +302,9 @@ const SLATE_COMPLETIONS = [
   "width narrow",
   "width medium",
   "width wide",
+  "vertical",
+  "vertical on",
+  "vertical off",
   "message-length",
   "message-length default",
   "message-length all",
@@ -243,6 +323,7 @@ export type SlateArgs =
   | { ok: true; kind: "footer"; value?: "standard" | "minimal" }
   | { ok: true; kind: "width-menu" }
   | { ok: true; kind: "width"; width?: number }
+  | { ok: true; kind: "vertical"; value?: boolean }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
@@ -293,6 +374,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
       ? { ok: true, kind: "width" }
       : { ok: true, kind: "width", width: parsed.percent };
   }
+  if (head === "vertical") {
+    if (!tail) return { ok: true, kind: "vertical" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail !== "on" };
+    return { ok: false };
+  }
   if (head === "message-length") {
     if (!tail) return { ok: true, kind: "message-length-menu" };
     const parsed = parseMessageLengthArg(tail);
@@ -322,6 +408,7 @@ export function clampSidebarColumns(totalWidth: number, columns: number): number
 }
 
 export function workspaceColumnWidth(totalWidth: number, preferredPercent?: number): number {
+  if (preferredPercent === SIDEBAR_HIDDEN) return 0;
   if (preferredPercent === SIDEBAR_PERCENT_NARROW) return clampSidebarColumns(totalWidth, SIDEBAR_MIN_WIDTH);
   const ratio = preferredPercent === undefined ? SIDEBAR_DEFAULT_RATIO : preferredPercent / 100;
   return clampSidebarColumns(totalWidth, Math.floor(totalWidth * ratio));

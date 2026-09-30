@@ -37,6 +37,7 @@ test("flavor and style names stay official", () => {
   assert.equal(parseFlavor("latte"), undefined);
   assert.equal(parseFlavor("frappe"), undefined);
   assert.equal(parseStyle("Mauve"), "mauve");
+  assert.equal(parseStyle("canonical"), "default");
   assert.equal(parseFlavor("ink"), undefined);
   assert.equal(parseStyle("ember"), undefined);
 });

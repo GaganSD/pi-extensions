@@ -1,5 +1,4 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
   copyToClipboard,
@@ -9,16 +8,14 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
   type KeybindingsManager,
-  type Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
-  truncateToWidth,
-  visibleWidth,
   type Component,
   type EditorTheme,
   type TUI,
 } from "@earendil-works/pi-tui";
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
+import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
@@ -30,15 +27,11 @@ import { resolveContextTokens, sessionSpend } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import {
-  MCP_STATUS_EVENT,
-  PI_LOGO,
-  PI_LOGO_ASCII,
-  paintLogo,
-  centerOffset,
-  compactPath,
   countSkillCommands,
+  formatVerticalContextResources,
+  formatVerticalContextTokens,
   mainColumnWidth,
-  modelLabel,
+  mergeMcpServerMaps,
   parseMcpEnabledCount,
   parseMessageLength,
   parseMessageLengthArg,
@@ -59,7 +52,10 @@ import {
   MESSAGE_LENGTH_SHORT,
   withCurrent,
   withoutCurrent,
+  type ModelDisplay,
 } from "./layout.ts";
+import { SlateHeader } from "./header.ts";
+import { UpdateWatcher } from "./updates.ts";
 import {
   formatBugReport,
   issueTemplate,
@@ -81,7 +77,9 @@ type SlateConfig = {
   density: "comfortable" | "compact";
   footer: "standard" | "minimal";
   sidebarPercent?: number;
+  vertical?: boolean;
   messageLength?: number | "all";
+  modelDisplay?: ModelDisplay;
   themeApplied?: boolean;
   fullscreenApplied?: boolean;
 };
@@ -90,6 +88,7 @@ const CONFIG_PATH = join(getAgentDir(), "pi-slate.json");
 const DEFAULT_CONFIG: SlateConfig = {
   density: "comfortable",
   footer: "standard",
+  vertical: true,
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -97,16 +96,46 @@ function loadMessageLength(value: unknown): number | "all" | undefined {
   return parseMessageLength(value);
 }
 
+function readOptionalJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function loadModelDisplay(value: unknown): ModelDisplay | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Partial<ModelDisplay>;
+  const display: ModelDisplay = {};
+  if (Array.isArray(raw.stripPrefixes)) {
+    const prefixes = raw.stripPrefixes.filter((p): p is string => typeof p === "string" && p.length > 0);
+    if (prefixes.length > 0) display.stripPrefixes = prefixes;
+  }
+  if (typeof raw.providerAliases === "object" && raw.providerAliases !== null) {
+    const aliases: Record<string, string> = {};
+    for (const [key, alias] of Object.entries(raw.providerAliases)) {
+      if (typeof alias === "string" && alias.length > 0) aliases[key] = alias;
+    }
+    if (Object.keys(aliases).length > 0) display.providerAliases = aliases;
+  }
+  if (raw.providerSuffix === true) display.providerSuffix = true;
+  return Object.keys(display).length > 0 ? display : undefined;
+}
+
 function loadConfig(): SlateConfig {
   try {
     const value = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Partial<SlateConfig>;
     const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
     const messageLength = loadMessageLength(value.messageLength);
+    const modelDisplay = loadModelDisplay(value.modelDisplay);
     return {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
+      vertical: value.vertical !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
+      ...(modelDisplay === undefined ? {} : { modelDisplay }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
     };
@@ -141,43 +170,6 @@ function widthMessage(percent: number | undefined): string {
   return `Sidebar width set to ${percent}%`;
 }
 
-function centeredLine(content: string, width: number): string {
-  const clipped = truncateToWidth(content, width, "…");
-  return `${" ".repeat(centerOffset(width, visibleWidth(clipped)))}${clipped}`;
-}
-
-class MinimalHeader implements Component {
-  constructor(
-    private readonly theme: Theme,
-    private readonly getContext: () => ExtensionContext,
-    private readonly columnWidth: (width: number) => number,
-  ) {}
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    if (width < 20) return [];
-    const ctx = this.getContext();
-    const path = compactPath(ctx.cwd, homedir());
-    const model = modelLabel(ctx.model);
-    const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
-    const logoLines = process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1"
-      ? PI_LOGO_ASCII
-      : PI_LOGO;
-    const column = this.columnWidth(width);
-    return [
-      ...logoLines.map((line) => centeredLine(paintLogo(line, this.theme.getColorMode() === "truecolor"), column)),
-      "",
-      centeredLine(this.theme.fg("muted", `Pi Agent v${VERSION}`), column),
-      centeredLine(
-        this.theme.fg("muted", `${ctx.model?.provider ?? "provider"}/${model}${effort}`),
-        column,
-      ),
-      centeredLine(this.theme.fg("dim", path), column),
-    ];
-  }
-}
-
 class BranchFooter implements Component {
   private readonly unsubscribe: () => void;
 
@@ -201,6 +193,7 @@ class BranchFooter implements Component {
 export default function piSlate(pi: ExtensionAPI): void {
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
+  const selection = new ComposerSelectionController();
   let fileSnapshot = "";
   const files = new GitStatusPoller((changes) => {
     fileSnapshot = changes.map((file) => `${file.index}${file.worktree}:${file.path}:${file.origPath ?? ""}`).join("\0");
@@ -219,6 +212,11 @@ export default function piSlate(pi: ExtensionAPI): void {
   let activeTui: TUI | undefined;
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
+  const updates = new UpdateWatcher();
+  let contextEdge = {
+    tokens: formatVerticalContextTokens(null, null, null),
+    resources: formatVerticalContextResources(null, 0, 0),
+  };
   let requestRender = (_force = false) => {};
 
   const syncVisibleMessages = (): void => {
@@ -231,7 +229,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   const columnWidth = (width: number): number => {
-    return sidebar.splitActive ? width : mainColumnWidth(width, sidebar.preferredWidth);
+    if (sidebar.hidden || sidebar.splitActive) return width;
+    return mainColumnWidth(width, sidebar.preferredWidth);
   };
 
   const syncSidebar = (ctx: ExtensionContext): void => {
@@ -250,13 +249,21 @@ export default function piSlate(pi: ExtensionAPI): void {
     } catch {
       return;
     }
+    const skills = countSkillCommands(pi.getCommands());
+    const mcp = parseMcpEnabledCount({
+      mcpServers: mergeMcpServerMaps(
+        readOptionalJson(join(getAgentDir(), "mcp.json")),
+        readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
+      ),
+    });
     sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
-    sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands()));
+    sidebar.setSkillsLoaded(skills);
+    sidebar.setMcpConnected(mcp);
+    contextEdge = {
+      tokens: formatVerticalContextTokens(tokens, percent, tokenRate.rate()),
+      resources: formatVerticalContextResources(spend, skills, mcp),
+    };
   };
-
-  pi.events.on(MCP_STATUS_EVENT, (data) => {
-    sidebar.setMcpConnected(parseMcpEnabledCount(data));
-  });
   pi.events.on("subagent:async-complete", refreshFiles);
   pi.on("resources_discover", () => {
     queueMicrotask(() => sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands())));
@@ -290,6 +297,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSelectedPreview(undefined);
     sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
     sidebar.setPreferredWidth(config.sidebarPercent);
+    sidebar.setHidden(config.vertical === true);
     sidebar.setActions({
       persistWidth: (percent) => {
         try {
@@ -349,7 +357,18 @@ export default function piSlate(pi: ExtensionAPI): void {
       tokenRate.setOnChange(() => syncSidebar(getContext()));
       syncSidebar(ctx);
       queueMicrotask(syncVisibleMessages);
-      return new MinimalHeader(theme, getContext, columnWidth);
+      ctx.ui.setWorkingIndicator({
+        frames: [
+          theme.fg("dim", "·"),
+          theme.fg("muted", "•"),
+          theme.fg("accent", "●"),
+          theme.fg("muted", "•"),
+        ],
+        intervalMs: 240,
+      });
+      updates.setOnChange(() => tui.requestRender());
+      updates.start(ctx.cwd);
+      return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
     });
     ctx.ui.setFooter((tui, _theme, footerData) => {
       activeTui = tui;
@@ -360,6 +379,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       });
     });
     ctx.ui.setEditorComponent((tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
+      images.detachEditor();
+      selection.dispose();
       const minimalEditorTheme: EditorTheme = {
         ...editorTheme,
         borderColor: chromePaint(ctx.ui.theme),
@@ -374,9 +395,11 @@ export default function piSlate(pi: ExtensionAPI): void {
             project: basename(current.cwd) || current.cwd,
             branch: gitBranch,
             model: current.model,
+            modelDisplay: config.modelDisplay,
             thinking: current.thinkingLevel,
             footer: config.footer,
             theme: current.ui.theme,
+            ...(config.vertical !== false ? { context: contextEdge } : {}),
           };
         },
         {
@@ -385,17 +408,11 @@ export default function piSlate(pi: ExtensionAPI): void {
           embedWorkingStatus: true,
         },
       );
+      selection.attach(activeEditor, {
+        requestRender: () => tui.requestRender(),
+      });
       images.attachEditor(activeEditor);
       return activeEditor;
-    });
-    ctx.ui.setWorkingIndicator({
-      frames: [
-        ctx.ui.theme.fg("dim", "·"),
-        ctx.ui.theme.fg("muted", "•"),
-        ctx.ui.theme.fg("accent", "●"),
-        ctx.ui.theme.fg("muted", "•"),
-      ],
-      intervalMs: 240,
     });
     requestRender(true);
   };
@@ -471,6 +488,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_shutdown", (_event, ctx) => {
     tokenRate.dispose();
     images.dispose();
+    selection.dispose();
     files.dispose();
     diffs.clear();
     messageWindow?.dispose();
@@ -494,9 +512,10 @@ export default function piSlate(pi: ExtensionAPI): void {
       saveConfig(next);
       config = next;
       sidebar.setPreferredWidth(config.sidebarPercent);
+      sidebar.setHidden(config.vertical === true);
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
-      requestRender();
+      requestRender(true);
       ctx.ui.notify(message, "info");
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
@@ -539,15 +558,31 @@ export default function piSlate(pi: ExtensionAPI): void {
     return STYLES.find((style) => STYLE_LABELS[style] === key);
   };
 
-  const applyCatppuccin = (ctx: ExtensionContext, flavor: Flavor, style: Style): void => {
-    const next = resolveCatppuccinTheme(ctx.ui.theme.name, flavor, style);
-    const result = ctx.ui.setTheme(next.name);
+  const applyNamedTheme = (ctx: ExtensionContext, name: string, message: string): void => {
+    const result = ctx.ui.setTheme(name);
     if (!result.success) {
-      ctx.ui.notify(result.error ?? `Could not load ${next.name}. Run /reload first.`, "error");
+      ctx.ui.notify(result.error ?? `Could not load ${name}. Run /reload first.`, "error");
       return;
     }
-    persistTheme(ctx.cwd, next.name);
-    ctx.ui.notify(themeMessage(next.flavor, next.style), "info");
+    persistTheme(ctx.cwd, name);
+    ctx.ui.notify(message, "info");
+  };
+
+  const applyCatppuccin = (ctx: ExtensionContext, flavor: Flavor, style: Style): void => {
+    const next = resolveCatppuccinTheme(ctx.ui.theme.name, flavor, style);
+    applyNamedTheme(ctx, next.name, themeMessage(next.flavor, next.style));
+  };
+
+  const pickTheme = async (ctx: ExtensionContext): Promise<void> => {
+    const current = ctx.ui.theme.name;
+    const mocha = currentCatppuccin(ctx).style;
+    const value = await ctx.ui.select("Theme", [
+      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], style === mocha)),
+    ]);
+    if (!value) return;
+    const key = withoutCurrent(value);
+    const style = STYLES.find((item) => STYLE_LABELS[item] === key);
+    if (style) applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
   };
 
   const pickWidth = async (ctx: ExtensionContext): Promise<{ picked: true; width?: number } | undefined> => {
@@ -671,8 +706,13 @@ export default function piSlate(pi: ExtensionAPI): void {
     await fileBug(ctx);
   };
 
+  const applyVertical = (ctx: ExtensionContext, value?: boolean): void => {
+    const on = value ?? !config.vertical;
+    apply({ ...config, vertical: on }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+  };
+
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar width, message length, Catppuccin theme, or file a bug",
+    description: "Density, footer, sidebar, vertical mode, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -683,10 +723,11 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Vertical", "Message length", "Theme", "File a bug"]);
         if (setting === "Density") kind = "density";
         else if (setting === "Footer") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
+        else if (setting === "Vertical") kind = "vertical";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "File a bug") kind = "bug-menu";
@@ -707,8 +748,13 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
 
+      if (kind === "vertical") {
+        applyVertical(ctx, parsed.kind === "vertical" ? parsed.value : undefined);
+        return;
+      }
+
       if (parsed.kind === "width") {
-        apply(withSidebarPercent(config, parsed.width), widthMessage(parsed.width), ctx);
+        apply(withSidebarPercent({ ...config, vertical: false }, parsed.width), widthMessage(parsed.width), ctx);
         return;
       }
 
@@ -730,9 +776,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (kind === "theme-menu") {
-        const style = await pickStyle(ctx);
-        if (!style) return;
-        applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
+        await pickTheme(ctx);
         return;
       }
 
@@ -752,7 +796,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       const picked = await pickWidth(ctx);
       if (!picked) return;
-      apply(withSidebarPercent(config, picked.width), widthMessage(picked.width), ctx);
+      apply(withSidebarPercent({ ...config, vertical: false }, picked.width), widthMessage(picked.width), ctx);
     },
   });
 }

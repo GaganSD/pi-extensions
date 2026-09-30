@@ -58,6 +58,18 @@ function attachSidebar(columns = 140) {
   return { sidebar, overlays, hidden, tui };
 }
 
+test("vertical mode unmounts the sidebar overlay", () => {
+  const { sidebar, overlays, hidden } = attachSidebar();
+  sidebar.render(28);
+  assert.equal(overlays[0]?.visible?.(140), true);
+  sidebar.setHidden(true);
+  assert.equal(hidden.length, 1);
+  assert.equal(overlays[0]?.visible?.(140), false);
+  sidebar.setHidden(false);
+  assert.equal(overlays.length, 2);
+  assert.equal(overlays[1]?.visible?.(140), true);
+});
+
 test("the resize handle is the sidebar gutter, not file rows", () => {
   assert.equal(isSidebarResizeHandle({ button: "left", x: 0 }), true);
   assert.equal(isSidebarResizeHandle({ button: "left", x: 1 }), true);

@@ -18,10 +18,15 @@ import {
   formatSpend,
   formatTokenCount,
   formatTokenRate,
+  formatVerticalContextResources,
+  formatVerticalContextTokens,
+  mergeMcpServerMaps,
   parseMcpEnabledCount,
   mainColumnWidth,
   maxSidebarWidth,
   modelLabel,
+  modelStatusLabel,
+  providerLabel,
   parseSidebarPercent,
   parseSidebarWidthArg,
   parseSlateArgs,
@@ -37,6 +42,7 @@ import {
   withoutCurrent,
   sidebarHandleColumn,
   sidebarWidthFromScreenX,
+  SIDEBAR_HIDDEN,
   SIDEBAR_PERCENT_MEDIUM,
   SIDEBAR_PERCENT_NARROW,
   SIDEBAR_PERCENT_WIDE,
@@ -74,11 +80,19 @@ test("footer progressively reveals optional metadata", () => {
     showBranch: false,
     showModel: false,
     showThinking: false,
+    showTokens: false,
   });
   assert.deepEqual(footerVisibility(100), {
     showBranch: true,
     showModel: true,
     showThinking: true,
+    showTokens: false,
+  });
+  assert.deepEqual(footerVisibility(110), {
+    showBranch: true,
+    showModel: true,
+    showThinking: true,
+    showTokens: true,
   });
 });
 
@@ -96,8 +110,40 @@ test("sidebar context labels match the OpenCode-style facts", () => {
   assert.equal(formatContextTokens(null, null, null), "— tokens · —% used · — tokens/sec");
 });
 
+test("vertical context tokens use compact percent placement", () => {
+  assert.equal(formatVerticalContextTokens(3485, 2.4, 42.4), "3,485 tokens (2%) · 42 tokens/sec");
+  assert.equal(formatVerticalContextTokens(null, null, null), "— tokens (—%) · — tokens/sec");
+  assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
+});
+
 test("model label stays safe with missing data", () => {
   assert.equal(modelLabel(undefined), "no model");
+});
+
+test("model labels are untouched without display config", () => {
+  assert.equal(modelLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }), "us.moonshotai.kimi-k3");
+  assert.equal(modelLabel({ id: "gpt-5.6", provider: "openai" }), "gpt-5.6");
+  assert.equal(modelStatusLabel({ id: "xai.grok-4.6", provider: "bedrock" }), "xai.grok-4.6");
+});
+
+test("model display config strips prefixes, aliases providers, and supports suffix style", () => {
+  const display = {
+    stripPrefixes: ["us.", "moonshotai.", "xai.", "amazon."],
+    providerAliases: { "bedrock-runtime": "bedrock", "bedrock-priority": "bedrock" },
+    providerSuffix: true,
+  };
+  assert.equal(modelLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }, display), "kimi-k3");
+  assert.equal(modelLabel({ id: "xai.grok-4.6", provider: "bedrock" }, display), "grok-4.6");
+  assert.equal(modelLabel({ id: "amazon.nova-pro-v1:0", provider: "bedrock" }, display), "nova-pro-v1:0");
+  assert.equal(modelStatusLabel({ id: "us.moonshotai.kimi-k3", provider: "bedrock-runtime" }, display), "kimi-k3 (bedrock)");
+  assert.equal(modelStatusLabel({ id: "xai.grok-4.6", provider: "bedrock-priority" }, display), "grok-4.6 (bedrock)");
+  assert.equal(providerLabel("bedrock-runtime", display), "bedrock");
+  assert.equal(providerLabel("openai", display), "openai");
+});
+
+test("model display config never strips an id down to nothing", () => {
+  assert.equal(modelLabel({ id: "us.", provider: "bedrock" }, { stripPrefixes: ["us."] }), "us.");
+  assert.equal(modelLabel({ id: "kimi-k3" }, { stripPrefixes: ["us."] }), "kimi-k3");
 });
 
 test("workspace column is 20% once the terminal is wide enough", () => {
@@ -115,6 +161,7 @@ test("a preferred sidebar width is clamped and hidden on narrow terminals", () =
   assert.equal(workspaceColumnWidth(60, 80), 28);
   assert.equal(maxSidebarWidth(140), 108);
   assert.equal(workspaceColumnWidth(140, 200), 108);
+  assert.equal(workspaceColumnWidth(200, SIDEBAR_HIDDEN), 0);
   assert.equal(workspaceColumnWidth(200, SIDEBAR_PERCENT_NARROW), 28);
   assert.equal(workspaceColumnWidth(200, SIDEBAR_PERCENT_MEDIUM), 60);
   assert.equal(workspaceColumnWidth(200, SIDEBAR_PERCENT_WIDE), 80);
@@ -172,6 +219,10 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("width 40"), { ok: true, kind: "width", width: 40 });
   assert.deepEqual(parseSlateArgs("width 30%"), { ok: true, kind: "width", width: 30 });
   assert.deepEqual(parseSlateArgs("width narrow"), { ok: true, kind: "width", width: 0 });
+  assert.deepEqual(parseSlateArgs("vertical"), { ok: true, kind: "vertical" });
+  assert.deepEqual(parseSlateArgs("vertical on"), { ok: true, kind: "vertical", value: false });
+  assert.deepEqual(parseSlateArgs("vertical off"), { ok: true, kind: "vertical", value: true });
+  assert.deepEqual(parseSlateArgs("vertical nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
   assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });
@@ -188,6 +239,7 @@ test("/slate args route density, footer, and width", () => {
     flavor: "mocha",
     style: "mauve",
   });
+  assert.deepEqual(parseSlateArgs("theme pantera"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme latte quiet"), { ok: false });
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
   assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
@@ -230,27 +282,45 @@ test("MCP and skill counts share the Context resource line", () => {
     { source: "extension", sourceInfo: { path: "/ext.ts" }, name: "slate" },
   ]), 1);
   assert.equal(parseMcpEnabledCount({
-    connectedCount: 2,
-    servers: [{ name: "a" }, { name: "b" }],
+    mcpServers: { a: {}, b: {} },
   }), 2);
   assert.equal(parseMcpEnabledCount({}), null);
   assert.equal(parseMcpEnabledCount(null), null);
 });
 
-test("MCP enabled count includes cached servers and ignores live connection count", () => {
+test("vertical context resources omit zero skill and MCP counts", () => {
+  assert.equal(formatVerticalContextResources(1.234, 0, 0), "");
+  assert.equal(formatVerticalContextResources(1.234, 0, null), "");
+  assert.equal(formatVerticalContextResources(1.234, 3, 0), "$1.23 · 3 skills loaded");
+  assert.equal(formatVerticalContextResources(1.234, 0, 2), "$1.23 · 2 MCPs enabled");
+  assert.equal(formatVerticalContextResources(1.234, 1, 1), "$1.23 · 1 skill loaded · 1 MCP enabled");
+  assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
+});
+
+test("MCP enabled count reads mcp.json and lets project override global", () => {
   assert.equal(parseMcpEnabledCount({
-    connectedCount: 0,
-    disabledCount: 1,
-    servers: [
-      { name: "linear", status: "cached", disabled: false },
-      { name: "github", status: "disabled", disabled: true },
-    ],
+    mcpServers: {
+      linear: { url: "https://mcp.linear.app/mcp" },
+      github: { url: "https://api.githubcopilot.com/mcp", enabled: false },
+    },
   }), 1);
   assert.equal(parseMcpEnabledCount({
-    connectedCount: 0,
-    servers: [{ name: "linear", status: "cached" }],
+    mcpServers: { linear: { url: "https://mcp.linear.app/mcp" } },
   }), 1);
   assert.equal(parseMcpEnabledCount({ connectedCount: 2 }), null);
+  assert.deepEqual(
+    mergeMcpServerMaps(
+      { mcpServers: { linear: { enabled: true }, github: {} } },
+      { mcpServers: { linear: { enabled: false } } },
+    ),
+    { linear: { enabled: false }, github: {} },
+  );
+  assert.equal(parseMcpEnabledCount({
+    mcpServers: mergeMcpServerMaps(
+      { mcpServers: { linear: {}, github: {} } },
+      { mcpServers: { github: { enabled: false } } },
+    ),
+  }), 1);
 });
 
 test("files widget stays compact and never exceeds five lines", () => {

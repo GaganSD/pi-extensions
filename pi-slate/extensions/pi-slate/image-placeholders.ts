@@ -24,6 +24,7 @@ type PatchableEditor = {
 
 export type ImagePlaceholders = {
   attachEditor(editor: CustomEditor): void;
+  detachEditor(): void;
   dispose(): void;
 };
 
@@ -101,12 +102,15 @@ export function installImagePlaceholders(
 
   return {
     attachEditor(editor) {
-      peek?.dispose();
+      this.detachEditor();
       peek = new ImagePeek(store, editor, workspace, loadImage);
     },
-    dispose() {
+    detachEditor() {
       peek?.dispose();
       peek = undefined;
+    },
+    dispose() {
+      this.detachEditor();
       uninstallEditorPatch();
     },
   };

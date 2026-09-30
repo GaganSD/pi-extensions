@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { formatVerticalContextResources, formatVerticalContextTokens } from "../extensions/pi-slate/layout.ts";
 import {
   chromePaint,
+  paintSelectedContent,
+  composerContextEdge,
   composerLabels,
+  composerStatusContextEdge,
+  composerStatusLabel,
   composerPaddingX,
   frameComposerLines,
   padComposerFrame,
@@ -57,6 +62,37 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
   assert.match(wide.right, /grok-4.6/);
   assert.match(wide.right, /medium/);
 
+  const withTokens = composerLabels(
+    {
+      project: "pi-configs",
+      branch: "main",
+      model: "grok-4.6",
+      thinking: "medium",
+      tokens: "0 tokens · 0% used · 0 tokens/sec",
+      footer: "standard",
+    },
+    theme,
+    140,
+  );
+  assert.match(withTokens.left, /pi-configs \/ main/);
+  assert.match(withTokens.right, /0 tokens · 0% used · 0 tokens\/sec · grok-4.6 · medium/);
+
+  const mid = composerLabels(
+    {
+      project: "pi-configs",
+      branch: "main",
+      model: "grok-4.6",
+      thinking: "medium",
+      tokens: "0 tokens · 0% used · 0 tokens/sec",
+      footer: "standard",
+    },
+    theme,
+    100,
+  );
+  assert.doesNotMatch(mid.right, /tokens/);
+  assert.match(mid.left, /pi-configs \/ main/);
+  assert.match(mid.right, /grok-4.6/);
+
   const minimal = composerLabels(
     { project: "pi-configs", branch: "main", model: "grok-4.6", thinking: "medium", footer: "minimal" },
     theme,
@@ -72,6 +108,96 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
   assert.match(narrow.left, /pi-configs/);
   assert.doesNotMatch(narrow.left, /main/);
   assert.equal(narrow.right, "");
+});
+
+test("vertical context sits on the composer top edge", () => {
+  const line = composerContextEdge(
+    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    80,
+    (text) => text,
+  );
+  assert.equal(line[0], "╭");
+  assert.equal(line.at(-1), "╮");
+  assert.doesNotMatch(line, /tokens/);
+  assert.match(line, /\$7\.47/);
+  const squeezed = composerContextEdge("$7.47 · 14 skills loaded", 28, (text) => text, 3);
+  assert.equal(visibleWidth(squeezed), 28);
+  assert.match(squeezed, /↑ 3 more/);
+});
+
+test("vertical prompt edge hides empty resource counts and shows loaded skills", () => {
+  const empty = composerContextEdge(formatVerticalContextResources(1.234, 0, 0), 40, (text) => text);
+  assert.equal(empty, "╭" + "─".repeat(38) + "╮");
+  assert.doesNotMatch(empty, /0 skills|0 MCP|\$1\.23/);
+
+  const withSkill = composerContextEdge(formatVerticalContextResources(1.234, 1, 0), 80, (text) => text);
+  assert.match(withSkill, /\$1\.23 · 1 skill loaded/);
+  assert.doesNotMatch(withSkill, /0 MCP|0 skills/);
+});
+
+test("vertical composer token label uses compact percent placement", () => {
+  const tokens = formatVerticalContextTokens(47349, 5.2, 845.4);
+  const labels = composerLabels(
+    { project: "pi-extensions", branch: "pi-0.99", model: "kimi-k3", thinking: "medium", tokens, footer: "standard" },
+    theme,
+    140,
+  );
+  assert.match(labels.right, /47,349 tokens \(5%\) · 845 tokens\/sec/);
+  assert.doesNotMatch(labels.right, /5% used/);
+});
+
+const labelTheme = {
+  fg: (name: string, text: string) => `[${name}]${text}`,
+  italic: (text: string) => `{i}${text}`,
+} as Theme;
+
+test("composerStatusLabel restyles working status that inherited frame color", () => {
+  const label = composerStatusLabel(
+    { kind: "working", renderInBorder: () => "\x1b[90mCrafting\x1b[0m" },
+    labelTheme,
+  );
+  assert.equal(label, "{i}[accent]Crafting");
+});
+
+test("composerStatusLabel keeps Pi colors for other status kinds", () => {
+  const painted = "\x1b[33mRetrying (1/3) in 5s...\x1b[0m";
+  const label = composerStatusLabel(
+    { kind: "retry", renderInBorder: () => painted },
+    labelTheme,
+  );
+  assert.equal(label, painted);
+});
+
+test("working status stays left of the vertical context edge", () => {
+  const line = composerStatusContextEdge(
+    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    80,
+    (text) => text,
+    0,
+    "pondering...",
+  );
+  assert.equal(visibleWidth(line), 80);
+  assert.match(line, /^╭── pondering\.\.\./);
+  assert.ok(line.indexOf("pondering") < line.indexOf("$7.47"));
+  assert.match(line, /\$7\.47 · 14 skills loaded · 2 MCPs enabled ╮$/);
+});
+
+test("live status keeps its label when resources are long", () => {
+  const line = composerStatusContextEdge(
+    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    64,
+    (text) => text,
+    0,
+    "",
+    (width) => {
+      const label = "Retrying (2/5) in 8s... (esc to cancel)";
+      return label.slice(0, Math.max(0, width));
+    },
+  );
+  const plain = stripVTControlCharacters(line);
+  assert.equal(visibleWidth(line), 64);
+  assert.match(plain, /Retrying \(2\/5\)/);
+  assert.ok(!plain.includes("2 MCPs enabled"));
 });
 
 test("empty composer frames sides and prompt without a hint row", () => {
@@ -153,6 +279,26 @@ test("inscribed titles use composer corners", () => {
   assert.match(inscribedTitle("Summary", 16, (text) => text, "top"), /^╭─ Summary /);
   assert.ok(inscribedTitle("Preview", 16, (text) => text, "mid").startsWith("├"));
   assert.ok(inscribedTitle("Context", 20, (text) => text, "bottom", "0%").endsWith("╯"));
+});
+
+test("selection paint happens before rails so the frame stays uninverted", () => {
+  const width = 20;
+  const painted = [
+    "╭" + "─".repeat(width - 2) + "╮",
+    paintSelectedContent("    hello           "),
+    "╰" + "─".repeat(width - 2) + "╯",
+  ];
+  const lines = padComposerFrame(
+    frameComposerLines(painted, { width, empty: false, paddingX: 4, paint: (text) => text }),
+    width,
+    (text) => text,
+  );
+  const body = lines[1] ?? "";
+  assert.match(body, /^│/);
+  assert.match(body, /│$/);
+  assert.doesNotMatch(stripVTControlCharacters(body).slice(0, 1), /\x1b/);
+  assert.match(body, /\x1b\[7mhello\x1b\[27m/);
+  assert.doesNotMatch(body, /\x1b\[7m│/);
 });
 
 
