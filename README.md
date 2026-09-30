@@ -19,7 +19,6 @@ Few third-party sources
 
 | Package | Install |
 | --- | --- |
-| pi-mcp-adapter | `git:github.com/nicobailon/pi-mcp-adapter` | (TODO: Replace with pi's new built-in mcp)
 | pi-context-view | `npm:pi-context-view` | (TODO: Merge this with pi-slate)
 | pi-subagents | `npm:pi-subagents` |
 | pi-web-search | `npm:pi-web-search` | (TODO: too bloated, re-build this) 

@@ -18,6 +18,7 @@ import {
   formatSpend,
   formatTokenCount,
   formatTokenRate,
+  mergeMcpServerMaps,
   parseMcpEnabledCount,
   mainColumnWidth,
   maxSidebarWidth,
@@ -230,27 +231,36 @@ test("MCP and skill counts share the Context resource line", () => {
     { source: "extension", sourceInfo: { path: "/ext.ts" }, name: "slate" },
   ]), 1);
   assert.equal(parseMcpEnabledCount({
-    connectedCount: 2,
-    servers: [{ name: "a" }, { name: "b" }],
+    mcpServers: { a: {}, b: {} },
   }), 2);
   assert.equal(parseMcpEnabledCount({}), null);
   assert.equal(parseMcpEnabledCount(null), null);
 });
 
-test("MCP enabled count includes cached servers and ignores live connection count", () => {
+test("MCP enabled count reads mcp.json and lets project override global", () => {
   assert.equal(parseMcpEnabledCount({
-    connectedCount: 0,
-    disabledCount: 1,
-    servers: [
-      { name: "linear", status: "cached", disabled: false },
-      { name: "github", status: "disabled", disabled: true },
-    ],
+    mcpServers: {
+      linear: { url: "https://mcp.linear.app/mcp" },
+      github: { url: "https://api.githubcopilot.com/mcp", enabled: false },
+    },
   }), 1);
   assert.equal(parseMcpEnabledCount({
-    connectedCount: 0,
-    servers: [{ name: "linear", status: "cached" }],
+    mcpServers: { linear: { url: "https://mcp.linear.app/mcp" } },
   }), 1);
   assert.equal(parseMcpEnabledCount({ connectedCount: 2 }), null);
+  assert.deepEqual(
+    mergeMcpServerMaps(
+      { mcpServers: { linear: { enabled: true }, github: {} } },
+      { mcpServers: { linear: { enabled: false } } },
+    ),
+    { linear: { enabled: false }, github: {} },
+  );
+  assert.equal(parseMcpEnabledCount({
+    mcpServers: mergeMcpServerMaps(
+      { mcpServers: { linear: {}, github: {} } },
+      { mcpServers: { github: { enabled: false } } },
+    ),
+  }), 1);
 });
 
 test("files widget stays compact and never exceeds five lines", () => {
