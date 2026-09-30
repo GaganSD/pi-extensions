@@ -101,6 +101,22 @@ Black Metal is the install default. Catppuccin Mocha styles: Default, Quiet, Mau
 
 Selection is saved and also appears in `/settings`.
 
+### Composer Keys
+
+These work from the prompt after `pi install npm:pi-slate`. No terminal configuration.
+
+| Action | Keys |
+| --- | --- |
+| Select all prompt text | `Ctrl+Shift+A` |
+| Copy selected prompt | selected `Ctrl+C` / `Ctrl+Shift+C` |
+| Cut selected prompt | `Ctrl+Shift+X` |
+| Replace selection | Type, Backspace, or paste |
+| Submit selected prompt | `Enter` |
+| Clear the prompt | `Esc` `Esc` |
+| Expand a collapsed paste or `[image-N]` | `F4`, or paste the same content while the caret is on the token |
+
+Large pastes stay collapsed as `[paste #1 +18 lines]`. Image paths stay as `[image-1]`. Copy uses the expanded paste body. Unselected `Ctrl+C` still clears the session the way Pi does.
+
 ## Commands
 
 `/slate` with no args opens the settings picker.

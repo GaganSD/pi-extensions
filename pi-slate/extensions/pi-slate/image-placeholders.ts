@@ -24,6 +24,10 @@ type PatchableEditor = {
 
 export type ImagePlaceholders = {
   attachEditor(editor: CustomEditor): void;
+  detachEditor(): void;
+  refreshEditor(): void;
+  pathFor(number: string): string | undefined;
+  matchesImage(number: string, path: string): boolean;
   dispose(): void;
 };
 
@@ -101,12 +105,33 @@ export function installImagePlaceholders(
 
   return {
     attachEditor(editor) {
-      peek?.dispose();
+      this.detachEditor();
       peek = new ImagePeek(store, editor, workspace, loadImage);
     },
-    dispose() {
+    detachEditor() {
       peek?.dispose();
       peek = undefined;
+    },
+    refreshEditor() {
+      peek?.update();
+    },
+    pathFor(number) {
+      return store.get(number);
+    },
+    matchesImage(number, path) {
+      const storedPath = store.get(number);
+      if (!storedPath) return false;
+      try {
+        const storedStat = statSync(storedPath);
+        const candidateStat = statSync(path);
+        if (!storedStat.isFile() || !candidateStat.isFile() || storedStat.size !== candidateStat.size) return false;
+        return readFileSync(storedPath).equals(readFileSync(path));
+      } catch {
+        return false;
+      }
+    },
+    dispose() {
+      this.detachEditor();
       uninstallEditorPatch();
     },
   };
