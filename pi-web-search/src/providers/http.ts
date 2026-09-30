@@ -55,7 +55,15 @@ export async function postSseJson<T>(
 	);
 }
 
-/** Returns the concatenated `data:` payloads of an SSE stream, in order. */
+/**
+ * Returns the concatenated payloads of an SSE stream, in order.
+ *
+ * `data:` is the normal framing, but GitHub's MCP server is inconsistent within
+ * a single session: `initialize` and `tools/call` use `data:`, while
+ * `tools/list` sends a bare JSON line after `event: message`. Ignoring bare
+ * lines is fine until it silently is not, so a bare `{`/`[` line is treated as
+ * payload too.
+ */
 export function extractSseData(bodyText: string): string[] {
 	const payloads: string[] = [];
 	let current: string[] = [];
@@ -78,6 +86,13 @@ export function extractSseData(bodyText: string): string[] {
 		}
 		if (line.startsWith("data:")) {
 			current.push(line.slice("data:".length).trimStart());
+			continue;
+		}
+		if (line.startsWith("event:") || line.startsWith("id:") || line.startsWith("retry:")) {
+			continue;
+		}
+		if (line.startsWith("{") || line.startsWith("[")) {
+			current.push(line);
 		}
 	}
 	flush();

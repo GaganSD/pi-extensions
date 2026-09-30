@@ -12,6 +12,8 @@ export interface McpClientOptions {
 	fetchImpl?: FetchLike;
 	timeoutMs?: number;
 	signal?: AbortSignal;
+	/** Extra headers for every request, e.g. GitHub's `Authorization`. */
+	headers?: Record<string, string>;
 }
 
 export interface McpClient {
@@ -34,8 +36,18 @@ interface McpToolResult {
 	structuredContent?: unknown;
 }
 
-export function createMcpClient(options: McpClientOptions): McpClient {
-	const { url } = options;
+/** Merges caller headers with the session header; the session id never wins over auth. */
+function withAuth(
+	headers: Record<string, string> | undefined,
+	sessionId: string | undefined,
+): Record<string, string> | undefined {
+	if (headers === undefined) {
+		return sessionId ? { "Mcp-Session-Id": sessionId } : undefined;
+	}
+	return sessionId ? { ...headers, "Mcp-Session-Id": sessionId } : headers;
+}
+
+export function createMcpClient(options: McpClientOptions): McpClient {	const { url } = options;
 	let sessionId: string | undefined;
 	let nextId = 1;
 
@@ -54,7 +66,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			fetchImpl: options.fetchImpl,
 			timeoutMs: options.timeoutMs,
 			signal: options.signal,
-			headers: sessionId ? { "Mcp-Session-Id": sessionId } : undefined,
+			headers: withAuth(options.headers, sessionId),
 			onResponse: (response) => {
 				sessionId = response.headers.get(SESSION_ID_HEADER) ?? sessionId;
 			},
@@ -90,7 +102,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 				timeoutMs: options.timeoutMs,
 				signal: options.signal,
 				allowEmptyBody: true,
-				headers: sessionId ? { "Mcp-Session-Id": sessionId } : undefined,
+				headers: withAuth(options.headers, sessionId),
 			});
 		},
 
@@ -124,7 +136,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			try {
 				await doFetch(url, {
 					method: "DELETE",
-					headers: { "Mcp-Session-Id": sessionId },
+					headers: withAuth(options.headers, sessionId),
 					signal: options.signal,
 				});
 			} catch (error) {

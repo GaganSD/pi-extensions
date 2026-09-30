@@ -78,7 +78,11 @@ test("a missing PARALLEL_API_KEY leaves the chain as [exa]", () => {
 		assert.deepEqual(providerAvailability(), {
 			exa: true,
 			parallel: false,
+			// grep.app is keyless; GitHub needs a token that is absent here.
+			grep: true,
+			github: false,
 		});
+		// Code sources are keyless/available but must never join a web chain.
 		assert.deepEqual(resolveProviderChain(settings), ["exa"]);
 	} finally {
 		if (previous !== undefined) {

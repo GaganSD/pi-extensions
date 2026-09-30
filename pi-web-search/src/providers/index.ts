@@ -1,11 +1,14 @@
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import { type ResolvedSettings } from "./config.ts";
 import {
+	DEFAULT_CHAIN,
 	type ProviderError,
+	type ProviderFamily,
 	type ProviderKind,
 	type StreamResult,
 	isProviderError,
 	providerError,
+	providerFamily,
 } from "./types.ts";
 
 export interface SearchRequest {
@@ -25,9 +28,11 @@ export interface RunSearchOptions {
 	/** Injected transports win over the default Exa/Parallel ones. */
 	transports?: ProviderTransportMap;
 	/** Injected credential knowledge wins over `providerAvailability()`. */
-	availability?: Record<ProviderKind, boolean>;
+	availability?: Partial<Record<ProviderKind, boolean>>;
 	/** Overrides how the default transports are loaded. */
 	loadTransports?: () => Promise<ProviderTransportMap>;
+	/** Set by the Jev router. Confines the chain to one family. */
+	family?: ProviderFamily;
 }
 
 export type RunSearchResult =
@@ -35,27 +40,48 @@ export type RunSearchResult =
 	| { ok: false; error: ProviderError };
 
 /**
- * Credential knowledge at the registry level. Exa is keyless-capable (hosted
- * MCP), Parallel always needs an API key.
+ * Credential knowledge at the registry level. Exa and grep.app are keyless
+ * (hosted MCP). Parallel and GitHub always need an API key.
  */
 export function providerAvailability(): Record<ProviderKind, boolean> {
 	return {
 		exa: true,
 		parallel: hasParallelKey(),
+		grep: true,
+		github: hasGitHubToken(),
 	};
 }
 
+/**
+ * The chain is confined to one family. Config order wins when it yields a
+ * usable provider in that family; otherwise the family default is used, so
+ * routing to `code` still works for an operator who only ever configured `exa`.
+ */
 export function resolveProviderChain(
 	settings: ResolvedSettings,
-	availability: Record<ProviderKind, boolean> = providerAvailability(),
+	availability: Partial<Record<ProviderKind, boolean>> = providerAvailability(),
+	family?: ProviderFamily,
 ): ProviderKind[] {
+	const target = family ?? settings.family ?? providerFamily(settings.provider);
 	const chain: ProviderKind[] = [];
-	for (const kind of [settings.provider, ...settings.fallback]) {
-		if (!availability[kind]) {
-			continue;
-		}
-		if (!chain.includes(kind)) {
+	// An absent key means "not available", so an injected partial map reads as
+	// "exactly these are available" — which is what tests want to express.
+	const add = (kind: ProviderKind) => {
+		if (
+			providerFamily(kind) === target &&
+			availability[kind] === true &&
+			!chain.includes(kind)
+		) {
 			chain.push(kind);
+		}
+	};
+
+	for (const kind of [settings.provider, ...settings.fallback]) {
+		add(kind);
+	}
+	if (chain.length === 0) {
+		for (const kind of DEFAULT_CHAIN[target]) {
+			add(kind);
 		}
 	}
 	return chain;
@@ -82,13 +108,17 @@ export async function tryRunSearch(
 	req: SearchRequest,
 	options: RunSearchOptions = {},
 ): Promise<RunSearchResult> {
-	const chain = resolveProviderChain(req.settings, options.availability);
+	const chain = resolveProviderChain(
+		req.settings,
+		options.availability,
+		options.family,
+	);
 	if (chain.length === 0) {
 		return {
 			ok: false,
 			error: missingCredentials(
 				req.settings.provider,
-				`No configured provider has credentials. Set PARALLEL_API_KEY or add ${req.settings.provider === "parallel" ? "EXA_API_KEY" : "PARALLEL_API_KEY"}.`,
+				describeNoCredentials(req.settings, options.family),
 			),
 		};
 	}
@@ -153,6 +183,23 @@ function hasParallelKey(): boolean {
 	return typeof key === "string" && key.length > 0;
 }
 
+function hasGitHubToken(): boolean {
+	const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+	return typeof token === "string" && token.length > 0;
+}
+
+/** Names the credential that would actually unlock the family in question. */
+function describeNoCredentials(
+	settings: ResolvedSettings,
+	family?: ProviderFamily,
+): string {
+	const target = family ?? settings.family ?? providerFamily(settings.provider);
+	const hint = target === "code"
+		? "Set GITHUB_TOKEN to enable the GitHub code-search fallback."
+		: "Set PARALLEL_API_KEY for the Parallel web fallback, or EXA_API_KEY for keyed Exa.";
+	return `No ${target} provider has credentials. ${hint}`;
+}
+
 /**
  * Real transports are loaded lazily so the registry stays usable with injected
  * fakes and never forces the MCP/REST modules to load in offline tests. A
@@ -160,18 +207,21 @@ function hasParallelKey(): boolean {
  * so the chain skips that provider instead of failing the whole search.
  */
 async function loadDefaultTransports(): Promise<ProviderTransportMap> {
-	const [exa, parallel] = await Promise.all([
+	const [exa, parallel, grep, github] = await Promise.all([
 		import("./exa.ts").catch(() => undefined),
 		import("./parallel.ts").catch(() => undefined),
+		import("./grep.ts").catch(() => undefined),
+		import("./github.ts").catch(() => undefined),
 	]);
 	const map: ProviderTransportMap = {};
-	const exaSearch = exa?.exaSearch;
-	if (typeof exaSearch === "function") {
-		map.exa = exaSearch;
-	}
-	const parallelSearch = parallel?.parallelSearch;
-	if (typeof parallelSearch === "function") {
-		map.parallel = parallelSearch;
-	}
+	const assign = (kind: ProviderKind, fn: unknown) => {
+		if (typeof fn === "function") {
+			map[kind] = fn as SearchTransport;
+		}
+	};
+	assign("exa", exa?.exaSearch);
+	assign("parallel", parallel?.parallelSearch);
+	assign("grep", grep?.grepSearch);
+	assign("github", github?.githubSearch);
 	return map;
 }
