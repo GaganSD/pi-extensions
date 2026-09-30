@@ -1,6 +1,6 @@
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 
-export const SLATE_THEME = "pi-slate";
+export const SLATE_THEME = "black-metal";
 
 export function shouldApplyInstallDefault(applied: boolean | undefined): boolean {
   return applied !== true;
