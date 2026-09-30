@@ -155,6 +155,7 @@ export const SIDEBAR_PERCENT_MAX = 80;
 export const SIDEBAR_PERCENT_NARROW = 0;
 export const SIDEBAR_PERCENT_MEDIUM = 30;
 export const SIDEBAR_PERCENT_WIDE = 40;
+export const SIDEBAR_HIDDEN = -1;
 
 export function parseSidebarPercent(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
@@ -214,7 +215,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | message-length [default|all|<count>] | theme [canonical|quiet|mauve|sapphire|peach|teal] | style [canonical|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [canonical|quiet|mauve|sapphire|peach|teal] | style [canonical|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -237,6 +238,9 @@ const SLATE_COMPLETIONS = [
   "width narrow",
   "width medium",
   "width wide",
+  "vertical",
+  "vertical on",
+  "vertical off",
   "message-length",
   "message-length default",
   "message-length all",
@@ -255,6 +259,7 @@ export type SlateArgs =
   | { ok: true; kind: "footer"; value?: "standard" | "minimal" }
   | { ok: true; kind: "width-menu" }
   | { ok: true; kind: "width"; width?: number }
+  | { ok: true; kind: "vertical"; value?: boolean }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
@@ -305,6 +310,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
       ? { ok: true, kind: "width" }
       : { ok: true, kind: "width", width: parsed.percent };
   }
+  if (head === "vertical") {
+    if (!tail) return { ok: true, kind: "vertical" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail === "on" };
+    return { ok: false };
+  }
   if (head === "message-length") {
     if (!tail) return { ok: true, kind: "message-length-menu" };
     const parsed = parseMessageLengthArg(tail);
@@ -334,6 +344,7 @@ export function clampSidebarColumns(totalWidth: number, columns: number): number
 }
 
 export function workspaceColumnWidth(totalWidth: number, preferredPercent?: number): number {
+  if (preferredPercent === SIDEBAR_HIDDEN) return 0;
   if (preferredPercent === SIDEBAR_PERCENT_NARROW) return clampSidebarColumns(totalWidth, SIDEBAR_MIN_WIDTH);
   const ratio = preferredPercent === undefined ? SIDEBAR_DEFAULT_RATIO : preferredPercent / 100;
   return clampSidebarColumns(totalWidth, Math.floor(totalWidth * ratio));

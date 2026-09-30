@@ -81,6 +81,7 @@ type SlateConfig = {
   density: "comfortable" | "compact";
   footer: "standard" | "minimal";
   sidebarPercent?: number;
+  vertical?: boolean;
   messageLength?: number | "all";
   themeApplied?: boolean;
   fullscreenApplied?: boolean;
@@ -114,6 +115,7 @@ function loadConfig(): SlateConfig {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
+      ...(value.vertical === true ? { vertical: true } : {}),
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
@@ -239,7 +241,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   const columnWidth = (width: number): number => {
-    return sidebar.splitActive ? width : mainColumnWidth(width, sidebar.preferredWidth);
+    if (sidebar.hidden || sidebar.splitActive) return width;
+    return mainColumnWidth(width, sidebar.preferredWidth);
   };
 
   const syncSidebar = (ctx: ExtensionContext): void => {
@@ -302,6 +305,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSelectedPreview(undefined);
     sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
     sidebar.setPreferredWidth(config.sidebarPercent);
+    sidebar.setHidden(config.vertical === true);
     sidebar.setActions({
       persistWidth: (percent) => {
         try {
@@ -506,6 +510,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       saveConfig(next);
       config = next;
       sidebar.setPreferredWidth(config.sidebarPercent);
+      sidebar.setHidden(config.vertical === true);
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
       requestRender();
@@ -684,7 +689,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar width, message length, Catppuccin theme, or file a bug",
+    description: "Density, footer, sidebar, vertical mode, message length, Catppuccin theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -695,10 +700,11 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Vertical", "Message length", "Theme", "File a bug"]);
         if (setting === "Density") kind = "density";
         else if (setting === "Footer") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
+        else if (setting === "Vertical") kind = "vertical";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "File a bug") kind = "bug-menu";
@@ -719,8 +725,14 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
 
+      if (kind === "vertical") {
+        const on = parsed.kind === "vertical" && parsed.value !== undefined ? parsed.value : !config.vertical;
+        apply({ ...config, vertical: on || undefined }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+        return;
+      }
+
       if (parsed.kind === "width") {
-        apply(withSidebarPercent(config, parsed.width), widthMessage(parsed.width), ctx);
+        apply(withSidebarPercent({ ...config, vertical: undefined }, parsed.width), widthMessage(parsed.width), ctx);
         return;
       }
 
@@ -764,7 +776,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       const picked = await pickWidth(ctx);
       if (!picked) return;
-      apply(withSidebarPercent(config, picked.width), widthMessage(picked.width), ctx);
+      apply(withSidebarPercent({ ...config, vertical: undefined }, picked.width), widthMessage(picked.width), ctx);
     },
   });
 }

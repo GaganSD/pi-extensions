@@ -18,6 +18,7 @@ import {
   parseSidebarPercent,
   sidebarPercentFromColumns,
   SIDEBAR_EDITOR_RESERVE,
+  SIDEBAR_HIDDEN,
   SIDEBAR_MIN_TERMINAL_WIDTH,
   SIDEBAR_MIN_WIDTH,
   sidebarHandleColumn,
@@ -79,6 +80,7 @@ export class Sidebar implements Component {
   private resizeStartScreenX = 0;
   private resizeStartWidth = 0;
   private _preferredWidth?: number;
+  hidden = false;
   private selectedView?: WorkspaceView;
   private transientView?: WorkspaceView;
   private turnImpact: TurnImpactSnapshot = emptyTurnImpact();
@@ -110,7 +112,7 @@ export class Sidebar implements Component {
     this.tui = tui;
     this.theme = theme;
     if (this.splitDispose || this.handle) return;
-    this.splitDispose = installSidebarSplit(tui, this, () => this._preferredWidth);
+    this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
     this.splitActive = Boolean(this.splitDispose);
     this.contentCached = undefined;
     this.dockCached = undefined;
@@ -122,7 +124,7 @@ export class Sidebar implements Component {
       minWidth: SIDEBAR_MIN_WIDTH,
       maxHeight: "100%",
       margin: { top: 0, right: 0, bottom: SIDEBAR_EDITOR_RESERVE, left: 0 },
-      visible: (termWidth) => termWidth >= SIDEBAR_MIN_TERMINAL_WIDTH,
+      visible: (termWidth) => !this.hidden && termWidth >= SIDEBAR_MIN_TERMINAL_WIDTH,
     };
     this.handle = tui.showOverlay(this, this.overlayOptions);
   }
@@ -135,6 +137,13 @@ export class Sidebar implements Component {
     const next = width === undefined ? undefined : parseSidebarPercent(width);
     if (this._preferredWidth === next) return;
     this._preferredWidth = next;
+    this.syncOverlayWidth();
+    this.tui?.requestRender();
+  }
+
+  setHidden(hidden: boolean): void {
+    if (this.hidden === hidden) return;
+    this.hidden = hidden;
     this.syncOverlayWidth();
     this.tui?.requestRender();
   }
@@ -576,11 +585,12 @@ export class Sidebar implements Component {
   }
 
   private displayedWidth(totalWidth = this.tui?.terminal.columns ?? 0): number {
-    return workspaceColumnWidth(totalWidth, this._preferredWidth);
+    return workspaceColumnWidth(totalWidth, this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
   }
 
   private overlayWidth(totalWidth: number): OverlayOptions["width"] {
-    return this.displayedWidth(totalWidth) || "20%";
+    const width = this.displayedWidth(totalWidth);
+    return width || (this.hidden ? 0 : "20%");
   }
 
   private syncOverlayWidth(): void {
