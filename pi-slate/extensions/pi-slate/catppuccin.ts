@@ -1,5 +1,5 @@
 export const FLAVORS = ["mocha"] as const;
-export const STYLES = ["canonical", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
+export const STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 
 export type Flavor = (typeof FLAVORS)[number];
 export type Style = (typeof STYLES)[number];
@@ -9,7 +9,7 @@ export const FLAVOR_LABELS: Record<Flavor, string> = {
 };
 
 export const STYLE_LABELS: Record<Style, string> = {
-  canonical: "Canonical",
+  default: "Default",
   quiet: "Quiet",
   mauve: "Mauve",
   sapphire: "Sapphire",
@@ -41,7 +41,7 @@ const PALETTES: Record<Flavor, Palette> = {
 };
 
 const STYLE_ROLES: Record<Style, { accent: Swatch; border: Swatch; heading: Swatch }> = {
-  canonical: { accent: "lavender", border: "overlay0", heading: "text" },
+  default: { accent: "lavender", border: "overlay0", heading: "text" },
   quiet: { accent: "subtext1", border: "surface2", heading: "subtext1" },
   mauve: { accent: "mauve", border: "overlay0", heading: "mauve" },
   sapphire: { accent: "sapphire", border: "overlay0", heading: "sapphire" },
@@ -60,6 +60,7 @@ export function parseFlavor(raw: string): Flavor | undefined {
 
 export function parseStyle(raw: string): Style | undefined {
   const value = raw.trim().toLowerCase();
+  if (value === "canonical") return "default";
   return STYLES.find((style) => style === value);
 }
 

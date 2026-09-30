@@ -137,6 +137,7 @@ export function frameComposerLines(
     empty: boolean;
     paddingX: number;
     paint: (text: string) => string;
+    theme?: Theme;
   },
 ): string[] {
   if (lines.length < 2) return lines;
@@ -152,12 +153,12 @@ export function frameComposerLines(
   const out = lines.slice();
   const prompt = opts.empty && opts.paddingX >= 4;
   for (let i = 1; i < bottom; i++) {
-    out[i] = sideBorder(out[i] ?? "", opts.width, opts.paint, prompt && i === 1);
+    out[i] = sideBorder(out[i] ?? "", opts.width, opts.paint, prompt && i === 1, opts.theme);
   }
   return out;
 }
 
-function sideBorder(line: string, width: number, paint: (text: string) => string, prompt: boolean): string {
+function sideBorder(line: string, width: number, paint: (text: string) => string, prompt: boolean, theme?: Theme): string {
   const leftCols = prompt ? 4 : 1;
   const prefix = " ".repeat(leftCols);
   let body = line.startsWith(prefix) ? line.slice(leftCols) : line;
@@ -251,6 +252,7 @@ export class ComposerEditor extends CustomEditor {
         empty: this.getText().length === 0,
         paddingX: this.getPaddingX(),
         paint,
+        theme: this.source().theme,
       }),
       width,
       paint,
