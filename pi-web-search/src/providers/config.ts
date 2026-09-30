@@ -246,7 +246,9 @@ export function applyConfig(
 	return {
 		provider,
 		fallback,
-		timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+		// A non-positive timeout would disable the deadline entirely, so it is
+		// corrected here rather than trusted from the config file.
+		timeoutMs: normalizeTimeoutMs(config.timeoutMs),
 		maxResults: clampMaxResults(config.maxResults ?? DEFAULT_MAX_RESULTS),
 		configPath,
 		...(config.family ? { family } : {}),
@@ -310,6 +312,15 @@ function numericWeight(
 
 function quotedList(values: readonly string[]): string {
 	return values.map((value) => `"${value}"`).join(" | ");
+}
+
+export const MIN_TIMEOUT_MS = 1000;
+
+export function normalizeTimeoutMs(value: number | undefined): number {
+	if (value === undefined || !Number.isFinite(value) || value <= 0) {
+		return DEFAULT_TIMEOUT_MS;
+	}
+	return Math.max(MIN_TIMEOUT_MS, Math.trunc(value));
 }
 
 export function clampMaxResults(value: number): number {

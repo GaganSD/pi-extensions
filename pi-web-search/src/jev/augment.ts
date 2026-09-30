@@ -1,6 +1,6 @@
 import type { SearchRequest } from "../providers/index.ts";
 import type { StreamResult } from "../providers/types.ts";
-import { jevApiKey, type JevOptions, systemOne } from "./api.ts";
+import { jevApiKey, JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
 import {
 	type Candidate,
 	type JudgeOutcome,
@@ -10,9 +10,7 @@ import {
 	toCandidates,
 } from "./judge.ts";
 
-export interface AugmentOptions extends JevOptions {
-	maxResults?: number;
-}
+export type AugmentOptions = JevOptions;
 
 /**
  * Judges and reorders a result set in place.
@@ -37,7 +35,7 @@ export async function augmentResults(
 		return result;
 	}
 
-	const candidates = toCandidates(req.query, results, options.maxResults ?? results.length);
+	const candidates = toCandidates(results, results.length);
 	if (stateSize(candidates, req.query) > settings.maxStateChars) {
 		return withWarning(
 			result,
@@ -49,7 +47,14 @@ export async function augmentResults(
 		const response = await systemOne(
 			{ query: req.query, candidates },
 			buildJudgeQuestions(candidates),
-			{ ...options, model: options.model ?? settings.model },
+			{
+				...options,
+				model: options.model ?? settings.model,
+				// The caller's abort must reach the judge, or a cancelled search
+				// keeps waiting on a judgment nobody will read.
+				signal: req.signal,
+				timeoutMs: options.timeoutMs ?? JEV_TIMEOUT_MS,
+			},
 		);
 		const outcome = applyPolicy(candidates, response, settings);
 		return merge(result, outcome);
@@ -58,15 +63,21 @@ export async function augmentResults(
 	}
 }
 
-function merge(result: StreamResult, outcome: JudgeOutcome): StreamResult {
-	const byUrl = new Map(
-		(result.searchResults ?? []).map((entry) => [entry.url ?? "", entry]),
-	);
-	const results = outcome.results.map((entry) => {
-		const original = byUrl.get(entry.url ?? "");
-		// Keep whatever the provider supplied; the judge only decides order
-		// and admission, never content.
-		return original ? { ...original, ...entry } : entry;
+function merge(
+	result: StreamResult,
+	outcome: JudgeOutcome,
+): StreamResult {
+	// Merge by the candidate's original position, never by URL: a search hit and
+	// a /contents hit for the same page are distinct results, and keying on URL
+	// collapsed them into one.
+	const originals = result.searchResults ?? [];
+	const results = outcome.results.map((judged) => {
+		const original = originals[judged.index];
+		// The judge only decides order and admission; provider metadata and
+		// content are carried through untouched.
+		return original
+			? { ...original, title: judged.title, url: judged.url }
+			: { title: judged.title, url: judged.url, citedText: judged.citedText };
 	});
 
 	const warnings = [...(result.warnings ?? []), ...outcome.warnings];
@@ -83,12 +94,21 @@ function merge(result: StreamResult, outcome: JudgeOutcome): StreamResult {
 
 	return {
 		...result,
+		// The direct answer is the provider's own excerpt, copied verbatim.
+		// Jev selected which one; it did not write it.
+		...(outcome.directText === undefined ? {} : { text: outcome.directText }),
 		searchResults: results,
 		sources: results
 			.map((entry) => ({ title: entry.title ?? "", url: entry.url ?? "" }))
 			.filter((source) => source.url.length > 0),
 		...(warnings.length > 0 ? { warnings } : {}),
 		...(usage.length > 0 ? { usage } : {}),
+		jev: {
+			sufficient: outcome.sufficient,
+			lowConfidence: outcome.lowConfidence,
+			suppressed: outcome.suppressed,
+			suppressedUrls: outcome.suppressedUrls,
+		},
 	};
 }
 

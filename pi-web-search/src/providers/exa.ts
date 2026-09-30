@@ -189,7 +189,7 @@ async function keyedSearch(
 	return {
 		text: "",
 		providerKind: "exa",
-		sources: toSources(results),
+		sources: toSources(allResults),
 		searchResults: allResults,
 		requestId: typeof body.requestId === "string" ? body.requestId : undefined,
 		...(warnings.length > 0 ? { warnings } : {}),
@@ -282,7 +282,7 @@ async function keylessSearch(
 	return {
 		text: "",
 		providerKind: "exa",
-		sources: toSources(results),
+		sources: toSources(allResults),
 		searchResults: allResults,
 		requestId: EXA_MCP_REQUEST_ID,
 		...(warnings.length > 0 ? { warnings } : {}),

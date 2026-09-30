@@ -51,6 +51,8 @@ export interface WebSearchDetails {
 	warnings?: string[];
 	/** True when the result carries at least one source URL. */
 	grounded?: boolean;
+	/** Decision-layer verdicts; present only when jev actually ran. */
+	jev?: StreamResult["jev"];
 }
 
 export interface TruncationLimits {
@@ -119,6 +121,7 @@ export function formatWebSearchResult(
 		searchResults,
 		warnings,
 		grounded: sources.length > 0,
+		...(result.jev ? { jev: result.jev } : {}),
 	}, limits);
 }
 

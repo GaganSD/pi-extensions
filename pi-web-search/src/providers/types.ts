@@ -61,6 +61,15 @@ export interface StreamResult {
 	usage?: { name: string; count: number }[];
 	/** Parallel only. */
 	warnings?: string[];
+	/** Decision-layer audit trail; absent whenever jev did not run. */
+jev?: {
+		sufficient: boolean;
+		lowConfidence: boolean;
+		/** Count withheld as unsafe. */
+		suppressed: number;
+		/** URLs withheld, so a suppression is never invisible. */
+		suppressedUrls: string[];
+	};
 }
 
 const CODES = [

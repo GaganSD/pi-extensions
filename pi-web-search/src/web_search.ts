@@ -80,9 +80,16 @@ export async function webSearch(
 
 		const augmented = await augmentResults(
 			{ query: params.query, signal, settings: resolved },
-			routing.note
-				? { ...result, warnings: [...(result.warnings ?? []), routing.note] }
-				: result,
+			{
+				...result,
+				// Config notices were recorded but never shown, so a dropped
+				// cross-family fallback stayed invisible to the operator.
+				warnings: [
+					...resolved.notices,
+					...(routing.note ? [routing.note] : []),
+					...(result.warnings ?? []),
+				],
+			},
 		);
 
 		return formatWebSearchResult(augmented);

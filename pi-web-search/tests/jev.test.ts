@@ -214,7 +214,7 @@ test("judge state size grows with candidate content", () => {
 });
 
 test("candidates are capped at maxResults", () => {
-	assert.equal(toCandidates("q", [{ title: "a" }, { title: "b" }, { title: "c" }], 2).length, 2);
+	assert.equal(toCandidates([{ title: "a" }, { title: "b" }, { title: "c" }], 2).length, 2);
 });
 
 // --- policy -----------------------------------------------------------------

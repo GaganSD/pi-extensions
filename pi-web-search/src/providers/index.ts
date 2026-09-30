@@ -178,14 +178,19 @@ function toProviderError(error: unknown): ProviderError {
 	return providerError("unknown", message);
 }
 
-function hasParallelKey(): boolean {
+/**
+ * Trimmed: the transports trim before use, so an untrimmed check would treat a
+ * whitespace-only key as present and then fail non-retryably, which suppresses
+ * the fallback it was supposed to enable.
+ */
+export function hasParallelKey(): boolean {
 	const key = process.env.PARALLEL_API_KEY;
-	return typeof key === "string" && key.length > 0;
+	return typeof key === "string" && key.trim().length > 0;
 }
 
-function hasGitHubToken(): boolean {
+export function hasGitHubToken(): boolean {
 	const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-	return typeof token === "string" && token.length > 0;
+	return typeof token === "string" && token.trim().length > 0;
 }
 
 /** Names the credential that would actually unlock the family in question. */

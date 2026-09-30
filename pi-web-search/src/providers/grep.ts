@@ -4,11 +4,9 @@ import type { SearchResultDetail, StreamResult } from "./types.ts";
 
 export const GREP_MCP_URL = "https://mcp.grep.app";
 
-/** MCP `searchGitHub` caps results well below this; page size stays modest. */
-const MAX_RESULTS_CAP = 20;
-
 const PROVIDER_NAME = "grep";
 const SEARCH_TOOL = "searchGitHub";
+const SNIPPET_MARKER = "--- Snippet";
 
 export interface GrepSearchOptions {
 	fetchImpl?: FetchLike;
@@ -20,7 +18,7 @@ export async function grepSearch(
 	req: SearchRequest,
 	options: GrepSearchOptions = {},
 ): Promise<StreamResult> {
-	const warnings = new LanguageFilterWarning(req.query);
+	const warnings = languageFilterWarning(req.query);
 
 	// grep.app's `language` filter is nondeterministically broken (verified
 	// 2026-09-30: identical queries returned 504, empty, then 504). Passing it
@@ -48,7 +46,7 @@ export async function grepSearch(
 		: [{ source: PROVIDER_NAME, citedText: text, type: "content" }];
 
 	const allWarnings = [
-		...warnings.messages(),
+		...warnings,
 		...(usable.length === 1 && usable[0].citedText === text
 			? ["grep.app returned no usable matches for this query."]
 			: []),
@@ -100,101 +98,86 @@ interface GrepHit {
 
 /**
  * Grep returns plain text: `Repository:`/`Path:`/`URL:`/`License:` groups, each
- * followed by `--- Snippet N (Line X) ---` bodies. A blank line separates
- * groups, which is what ends the previous one — the same rule the Exa parser
- * needs, and the reason anchors are only matched outside a snippet block.
+ * followed by `--- Snippet N (Line X) ---` bodies.
+ *
+ * Snippet boundaries are the `--- Snippet` markers and the next `Repository:`,
+ * never a blank line. Code routinely contains blank lines, and treating one as
+ * a boundary truncated real snippets mid-function. Inside a snippet block every
+ * line is content — including blank lines and lines that happen to start with
+ * `Path:` or `Repository:` — which is what keeps a config literal or a
+ * `Repository:` string inside source code from fabricating a new hit.
  */
 export function parseGrepSearchText(text: string, maxResults: number): SearchResultDetail[] {
 	const hits: GrepHit[] = [];
 	let current: GrepHit | undefined;
-	let inSnippets = false;
-	let snippetLines: string[] = [];
-	let inSnippet = false;
+	let snippetLines: string[] | undefined;
 
-	const endSnippet = () => {
-		if (inSnippet && current) {
-			const body = snippetLines.join("\n").trim();
-			if (body.length > 0) {
-				current.snippets.push(body);
-			}
+	const flushSnippet = () => {
+		const body = snippetLines?.join("\n").replace(/\s+$/, "");
+		if (current && body) {
+			current.snippets.push(body);
 		}
-		snippetLines = [];
-		inSnippet = false;
+		snippetLines = undefined;
 	};
 
-	const endGroup = () => {
-		endSnippet();
-		if (current?.repo || current?.path || current?.url) {
+	const flushHit = () => {
+		flushSnippet();
+		if (current && (current.repo || current.path || current.url)) {
 			hits.push(current);
 		}
 		current = undefined;
-		inSnippets = false;
 	};
 
 	for (const raw of text.split("\n")) {
-		const line = raw.trim();
-		if (line.length === 0) {
-			// A blank line closes the snippet block, and the next structural
-			// anchor opens a new hit.
-			endSnippet();
-			inSnippets = false;
+		const line = raw.trimEnd();
+
+		if (line.trimStart().startsWith(SNIPPET_MARKER)) {
+			snippetLines = snippetLines ?? [];
 			continue;
 		}
-		if (inSnippet) {
-			if (line.startsWith("--- Snippet")) {
-				endSnippet();
-				inSnippet = true;
+		if (snippetLines !== undefined) {
+			// Inside a snippet: a Repository: line ends the hit, everything else
+			// is content.
+			if (raw.trimStart().startsWith("Repository:") && !/^\s/.test(raw)) {
+				flushHit();
+				current = { repo: readValue(raw), snippets: [] };
 				continue;
 			}
 			snippetLines.push(raw);
 			continue;
 		}
-		if (line.startsWith("--- Snippet")) {
-			inSnippets = true;
-			inSnippet = true;
+		if (line.trimStart().startsWith("Snippets:")) {
 			continue;
 		}
-		if (inSnippets) {
+		const trimmed = line.trimStart();
+		if (trimmed.startsWith("Repository:")) {
+			flushHit();
+			current = { repo: readValue(trimmed), snippets: [] };
 			continue;
 		}
-		if (line.startsWith("Snippets:")) {
-			inSnippets = true;
+		if (!current) {
 			continue;
 		}
-		const field = readField(line, "Repository");
-		if (field !== undefined) {
-			endGroup();
-			current = { ...field, snippets: [] };
-			continue;
-		}
-		if (current && line.startsWith("Path:")) {
-			current.path = readValue(line);
-		} else if (current && line.startsWith("URL:")) {
-			current.url = readValue(line);
-		} else if (current && line.startsWith("License:")) {
-			current.license = readValue(line);
+		if (trimmed.startsWith("Path:")) {
+			current.path = readValue(trimmed);
+		} else if (trimmed.startsWith("URL:")) {
+			current.url = readValue(trimmed);
+		} else if (trimmed.startsWith("License:")) {
+			current.license = readValue(trimmed);
 		}
 	}
-	endGroup();
+	flushHit();
 
 	return hits
-		.slice(0, Math.min(maxResults, MAX_RESULTS_CAP))
+		.slice(0, maxResults)
 		.map((hit) => ({
-			title: hit.repo && hit.path ? `${hit.repo}/${hit.path}` : hit.repo ?? hit.path,
+			title: hit.repo && hit.path ? `${hit.repo}/${hit.path}` : (hit.repo ?? hit.path),
 			url: hit.url,
 			source: PROVIDER_NAME,
 			type: "content",
 			...(hit.license ? { query: hit.license } : {}),
 			...(hit.snippets.length > 0 ? { citedText: hit.snippets.join("\n\n") } : {}),
 		}));
-}
-
-function readField(line: string, label: string): { repo: string } | undefined {
-	if (!line.startsWith(`${label}:`)) {
-		return undefined;
-	}
-	const value = readValue(line);
-	return value ? { repo: value } : undefined;
 }
 
 function readValue(line: string): string {
@@ -208,19 +191,11 @@ function extractQualifier(query: string, key: string): string | undefined {
 	return match?.[1];
 }
 
-class LanguageFilterWarning {
-	private readonly used: boolean;
-
-	constructor(query: string) {
-		this.used = extractQualifier(query, "language") !== undefined;
+function languageFilterWarning(query: string): string[] {
+	if (extractQualifier(query, "language") === undefined) {
+		return [];
 	}
-
-	messages(): string[] {
-		if (!this.used) {
-			return [];
-		}
-		return [
-			"grep.app's language filter is unreliable and may have returned no matches; treat zero results with a language filter as inconclusive.",
-		];
-	}
+	return [
+		"grep.app's language filter is unreliable and may have returned no matches; treat zero results with a language filter as inconclusive.",
+	];
 }

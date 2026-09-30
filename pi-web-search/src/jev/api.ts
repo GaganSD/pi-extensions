@@ -1,3 +1,4 @@
+import { withTimeout } from "../providers/http.ts";
 import { providerError } from "../providers/types.ts";
 
 export const TYPESAFE_API_URL = "https://api.typesafe.ai/v1/systemone";
@@ -7,6 +8,12 @@ export const TYPESAFE_API_URL = "https://api.typesafe.ai/v1/systemone";
  * underneath you is not debuggable.
  */
 export const JEV_DEFAULT_MODEL = "jev-1.13.0";
+
+/**
+ * Judging is an optimization, so its deadline is deliberately shorter than a
+ * search's: it is better to return unranked results than to block on them.
+ */
+export const JEV_TIMEOUT_MS = 8000;
 
 export interface JevChoiceQuestion {
 	type: "choice";
@@ -52,8 +59,9 @@ export interface JevOptions {
 	fetchImpl?: FetchLike;
 	apiKey?: string;
 	model?: string;
-	timeoutMs?: number;
+	/** Caller abort plus a deadline; without one a hung call blocks the tool. */
 	signal?: AbortSignal;
+	timeoutMs?: number;
 }
 
 type FetchLike = typeof globalThis.fetch;
@@ -87,36 +95,42 @@ export async function systemOne(
 		throw providerError("network_error", "jev: no fetch implementation available.");
 	}
 
-	const response = await doFetch(TYPESAFE_API_URL, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${key}`,
-		},
-		body: JSON.stringify({
-			state,
-			model: options.model ?? JEV_DEFAULT_MODEL,
-			questions,
-		}),
-		signal: options.signal,
-	});
+	// Every Jev call is bounded. An unbounded request here would hang the whole
+	// tool, and judging must also honour a user abort like any other step.
+	const timeout = withTimeout(options.signal, options.timeoutMs ?? JEV_TIMEOUT_MS);
 
-	if (!response.ok) {
-		const detail = await safeText(response);
-		throw providerError(
-			response.status === 429 ? "rate_limited" : "http_error",
-			`jev: HTTP ${response.status}${detail ? ` ${detail.slice(0, 200)}` : ""}`,
-			// 429 and 5xx are worth one retry; a 400 means our questions are
-			// malformed and repeating them changes nothing.
-			{ status: response.status },
-		);
-	}
+	try {
+		const response = await doFetch(TYPESAFE_API_URL, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${key}`,
+			},
+			body: JSON.stringify({
+				state,
+				model: options.model ?? JEV_DEFAULT_MODEL,
+				questions,
+			}),
+			signal: timeout.signal,
+		});
 
-	const parsed = await parseBody(response);
-	if (!isRecord(parsed) || !isRecord(parsed.answers)) {
-		throw providerError("parse_error", "jev: response had no answers object.");
+		if (!response.ok) {
+			const detail = await safeText(response);
+			throw providerError(
+				response.status === 429 ? "rate_limited" : "http_error",
+				`jev: HTTP ${response.status}${detail ? ` ${detail.slice(0, 200)}` : ""}`,
+				{ status: response.status },
+			);
+		}
+
+		const parsed = await parseBody(response);
+		if (!isRecord(parsed) || !isRecord(parsed.answers)) {
+			throw providerError("parse_error", "jev: response had no answers object.");
+		}
+		return parsed as unknown as JevResponse;
+	} finally {
+		timeout.dispose();
 	}
-	return parsed as unknown as JevResponse;
 }
 
 async function parseBody(response: Response): Promise<unknown> {

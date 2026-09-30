@@ -150,7 +150,9 @@ function readFragments(item: Record<string, unknown>): string[] {
 
 function githubToken(): string | undefined {
 	const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-	return typeof token === "string" && token.length > 0 ? token : undefined;
+	return typeof token === "string" && token.trim().length > 0
+		? token.trim()
+		: undefined;
 }
 
 function readString(item: Record<string, unknown>, key: string): string | undefined {

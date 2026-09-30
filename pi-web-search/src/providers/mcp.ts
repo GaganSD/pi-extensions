@@ -1,6 +1,7 @@
 import {
 	type FetchLike,
 	postSseJson,
+	withTimeout,
 } from "./http.ts";
 import { providerError } from "./types.ts";
 
@@ -134,11 +135,18 @@ export function createMcpClient(options: McpClientOptions): McpClient {	const { 
 				return;
 			}
 			try {
-				await doFetch(url, {
-					method: "DELETE",
-					headers: withAuth(options.headers, sessionId),
-					signal: options.signal,
-				});
+				// Bounded: teardown sits in a finally, so a hung DELETE would
+				// otherwise turn a successful search into a failure.
+				const deadline = withTimeout(options.signal, options.timeoutMs ?? 0);
+				try {
+					await doFetch(url, {
+						method: "DELETE",
+						headers: withAuth(options.headers, sessionId),
+						signal: deadline.signal,
+					});
+				} finally {
+					deadline.dispose();
+				}
 			} catch (error) {
 				throw providerError("network_error", `MCP close failed: ${
 					error instanceof Error ? error.message : String(error)
@@ -149,7 +157,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {	const { 
 }
 
 /** Joins every `text` block of a `tools/call` content array. */
-export function collectTextContent(content: unknown): string {
+function collectTextContent(content: unknown): string {
 	if (typeof content === "string") {
 		return content;
 	}

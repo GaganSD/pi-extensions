@@ -21,6 +21,8 @@ export const SAFETY_CATEGORIES = [
 export type SafetyCategory = (typeof SAFETY_CATEGORIES)[number];
 
 export interface Judgement {
+	/** Position in the original result set, so ranking never loses provenance. */
+	index: number;
 	/** Composed in code from the nouls; the model never produces a rank score. */
 	score: number;
 	answers: number;
@@ -31,19 +33,20 @@ export interface Judgement {
 	suppressed: boolean;
 	title: string;
 	url: string;
-	citedText?: string;
-	source?: string;
-	type?: string;
+	citedText: string;
 }
 
 export interface JudgeOutcome {
-	results: SearchResultDetail[];
+	/** Ranked, with suppressed results removed. */
+	results: Judgement[];
 	warnings: string[];
 	/** Verbatim excerpt chosen as the direct answer; never generated text. */
 	directText?: string;
 	sufficient: boolean;
 	lowConfidence: boolean;
 	suppressed: number;
+	/** URLs withheld as unsafe, so a suppression is never invisible. */
+	suppressedUrls: string[];
 	usage?: { name: string; count: number }[];
 }
 
@@ -138,6 +141,16 @@ export function applyPolicy(
 	settings: JevSettings,
 ): JudgeOutcome {
 	const { answers } = response;
+	if (candidates.length === 0) {
+		return {
+			results: [],
+			warnings: [],
+			sufficient: false,
+			lowConfidence: true,
+			suppressed: 0,
+			suppressedUrls: [],
+		};
+	}
 	const judgements = candidates.map((candidate) =>
 		judgeOne(candidate, answers, settings));
 
@@ -148,52 +161,51 @@ export function applyPolicy(
 		.slice()
 		.sort((a, b) => b.score - a.score);
 
+	const suppressed = judgements.filter((judgement) => judgement.suppressed);
+	const suppressedUrls = suppressed.map((judgement) =>
+		judgement.url || judgement.title || "(unknown)");
+
 	const direct = readChoice(answers, "direct");
 	const directIndex = direct.choice.startsWith("candidate_")
 		? Number(direct.choice.slice("candidate_".length))
 		: Number.NaN;
-	const directCandidate = candidates.find((c) => c.index === directIndex);
+	const directJudgement = judgements[directIndex];
+	// A suppressed excerpt must never become the direct answer, however
+	// confident the model was that it answered the query.
+	const directCandidate = directJudgement && !directJudgement.suppressed
+		? candidates.find((c) => c.index === directIndex)
+		: undefined;
+
+	// Fail closed. A truncated payload must not read as "these results are
+	// sufficient", which is the one conclusion that silently misleads the model.
 	const sufficient = readNoul(answers, "sufficient");
+	const isSufficient = Number.isNaN(sufficient) ? false : sufficient >= 0.5;
 
 	const warnings: string[] = [];
-	const suppressedCount = judgements.filter((j) => j.suppressed).length;
-	if (suppressedCount > 0) {
+	if (suppressed.length > 0) {
 		// Suppression is reported, never silent: an invisible drop cannot be
 		// diagnosed later.
-		const urls = judgements
-			.filter((j) => j.suppressed)
-			.map((j) => j.url || j.title || "(unknown)");
 		warnings.push(
-			`jev suppressed ${suppressedCount} result(s) as unsafe: ${urls.join(", ")}`,
+			`jev suppressed ${suppressed.length} result(s) as unsafe: ${suppressedUrls.join(", ")}`,
 		);
 	}
 
 	const best = ranked[0];
 	const lowConfidence = best === undefined || best.score < settings.weights.answers;
+	const usage = readUsage(response);
 
 	return {
-		results: ranked.map((judgement) => ({
-			...toResult(judgement),
-			source: judgement.source,
-			type: judgement.type,
-		})),
+		results: ranked,
 		warnings,
-		...(directCandidate && direct.probability >= settings.safetyThreshold
+		...(directCandidate !== undefined
 			? { directText: directCandidate.excerpt }
 			: {}),
-		sufficient: Number.isNaN(sufficient) ? true : sufficient >= 0.5,
+		sufficient: isSufficient,
 		lowConfidence,
-		suppressed: suppressedCount,
-		...(readUsage(response) ? { usage: readUsage(response) } : {}),
+		suppressed: suppressed.length,
+		suppressedUrls,
+		...(usage ? { usage } : {}),
 	};
-}
-
-interface JudgeResult {
-	title: string;
-	url: string;
-	source?: string;
-	type?: string;
-	citedText?: string;
 }
 
 function judgeOne(
@@ -225,6 +237,7 @@ function judgeOne(
 		safety.probability >= settings.safetyThreshold;
 
 	return {
+		index: candidate.index,
 		score,
 		answers: safeNumber(answersScore, 0.5),
 		offtopic: safeNumber(offtopic, 0.5),
@@ -235,17 +248,6 @@ function judgeOne(
 		title: candidate.title,
 		url: candidate.url,
 		citedText: candidate.excerpt,
-	};
-}
-
-/** The judged projection of a result, ready to hand back to the caller. */
-function toResult(judgement: Judgement): JudgeResult {
-	return {
-		title: judgement.title,
-		url: judgement.url,
-		...(judgement.citedText === undefined
-			? {}
-			: { citedText: judgement.citedText }),
 	};
 }
 
@@ -267,7 +269,6 @@ function readUsage(
 
 /** Builds the judge state, capped so an oversized set skips augmentation. */
 export function toCandidates(
-	query: string,
 	results: SearchResultDetail[],
 	maxResults: number,
 ): Candidate[] {
