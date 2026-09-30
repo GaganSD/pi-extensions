@@ -1,4 +1,5 @@
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
+import { sweepStockUpdateNotices } from "./stock-notices.ts";
 
 export function childComponents(component: Component): Component[] {
   const stack = component as { entries?: Array<{ component?: Component }> };
@@ -59,6 +60,7 @@ export class MessageWindow {
       this.pinned = this.container.children.at(-1);
       this.addChild(component);
       this.trim();
+      sweepStockUpdateNotices(this.container);
     };
     container.removeChild = (component) => {
       const index = this.hidden.indexOf(component);
@@ -72,6 +74,7 @@ export class MessageWindow {
       this.clear();
     };
     this.trim();
+    sweepStockUpdateNotices(this.container);
   }
 
   setLimit(limit: number): void {
