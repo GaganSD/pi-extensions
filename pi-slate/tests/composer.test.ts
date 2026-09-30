@@ -146,20 +146,26 @@ test("vertical composer token label uses compact percent placement", () => {
   assert.doesNotMatch(labels.right, /5% used/);
 });
 
-test("composerStatusLabel strips indicator paint and uses accent", () => {
-  const colors: string[] = [];
+const labelTheme = {
+  fg: (name: string, text: string) => `[${name}]${text}`,
+  italic: (text: string) => `{i}${text}`,
+} as Theme;
+
+test("composerStatusLabel restyles working status that inherited frame color", () => {
   const label = composerStatusLabel(
-    { renderInBorder: () => "\x1b[90mCompacting context...\x1b[0m" },
-    {
-      fg: (name: string, text: string) => {
-        colors.push(name);
-        return text;
-      },
-      italic: (text: string) => text,
-    } as Theme,
+    { kind: "working", renderInBorder: () => "\x1b[90mCrafting\x1b[0m" },
+    labelTheme,
   );
-  assert.equal(label, "Compacting context...");
-  assert.deepEqual(colors, ["accent"]);
+  assert.equal(label, "{i}[accent]Crafting");
+});
+
+test("composerStatusLabel keeps Pi colors for other status kinds", () => {
+  const painted = "\x1b[33mRetrying (1/3) in 5s...\x1b[0m";
+  const label = composerStatusLabel(
+    { kind: "retry", renderInBorder: () => painted },
+    labelTheme,
+  );
+  assert.equal(label, painted);
 });
 
 test("working status stays left of the vertical context edge", () => {
@@ -176,17 +182,21 @@ test("working status stays left of the vertical context edge", () => {
   assert.match(line, /\$7\.47 · 14 skills loaded · 2 MCPs enabled ╮$/);
 });
 
-test("compacting status keeps its label when resources are long", () => {
+test("live status keeps its label when resources are long", () => {
   const line = composerStatusContextEdge(
     "$7.47 · 14 skills loaded · 2 MCPs enabled",
     64,
     (text) => text,
     0,
-    "Compacting context... (esc to cancel)",
+    "",
+    (width) => {
+      const label = "Retrying (2/5) in 8s... (esc to cancel)";
+      return label.slice(0, Math.max(0, width));
+    },
   );
   const plain = stripVTControlCharacters(line);
   assert.equal(visibleWidth(line), 64);
-  assert.match(plain, /Compacting context/);
+  assert.match(plain, /Retrying \(2\/5\)/);
   assert.ok(!plain.includes("2 MCPs enabled"));
 });
 

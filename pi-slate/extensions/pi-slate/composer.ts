@@ -230,38 +230,56 @@ export function composerContextEdge(
   return inscribedBorder(more, resources ? ` ${resources} ` : "", width, paint, "╭", "╮");
 }
 
+export type ComposerStatusIndicator = {
+  kind?: string;
+  renderInBorder(width: number): string;
+};
+
+/** Pi paints working status with editor.borderColor. Slate chrome is the frame, so restyle that kind only. */
 export function composerStatusLabel(
-  indicator: { renderInBorder(width: number): string } | undefined,
+  indicator: ComposerStatusIndicator | undefined,
   theme: Theme,
+  width = 240,
 ): string {
-  if (!indicator) return "";
-  const text = stripVTControlCharacters(indicator.renderInBorder(240)).trim();
-  if (!text) return "";
-  return theme.italic(theme.fg("accent", text));
+  if (!indicator || width <= 0) return "";
+  const raw = indicator.renderInBorder(width);
+  if (indicator.kind !== undefined && indicator.kind !== "working") return raw.trimEnd();
+  const text = stripVTControlCharacters(raw).trim();
+  return text ? theme.italic(theme.fg("accent", text)) : "";
 }
 
+/** Live status first, then overflow, then static right decorations. */
 export function composerStatusContextEdge(
   resources: string,
   width: number,
   paint: (text: string) => string,
   hiddenLineCount = 0,
   status = "",
+  renderStatus?: (width: number) => string,
 ): string {
   if (width <= 0) return "";
   if (width === 1) return paint("╭");
   if (width === 2) return paint("╭╮");
 
   const innerWidth = width - 2;
-  const more = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
-  let left = status ? `${paint("── ")}${status} ` : more ? paint(more) : "";
+  const more = hiddenLineCount > 0 ? paint(` ↑ ${hiddenLineCount} more `) : "";
   let right = resources ? ` ${resources} ` : "";
   const minFill = 1;
+  const prefix = paint("── ");
+  const statusAt = (budget: number): string => {
+    const body = renderStatus ? renderStatus(Math.max(0, budget)) : status;
+    return body ? `${prefix}${body} ` : "";
+  };
 
+  let left = statusAt(innerWidth - minFill);
   while (visibleWidth(left) + visibleWidth(right) + minFill > innerWidth && visibleWidth(right) > 0) {
     right = truncateToWidth(right, Math.max(0, visibleWidth(right) - 1), "");
   }
-  if (status && more && visibleWidth(left) + visibleWidth(paint(more)) + visibleWidth(right) + minFill <= innerWidth) {
-    left = `${left}${paint(more)}`;
+  const remaining = innerWidth - visibleWidth(right) - minFill;
+  left = statusAt(remaining);
+  if (!left && more) left = more;
+  else if (left && more && visibleWidth(left) + visibleWidth(more) + visibleWidth(right) + minFill <= innerWidth) {
+    left = `${left}${more}`;
   }
   while (visibleWidth(left) + visibleWidth(right) + minFill > innerWidth && visibleWidth(left) > 0) {
     left = truncateToWidth(left, Math.max(0, visibleWidth(left) - 1), "");
@@ -305,14 +323,17 @@ export class ComposerEditor extends CustomEditor {
     if (width <= 2) return super.renderTopBorder(width, hiddenLineCount);
     const src = this.source();
     const paint = (text: string) => this.borderColor(text);
-    const status = this.embedWorkingStatus ? composerStatusLabel(this.statusIndicator, src.theme) : "";
-    if (src.context || status) {
+    const renderStatus = this.embedWorkingStatus
+      ? (statusWidth: number) => composerStatusLabel(this.statusIndicator, src.theme, statusWidth)
+      : undefined;
+    if (src.context || this.statusIndicator) {
       return composerStatusContextEdge(
         src.context ? src.theme.fg("dim", src.context.resources) : "",
         width,
         paint,
         hiddenLineCount,
-        status,
+        "",
+        renderStatus,
       );
     }
     return paint("╭") + super.renderTopBorder(width - 2, hiddenLineCount) + paint("╮");
