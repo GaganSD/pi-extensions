@@ -16,7 +16,12 @@
     "sidebar",
     "theme"
   ],
-  "homepage": "https://www.npmjs.com/package/pi-slate",
+  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-slate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "directory": "pi-slate"
+  },
   "files": [
     "assets",
     "extensions",

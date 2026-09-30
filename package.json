@@ -3,6 +3,11 @@
   "private": true,
   "description": "Monorepo of Pi extensions I use and build.",
   "license": "MIT",
+  "author": "Gagan Devagiri",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaganSD/pi-extensions.git"
+  },
   "scripts": {
     "test": "npm test --prefix pi-slate && npm test --prefix pi-ask",
     "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask"
