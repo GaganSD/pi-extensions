@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { formatVerticalContextResources, formatVerticalContextTokens } from "../extensions/pi-slate/layout.ts";
 import {
   chromePaint,
   composerContextEdge,
@@ -120,6 +121,27 @@ test("vertical context sits on the composer top edge", () => {
   const squeezed = composerContextEdge("$7.47 · 14 skills loaded", 28, (text) => text, 3);
   assert.equal(visibleWidth(squeezed), 28);
   assert.match(squeezed, /↑ 3 more/);
+});
+
+test("vertical prompt edge hides empty resource counts and shows loaded skills", () => {
+  const empty = composerContextEdge(formatVerticalContextResources(1.234, 0, 0), 40, (text) => text);
+  assert.equal(empty, "╭" + "─".repeat(38) + "╮");
+  assert.doesNotMatch(empty, /0 skills|0 MCP|\$1\.23/);
+
+  const withSkill = composerContextEdge(formatVerticalContextResources(1.234, 1, 0), 80, (text) => text);
+  assert.match(withSkill, /\$1\.23 · 1 skill loaded/);
+  assert.doesNotMatch(withSkill, /0 MCP|0 skills/);
+});
+
+test("vertical composer token label uses compact percent placement", () => {
+  const tokens = formatVerticalContextTokens(47349, 5.2, 845.4);
+  const labels = composerLabels(
+    { project: "pi-extensions", branch: "pi-0.99", model: "kimi-k3", thinking: "medium", tokens, footer: "standard" },
+    theme,
+    140,
+  );
+  assert.match(labels.right, /47,349 tokens \(5%\) · 845 tokens\/sec/);
+  assert.doesNotMatch(labels.right, /5% used/);
 });
 
 test("working status stays left of the vertical context edge", () => {

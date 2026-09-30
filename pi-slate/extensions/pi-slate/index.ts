@@ -27,8 +27,8 @@ import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import {
   countSkillCommands,
-  formatContextResources,
-  formatContextTokens,
+  formatVerticalContextResources,
+  formatVerticalContextTokens,
   mainColumnWidth,
   mergeMcpServerMaps,
   parseMcpEnabledCount,
@@ -212,8 +212,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   const tokenRate = new TokenRateTracker();
   const updates = new UpdateWatcher();
   let contextEdge = {
-    tokens: formatContextTokens(null, null, null),
-    resources: formatContextResources(null, 0, 0),
+    tokens: formatVerticalContextTokens(null, null, null),
+    resources: formatVerticalContextResources(null, 0, 0),
   };
   let requestRender = (_force = false) => {};
 
@@ -258,8 +258,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSkillsLoaded(skills);
     sidebar.setMcpConnected(mcp);
     contextEdge = {
-      tokens: formatContextTokens(tokens, percent, tokenRate.rate()),
-      resources: formatContextResources(spend, skills, mcp),
+      tokens: formatVerticalContextTokens(tokens, percent, tokenRate.rate()),
+      resources: formatVerticalContextResources(spend, skills, mcp),
     };
   };
   pi.events.on("subagent:async-complete", refreshFiles);

@@ -110,6 +110,14 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
+export function formatVerticalContextTokens(
+  tokens: number | null | undefined,
+  percent: number | null | undefined,
+  rate: number | null | undefined,
+): string {
+  return `${formatTokenCount(tokens)} (${formatPercent(percent)}) · ${formatTokenRate(rate)}`;
+}
+
 export function formatMcpEnabled(count: number): string {
   const servers = Math.max(0, Math.round(count));
   return `${servers} MCPs enabled`;
@@ -126,6 +134,21 @@ export function formatContextResources(
   mcpCount: number | null,
 ): string {
   return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
+}
+
+export function formatVerticalContextResources(
+  spend: number | null | undefined,
+  skills: number,
+  mcpCount: number | null,
+): string {
+  const skillCount = Math.max(0, Math.round(skills));
+  const serverCount = mcpCount === null ? 0 : Math.max(0, Math.round(mcpCount));
+  if (skillCount === 0 && serverCount === 0) return "";
+
+  const parts = [formatSpend(spend)];
+  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"} loaded`);
+  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"} enabled`);
+  return parts.join(" · ");
 }
 
 export function countSkillCommands(commands: readonly { source?: string; sourceInfo?: { path?: string }; name?: string }[]): number {

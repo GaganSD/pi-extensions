@@ -188,7 +188,7 @@ export function composerContextEdge(
   hiddenLineCount = 0,
 ): string {
   const more = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
-  return inscribedBorder(more, ` ${resources} `, width, paint, "╭", "╮");
+  return inscribedBorder(more, resources ? ` ${resources} ` : "", width, paint, "╭", "╮");
 }
 
 export function composerStatusContextEdge(
@@ -205,7 +205,7 @@ export function composerStatusContextEdge(
 
   const innerWidth = width - 2;
   const reserveLeft = Math.min(Math.max(1, reserveLeftWidth), innerWidth);
-  let right = ` ${resources} `;
+  let right = resources ? ` ${resources} ` : "";
   const maxRightWidth = Math.max(0, innerWidth - reserveLeft);
   if (visibleWidth(right) > maxRightWidth) {
     right = truncateToWidth(right, maxRightWidth, "");
