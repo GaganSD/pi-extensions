@@ -90,24 +90,60 @@ export function pasteTokenAtCursor(
   return undefined;
 }
 
-function isExpand(data: string): boolean {
-  return matchesKey(data, "ctrl+r") || matchesKey(data, "f4");
-}
-
 function isPasteClick(event: TuiMouseEvent): boolean {
   return event.button === "left" && (event.type === "click" || event.type === "press");
 }
 
-function expandAll(editor: ComposerSelectionEditor): boolean {
-  const expanded = editor.getExpandedText();
-  if (expanded === editor.getText()) return false;
-  editor.setText(expanded);
-  return true;
-}
+type EditorPasteState = {
+  state: { lines: string[]; cursorLine: number; cursorCol: number };
+  pastes: Map<number, string>;
+  cancelAutocomplete?: () => void;
+  exitHistoryBrowsing?: () => void;
+  onChange?: (text: string) => void;
+  invalidate?: () => void;
+};
 
-function expandTokenAtCursor(editor: ComposerSelectionEditor): boolean {
-  if (!pasteTokenAtCursor(editor.getText(), editor.getCursor())) return false;
-  return expandAll(editor);
+/** Reveal one composer paste marker. Sibling markers and submit text stay as Pi stored them. */
+function revealPasteAtCursor(editor: ComposerSelectionEditor): boolean {
+  const token = pasteTokenAtCursor(editor.getText(), editor.getCursor());
+  if (!token) return false;
+  const internals = editor as unknown as Partial<EditorPasteState>;
+  const state = internals.state;
+  const pastes = internals.pastes;
+  const cursor = editor.getCursor();
+  const id = Number(token.number);
+  const body = pastes instanceof Map ? pastes.get(id) : undefined;
+  if (
+    !state || !Array.isArray(state.lines) || typeof body !== "string"
+    || state.cursorLine !== cursor.line || state.cursorCol !== cursor.col
+    || cursor.line < 0 || cursor.line >= state.lines.length
+  ) return false;
+  const line = state.lines[cursor.line];
+  if (!line || token.end > line.length || token.start < 0) return false;
+
+  internals.cancelAutocomplete?.call(editor);
+  internals.exitHistoryBrowsing?.call(editor);
+
+  const inserted = body.split("\n");
+  const before = line.slice(0, token.start);
+  const after = line.slice(token.end);
+  const nextLines = [...state.lines];
+  if (inserted.length === 1) nextLines[cursor.line] = `${before}${inserted[0] ?? ""}${after}`;
+  else nextLines.splice(cursor.line, 1, `${before}${inserted[0] ?? ""}`, ...inserted.slice(1, -1), `${inserted.at(-1) ?? ""}${after}`);
+
+  const stillReferenced = nextLines.some((nextLine) =>
+    [...nextLine.matchAll(PASTE_TOKEN)].some((match) => Number(match[1]) === id),
+  );
+  if (!stillReferenced) pastes.delete(id);
+
+  internals.state = {
+    lines: nextLines,
+    cursorLine: cursor.line + inserted.length - 1,
+    cursorCol: inserted.length === 1 ? before.length + (inserted[0] ?? "").length : (inserted.at(-1) ?? "").length,
+  };
+  internals.onChange?.(nextLines.join("\n"));
+  internals.invalidate?.call(editor);
+  return true;
 }
 
 /** Adds prompt selection and public-API paste expansion to one composer editor. */
@@ -211,10 +247,6 @@ export class ComposerSelectionController {
         setSelected(editor.getText().length > 0);
         return;
       }
-      if (isExpand(data) && expandAll(editor)) {
-        options.requestRender?.();
-        return;
-      }
 
       if (this.selected) {
         if (isCopy(data) || isCut(data)) {
@@ -239,7 +271,7 @@ export class ComposerSelectionController {
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
       clearInteraction();
       const result = originalHandleMouse.call(editor, event);
-      if (isPasteClick(event) && expandTokenAtCursor(editor)) options.requestRender?.();
+      if (isPasteClick(event) && revealPasteAtCursor(editor)) options.requestRender?.();
       return result;
     };
 

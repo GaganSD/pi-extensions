@@ -22,6 +22,7 @@ import {
 class FakeEditor implements ComposerSelectionEditor {
   text: string;
   expandedText?: string;
+  pastes = new Map<number, string>();
   setTextCalls: string[] = [];
   inputCalls: string[] = [];
   pasteCalls: string[] = [];
@@ -33,6 +34,16 @@ class FakeEditor implements ComposerSelectionEditor {
 
   constructor(text = "") {
     this.text = text;
+  }
+
+  get state(): { lines: string[]; cursorLine: number; cursorCol: number } {
+    const cursor = this.getCursor();
+    return { lines: this.text.split("\n"), cursorLine: cursor.line, cursorCol: cursor.col };
+  }
+
+  set state(next: { lines: string[]; cursorLine: number; cursorCol: number }) {
+    this.text = next.lines.join("\n");
+    this.cursor = { line: next.cursorLine, col: next.cursorCol };
   }
 
   getText(): string {
@@ -91,8 +102,6 @@ function attach(
 const SELECT_ALL = "\x01";
 const COPY = "\x03";
 const CUT = "\x18";
-const EXPAND = "\x12";
-const F4 = "\x1b[14~";
 
 test("Ctrl+A selects all without inserting a", () => {
   const editor = new FakeEditor("hello");
@@ -199,26 +208,6 @@ test("a first unchanged Escape passes through and a second within 500ms clears",
   assert.deepEqual(editor.inputCalls, ["\x1b"]);
 });
 
-test("Ctrl+R and F4 expand every collapsed paste via the public editor API", () => {
-  for (const key of [EXPAND, F4]) {
-    const editor = new FakeEditor("[paste #1] and [paste #2]");
-    editor.expandedText = "one and two";
-    attach(editor);
-    editor.handleInput(key);
-    assert.deepEqual(editor.setTextCalls, ["one and two"]);
-    assert.equal(editor.getText(), "one and two");
-    assert.deepEqual(editor.inputCalls, []);
-  }
-});
-
-test("expand is a no-op when the prompt has no collapsed pastes", () => {
-  const editor = new FakeEditor("plain");
-  attach(editor);
-  editor.handleInput(EXPAND);
-  assert.deepEqual(editor.setTextCalls, []);
-  assert.deepEqual(editor.inputCalls, [EXPAND]);
-});
-
 test("pasteTokenAtCursor finds Pi paste markers and ignores nearby text", () => {
   const text = "see [paste #1 +10 lines] done";
   assert.equal(pasteTokenAtCursor(text, { line: 0, col: 6 })?.number, "1");
@@ -226,18 +215,22 @@ test("pasteTokenAtCursor finds Pi paste markers and ignores nearby text", () => 
   assert.equal(pasteTokenAtCursor("see [image-1]", { line: 0, col: 6 }), undefined);
 });
 
-test("clicking a paste token expands it; moving the mouse does not", () => {
-  const editor = new FakeEditor("see [paste #1 +10 lines]");
-  editor.expandedText = "see one\ntwo";
+test("clicking a paste token reveals only that token", () => {
+  const editor = new FakeEditor("see [paste #1 +10 lines] and [paste #2 +5 lines]");
+  editor.pastes.set(1, "one\ntwo");
+  editor.pastes.set(2, "keep");
   editor.cursor = { line: 0, col: 10 };
   attach(editor);
 
   editor.handleMouse({ type: "move", button: "none" } as TuiMouseEvent);
   assert.deepEqual(editor.setTextCalls, []);
+  assert.equal(editor.getText(), "see [paste #1 +10 lines] and [paste #2 +5 lines]");
 
   editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
-  assert.deepEqual(editor.setTextCalls, ["see one\ntwo"]);
-  assert.equal(editor.getText(), "see one\ntwo");
+  assert.deepEqual(editor.setTextCalls, []);
+  assert.equal(editor.getText(), "see one\ntwo and [paste #2 +5 lines]");
+  assert.equal(editor.pastes.has(1), false);
+  assert.equal(editor.pastes.get(2), "keep");
 });
 
 test("clicking away from a paste token does not expand", () => {
@@ -301,12 +294,6 @@ function send(tui: TuiBase, data: string): void {
   (tui as unknown as { handleTerminalInput(data: string): void }).handleTerminalInput(data);
 }
 
-function bracketedPaste(tui: TuiBase, text: string): void {
-  send(tui, `\x1b[200~${text}\x1b[201~`);
-}
-
-const largePaste = (label: string): string => Array.from({ length: 12 }, (_, index) => `${label} ${index + 1}`).join("\n");
-
 test("select-all then Enter submits the prompt instead of erasing it", () => {
   const submitted: string[] = [];
   const editor = new Editor({
@@ -359,53 +346,6 @@ test("selected Ctrl+X cuts; unselected Ctrl+X keeps the last-message copy action
   assert.deepEqual(copied, ["keep"]);
   assert.equal(editor.getText(), "");
   assert.equal(messageCopies, 1);
-  selection.dispose();
-});
-
-test("clicking a real paste marker expands it through getExpandedText", (t) => {
-  const { editor, tui } = createIntegratedEditor(t);
-  const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy() {} });
-  const pasted = largePaste("click");
-  bracketedPaste(tui, pasted);
-  const marker = editor.getText();
-  assert.match(marker, /^\[paste #1/);
-  const state = editor as unknown as { state: { cursorLine: number; cursorCol: number } };
-  state.state.cursorLine = 0;
-  state.state.cursorCol = 3;
-  editor.handleMouse({
-    type: "click",
-    button: "left",
-    x: 3,
-    y: 1,
-    screenX: 3,
-    screenY: 1,
-    width: 80,
-    height: 4,
-    shift: false,
-    alt: false,
-    ctrl: false,
-  });
-  assert.equal(editor.getText(), pasted);
-  selection.dispose();
-});
-
-test("Ctrl+R expands every paste marker through setText", (t) => {
-  const { editor, tui } = createIntegratedEditor(t);
-  const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy() {} });
-  const first = largePaste("alpha");
-  const second = largePaste("beta");
-  editor.setText("left ");
-  bracketedPaste(tui, first);
-  editor.insertTextAtCursor(" mid ");
-  bracketedPaste(tui, second);
-  assert.match(editor.getText(), /\[paste #1/);
-  assert.match(editor.getText(), /\[paste #2/);
-  send(tui, EXPAND);
-  assert.equal(editor.getText(), `left ${first} mid ${second}`);
-  send(tui, "\x1f");
-  assert.match(editor.getText(), /\[paste #1/);
   selection.dispose();
 });
 
