@@ -21,7 +21,6 @@ export interface StreamResult {
 	text: string;
 	sources?: Source[];
 	providerKind: ProviderKind;
-	searchQueries?: string[];
 	searchResults?: SearchResultDetail[];
 	/** Exa requestId or Parallel search_id. */
 	requestId?: string;
@@ -31,16 +30,19 @@ export interface StreamResult {
 	warnings?: string[];
 }
 
-export type ProviderErrorCode =
-	| "missing_credentials"
-	| "invalid_config"
-	| "http_error"
-	| "rate_limited"
-	| "network_error"
-	| "timeout"
-	| "aborted"
-	| "parse_error"
-	| "unknown";
+const CODES = [
+	"missing_credentials",
+	"invalid_config",
+	"http_error",
+	"rate_limited",
+	"network_error",
+	"timeout",
+	"aborted",
+	"parse_error",
+	"unknown",
+] as const;
+
+export type ProviderErrorCode = (typeof CODES)[number];
 
 /** Thrown by transports; `code` is stable and used for fallback + error details. */
 export interface ProviderError extends Error {
@@ -96,19 +98,4 @@ export function isProviderError(value: unknown): value is ProviderError {
 	return typeof code === "string" && PROVIDER_ERROR_CODES.has(code);
 }
 
-const PROVIDER_ERROR_CODES = new Set<string>([
-	"missing_credentials",
-	"invalid_config",
-	"http_error",
-	"rate_limited",
-	"network_error",
-	"timeout",
-	"aborted",
-	"parse_error",
-	"unknown",
-]);
-
-/** True only for a retryable provider error; aborts are never retryable. */
-export function isRetryableProviderError(value: unknown): boolean {
-	return isProviderError(value) && value.retryable === true;
-}
+const PROVIDER_ERROR_CODES = new Set<string>(CODES);

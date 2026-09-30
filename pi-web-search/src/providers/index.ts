@@ -5,9 +5,8 @@ import {
 	type ProviderKind,
 	type StreamResult,
 	isProviderError,
+	providerError,
 } from "./types.ts";
-
-export type { ResolvedSettings } from "./config.ts";
 
 export interface SearchRequest {
 	query: string;
@@ -50,10 +49,9 @@ export function resolveProviderChain(
 	settings: ResolvedSettings,
 	availability: Record<ProviderKind, boolean> = providerAvailability(),
 ): ProviderKind[] {
-	const available = availability ?? providerAvailability();
 	const chain: ProviderKind[] = [];
 	for (const kind of [settings.provider, ...settings.fallback]) {
-		if (!available[kind]) {
+		if (!availability[kind]) {
 			continue;
 		}
 		if (!chain.includes(kind)) {
@@ -132,22 +130,14 @@ export async function tryRunSearch(
 }
 
 function missingCredentials(kind: ProviderKind, message: string): ProviderError {
-	const error = new Error(`${kind}: ${message}`) as ProviderError;
-	error.name = "ProviderError";
-	error.code = "missing_credentials";
-	error.retryable = false;
-	return error;
+	return providerError("missing_credentials", `${kind}: ${message}`);
 }
 
 function aborted(reason: unknown): ProviderError {
 	if (isProviderError(reason) && reason.code === "aborted") {
 		return reason;
 	}
-	const error = new Error("web_search was aborted.") as ProviderError;
-	error.name = "ProviderError";
-	error.code = "aborted";
-	error.retryable = false;
-	return error;
+	return providerError("aborted", "web_search was aborted.");
 }
 
 function toProviderError(error: unknown): ProviderError {
@@ -155,11 +145,7 @@ function toProviderError(error: unknown): ProviderError {
 		return error;
 	}
 	const message = error instanceof Error ? error.message : String(error);
-	const wrapped = new Error(message) as ProviderError;
-	wrapped.name = "ProviderError";
-	wrapped.code = "unknown";
-	wrapped.retryable = false;
-	return wrapped;
+	return providerError("unknown", message);
 }
 
 function hasParallelKey(): boolean {

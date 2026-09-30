@@ -119,7 +119,6 @@ export async function parallelSearch(
 	const result: StreamResult = {
 		text: "",
 		providerKind: PROVIDER_NAME,
-		searchQueries: [req.query],
 		searchResults,
 		sources,
 	};

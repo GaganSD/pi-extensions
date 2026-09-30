@@ -204,7 +204,6 @@ test("maps search results into details and sources", async () => {
 	assert.equal(result.providerKind, "parallel");
 	assert.equal(result.requestId, "search-123");
 	assert.equal(result.text, "");
-	assert.deepEqual(result.searchQueries, [QUERY]);
 	assert.equal(result.searchResults?.length, 2);
 	assert.equal(result.sources?.length, 2);
 

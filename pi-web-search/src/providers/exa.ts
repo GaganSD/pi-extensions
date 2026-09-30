@@ -1,6 +1,6 @@
 import { type FetchLike, postJson } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
-import { createMcpClient } from "./mcp.ts";
+import { type McpClient, createMcpClient } from "./mcp.ts";
 import {
 	type SearchResultDetail,
 	type Source,
@@ -13,11 +13,11 @@ export const EXA_SEARCH_URL = "https://api.exa.ai/search";
 export const EXA_CONTENTS_URL = "https://api.exa.ai/contents";
 export const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 /** Sentences per REST result highlight, as the `/search` body requires. */
-export const EXA_HIGHLIGHT_SENTENCES = 3;
+const EXA_HIGHLIGHT_SENTENCES = 3;
 /** `web_fetch_exa` truncates each URL to this many characters. */
-export const EXA_FETCH_MAX_CHARACTERS = 3000;
+const EXA_FETCH_MAX_CHARACTERS = 3000;
 /** Keyless results carry no upstream request id, so the transport names it. */
-export const EXA_MCP_REQUEST_ID = "mcp";
+const EXA_MCP_REQUEST_ID = "mcp";
 
 const PROVIDER_NAME = "exa";
 const FETCH_RESULT_TYPE = "content";
@@ -34,20 +34,10 @@ interface ExaRestResult {
 	highlights?: string[];
 }
 
-interface ExaSearchResponse {
-	requestId?: string;
-	results?: ExaRestResult[];
-}
-
 interface ExaContentsResult {
 	title?: string;
 	url?: string;
 	text?: string;
-}
-
-interface ExaContentsResponse {
-	requestId?: string;
-	results?: ExaContentsResult[];
 }
 
 /**
@@ -78,6 +68,13 @@ export function exaObjective(query: string): string {
  * highlights can never bleed into the next result. A group without a `URL:` is
  * unusable and skipped; `Published:` and `Author:` are optional.
  *
+ * The anchors are structural only outside a highlights block. Inside one they
+ * are ordinary content, because a page whose text starts a line with `URL:` or
+ * `Title:` would otherwise fabricate a phantom result. A blank line is what ends
+ * the block: the hosted server puts one before every `Title:`, while highlight
+ * chunks inside a result are `...`-separated, never blank-line separated. That
+ * also keeps trailing footer text out of the last result's cited text.
+ *
  * Two highlight spellings are accepted, because the hosted server emits both:
  * `> `-prefixed blockquote lines and bare lines under `Highlights:`.
  */
@@ -88,41 +85,47 @@ export function parseExaSearchText(text: string): SearchResultDetail[] {
 
 	for (const rawLine of text.split("\n")) {
 		const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-		const title = TITLE_LINE.exec(line);
-		if (title) {
-			pushGroup(group, results);
-			group = { title: normalizeOptionalField(title[1]), highlights: [] };
+		if (line.trim().length === 0) {
 			inHighlights = false;
 			continue;
 		}
-		const url = URL_LINE.exec(line);
-		if (url) {
-			// A second URL closes the previous group: the anchor is one per result.
-			if (group?.url !== undefined) {
+		if (!inHighlights) {
+			const title = TITLE_LINE.exec(line);
+			if (title) {
 				pushGroup(group, results);
-				group = undefined;
+				group = { title: normalizeOptionalField(title[1]), highlights: [] };
+				inHighlights = false;
+				continue;
 			}
-			group ??= { highlights: [] };
-			group.url = url[1].trim();
-			inHighlights = false;
-			continue;
-		}
-		const published = PUBLISHED_LINE.exec(line);
-		if (published) {
-			group ??= { highlights: [] };
-			group.published = normalizeOptionalField(published[1]);
-			inHighlights = false;
-			continue;
-		}
-		if (AUTHOR_LINE.test(line)) {
-			// Present in the payload but not part of SearchResultDetail.
-			inHighlights = false;
-			continue;
-		}
-		if (HIGHLIGHTS_MARKER.test(line)) {
-			group ??= { highlights: [] };
-			inHighlights = true;
-			continue;
+			const url = URL_LINE.exec(line);
+			if (url) {
+				// A second URL closes the previous group: the anchor is one per result.
+				if (group?.url !== undefined) {
+					pushGroup(group, results);
+					group = undefined;
+				}
+				group ??= { highlights: [] };
+				group.url = url[1].trim();
+				inHighlights = false;
+				continue;
+			}
+			const published = PUBLISHED_LINE.exec(line);
+			if (published) {
+				group ??= { highlights: [] };
+				group.published = normalizeOptionalField(published[1]);
+				inHighlights = false;
+				continue;
+			}
+			if (AUTHOR_LINE.test(line)) {
+				// Present in the payload but not part of SearchResultDetail.
+				inHighlights = false;
+				continue;
+			}
+			if (HIGHLIGHTS_MARKER.test(line)) {
+				group ??= { highlights: [] };
+				inHighlights = true;
+				continue;
+			}
 		}
 		if (!inHighlights || !group) {
 			continue;
@@ -186,7 +189,6 @@ async function keyedSearch(
 	return {
 		text: "",
 		providerKind: "exa",
-		searchQueries: [req.query],
 		sources: toSources(results),
 		searchResults: allResults,
 		requestId: typeof body.requestId === "string" ? body.requestId : undefined,
@@ -228,28 +230,48 @@ async function keyedUrlFetch(
 
 // --- path 2: keyless hosted MCP ----------------------------------------------
 
-async function keylessSearch(
+/**
+ * Runs `body` against a freshly initialized MCP session and always closes it.
+ * The server hands out a session id per `initialize`; without the `DELETE` on
+ * exit every search would strand a session on someone else's server.
+ */
+async function withMcpSession<T>(
 	req: SearchRequest,
 	options: ExaSearchOptions,
-): Promise<StreamResult> {
+	body: (client: McpClient) => Promise<T>,
+): Promise<T> {
 	const client = createMcpClient({
 		url: EXA_MCP_URL,
 		fetchImpl: options.fetchImpl,
 		timeoutMs: req.settings.timeoutMs,
 		signal: req.signal,
 	});
-	await client.initialize();
-	const text = await client.callTool("web_search_exa", {
-		query: req.query,
-		numResults: req.settings.maxResults,
-		objective: exaObjective(req.query),
-	});
-
-	let results = parseExaSearchText(text);
-	if (results.length === 0) {
-		// The model still needs the content the server did return.
-		results = [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
+	try {
+		await client.initialize();
+		return await body(client);
+	} finally {
+		// A failed teardown must not mask the caller's result or its real error.
+		await client.close().catch(() => {});
 	}
+}
+
+async function keylessSearch(
+	req: SearchRequest,
+	options: ExaSearchOptions,
+): Promise<StreamResult> {
+	const results = await withMcpSession(req, options, async (client) => {
+		const text = await client.callTool("web_search_exa", {
+			query: req.query,
+			numResults: req.settings.maxResults,
+			objective: exaObjective(req.query),
+		});
+
+		const parsed = parseExaSearchText(text);
+		// The model still needs the content the server did return.
+		return parsed.length > 0
+			? parsed
+			: [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
+	});
 
 	const { results: allResults, warnings } = await withUrlFetch(
 		req,
@@ -260,7 +282,6 @@ async function keylessSearch(
 	return {
 		text: "",
 		providerKind: "exa",
-		searchQueries: [req.query],
 		sources: toSources(results),
 		searchResults: allResults,
 		requestId: EXA_MCP_REQUEST_ID,
@@ -275,18 +296,13 @@ async function keylessUrlFetch(
 	warn: (message: string) => void,
 ): Promise<SearchResultDetail[]> {
 	try {
-		const client = createMcpClient({
-			url: EXA_MCP_URL,
-			fetchImpl: options.fetchImpl,
-			timeoutMs: req.settings.timeoutMs,
-			signal: req.signal,
+		return await withMcpSession(req, options, async (client) => {
+			const text = await client.callTool("web_fetch_exa", {
+				urls,
+				maxCharacters: EXA_FETCH_MAX_CHARACTERS,
+			});
+			return [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
 		});
-		await client.initialize();
-		const text = await client.callTool("web_fetch_exa", {
-			urls,
-			maxCharacters: EXA_FETCH_MAX_CHARACTERS,
-		});
-		return [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
 	} catch (error) {
 		warn(describeError("URL fetch", error));
 		return [];

@@ -133,34 +133,22 @@ export async function readWebSearchConfig(
 		config.fallback = [...(fallback as ProviderKind[])];
 	}
 
-	if ("timeoutMs" in parsed) {
-		const timeoutMs = parsed.timeoutMs;
-		if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs)) {
+	for (const key of ["timeoutMs", "maxResults"] as const) {
+		if (!(key in parsed)) {
+			continue;
+		}
+		const value = parsed[key];
+		if (typeof value !== "number" || !Number.isFinite(value)) {
 			return {
 				status: "invalid",
 				path: configPath,
 				error: invalidConfig(
 					configPath,
-					`"timeoutMs" must be a finite number.`,
+					`"${key}" must be a finite number.`,
 				),
 			};
 		}
-		config.timeoutMs = timeoutMs;
-	}
-
-	if ("maxResults" in parsed) {
-		const maxResults = parsed.maxResults;
-		if (typeof maxResults !== "number" || !Number.isFinite(maxResults)) {
-			return {
-				status: "invalid",
-				path: configPath,
-				error: invalidConfig(
-					configPath,
-					`"maxResults" must be a finite number.`,
-				),
-			};
-		}
-		config.maxResults = maxResults;
+		config[key] = value;
 	}
 
 	return { status: "ok", path: configPath, config };

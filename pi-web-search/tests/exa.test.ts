@@ -45,6 +45,7 @@ interface RecordedRequest {
 	url: string;
 	body: Record<string, unknown>;
 	headers?: Record<string, string>;
+	method?: string;
 }
 
 interface QueuedResponse {
@@ -80,7 +81,7 @@ function mcpFetch(answers: string[]): {
 	const queue = [...answers];
 	const fetchImpl: FetchLike = (url, init) => {
 		const body = JSON.parse(init.body ?? "{}") as Record<string, unknown>;
-		requests.push({ url, body, headers: init.headers });
+		requests.push({ url, body, headers: init.headers, method: init.method });
 		if (body.method === "notifications/initialized") {
 			return Promise.resolve(fakeResponse("", { status: 202 }));
 		}
@@ -201,7 +202,6 @@ test("keyed path maps a fixture response to a StreamResult", async () => {
 	assert.equal(result.providerKind, "exa");
 	assert.equal(result.requestId, "req-123");
 	assert.equal(result.text, "");
-	assert.deepEqual(result.searchQueries, ["who invented the transistor"]);
 	assert.equal(result.searchResults?.length, 2);
 	assert.deepEqual(result.sources, [
 		{ title: "Transistor history", url: "https://example.com/transistor" },
@@ -273,15 +273,44 @@ test("exa never raises missing_credentials", async () => {
 
 // --- path 2: keyless hosted MCP ----------------------------------------------
 
+test("the keyless MCP session is closed, not stranded on Exa's server", async () => {
+	// Regression: initialize hands out a session id that only a DELETE releases.
+	// Without the teardown every search leaks a session on a third-party server.
+	const { fetchImpl, requests } = mcpFetch([MCP_SEARCH_TEXT]);
+
+	await withoutKey(() => exaSearch(request(), { fetchImpl }));
+
+	const teardown = requests.at(-1);
+	assert.equal(teardown?.method, "DELETE");
+	assert.equal(teardown?.headers?.["Mcp-Session-Id"], "sess-1");
+});
+
+test("a failing session teardown does not discard the search results", async () => {
+	// The DELETE is cleanup, not the operation: its failure must not mask a good answer.
+	const { fetchImpl } = mcpFetch([MCP_SEARCH_TEXT]);
+	const failing: FetchLike = (url, init) =>
+		init.method === "DELETE"
+			? Promise.reject(new Error("teardown refused"))
+			: fetchImpl(url, init);
+
+	const result = await withoutKey(() => exaSearch(request(), { fetchImpl: failing }));
+
+	assert.ok(result.searchResults?.length);
+	assert.equal(result.providerKind, "exa");
+});
+
 test("keyless path initializes then calls web_search_exa with a derived objective", async () => {
 	const { fetchImpl, requests } = mcpFetch([MCP_SEARCH_TEXT]);
 
 	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
 
+	// The trailing `undefined` is the session teardown: a DELETE carries no
+	// JSON-RPC body, so there is no `body.method` to read.
 	assert.deepEqual(
 		requests.map((r) => r.body.method),
-		["initialize", "notifications/initialized", "tools/call"],
+		["initialize", "notifications/initialized", "tools/call", undefined],
 	);
+	assert.equal(requests[3].method, "DELETE");
 	assert.equal(requests[0].url, EXA_MCP_URL);
 	const params = requests[2].body.params as {
 		name: string;
@@ -448,6 +477,74 @@ test("parseExaSearchText skips a fragment with no URL:", () => {
 test("parseExaSearchText returns nothing for prose that is not a result group", () => {
 	assert.deepEqual(parseExaSearchText("The model could not be reached."), []);
 	assert.deepEqual(parseExaSearchText(""), []);
+});
+
+// Regression: a highlight whose text happens to start with `URL:` used to hit
+// the URL anchor, fabricate a phantom result and drop the next real highlight.
+test("a highlight starting with URL: stays highlight content, not a new result", () => {
+	const parsed = parseExaSearchText(
+		[
+			"Title: Rate limits",
+			"URL: https://example.com/rate-limits",
+			"Highlights:",
+			"> Bardeen invented the transistor.",
+			"URL: https://not-a-real.example.com is rate-limited",
+			"> It was 1947.",
+		].join("\n"),
+	);
+
+	assert.equal(parsed.length, 1);
+	assert.equal(parsed[0].url, "https://example.com/rate-limits");
+	assert.equal(
+		parsed[0].citedText,
+		"Bardeen invented the transistor.\n" +
+			"URL: https://not-a-real.example.com is rate-limited\n" +
+			"It was 1947.",
+	);
+});
+
+test("a highlight starting with Title: does not split the result", () => {
+	const parsed = parseExaSearchText(
+		[
+			"Title: Naming",
+			"URL: https://example.com/naming",
+			"Highlights:",
+			"Title: an excerpt that opens with the word Title.",
+		].join("\n"),
+	);
+
+	assert.equal(parsed.length, 1);
+	assert.equal(parsed[0].title, "Naming");
+	assert.equal(
+		parsed[0].citedText,
+		"Title: an excerpt that opens with the word Title.",
+	);
+});
+
+test("footer text after the last blank line stays out of the final citedText", () => {
+	const parsed = parseExaSearchText(
+		[
+			"Title: Bell Labs notes",
+			"URL: https://example.com/bell-labs",
+			"Highlights:",
+			"> Bell Labs hosted the transistor team.",
+			"",
+			"Searched 4 sources in 1.2s",
+		].join("\n"),
+	);
+
+	assert.equal(parsed.length, 1);
+	assert.equal(parsed[0].citedText, "Bell Labs hosted the transistor team.");
+});
+
+// Guards the two rules against each other: only a blank line ends a block.
+test("two results separated by a blank line both parse with their real anchors", () => {
+	const parsed = parseExaSearchText(MCP_SEARCH_TEXT);
+
+	assert.equal(parsed.length, 2);
+	assert.equal(parsed[0].url, "https://example.com/transistor");
+	assert.equal(parsed[1].title, "Bell Labs notes");
+	assert.equal(parsed[1].url, "https://example.com/bell-labs");
 });
 
 test("unparseable keyless text degrades to one synthetic result", async () => {

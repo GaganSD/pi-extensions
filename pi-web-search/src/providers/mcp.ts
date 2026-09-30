@@ -5,7 +5,7 @@ import {
 import { providerError } from "./types.ts";
 
 export const MCP_PROTOCOL_VERSION = "2024-11-05";
-export const SESSION_ID_HEADER = "mcp-session-id";
+const SESSION_ID_HEADER = "mcp-session-id";
 
 export interface McpClientOptions {
 	url: string;

@@ -170,7 +170,6 @@ export interface StreamResult {
     text: string;             // markdown summary; "" when the provider only returns documents
     sources?: Source[];
     providerKind: ProviderKind;
-    searchQueries?: string[];
     searchResults?: SearchResultDetail[];
     requestId?: string;       // Exa requestId or Parallel search_id
     usage?: { name: string; count: number }[];  // Parallel only

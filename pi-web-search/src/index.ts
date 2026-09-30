@@ -6,16 +6,12 @@ import { Text } from "@earendil-works/pi-tui";
 import type { WebSearchDetails } from "./format.ts";
 import { type WebSearchInput, WebSearchSchema, webSearch } from "./web_search.ts";
 
-export const WEB_SEARCH_TOOL = "web_search";
-
-export const WEB_SEARCH_DESCRIPTION =
-	"Search the web with the Exa and Parallel search APIs and get ranked results with titles, URLs and short excerpts. Optionally pass up to 20 URLs to analyze alongside the search. No LLM provider is used, so it works with any model.";
-
 export default function webSearchExtension(pi: ExtensionAPI) {
 	pi.registerTool<typeof WebSearchSchema, WebSearchDetails>({
-		name: WEB_SEARCH_TOOL,
+		name: "web_search",
 		label: "Web Search",
-		description: WEB_SEARCH_DESCRIPTION,
+		description:
+			"Search the web with the Exa and Parallel search APIs and get ranked results with titles, URLs and short excerpts. Optionally pass up to 20 URLs to analyze alongside the search. No LLM provider is used, so it works with any model.",
 		parameters: WebSearchSchema,
 		execute: (toolCallId, params, signal, onUpdate, ctx) =>
 			webSearch(toolCallId, params, signal, onUpdate, ctx),
