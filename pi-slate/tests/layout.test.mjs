@@ -38,6 +38,7 @@ import {
   withoutCurrent,
   sidebarHandleColumn,
   sidebarWidthFromScreenX,
+  SIDEBAR_HIDDEN,
   SIDEBAR_PERCENT_MEDIUM,
   SIDEBAR_PERCENT_NARROW,
   SIDEBAR_PERCENT_WIDE,
@@ -75,11 +76,19 @@ test("footer progressively reveals optional metadata", () => {
     showBranch: false,
     showModel: false,
     showThinking: false,
+    showTokens: false,
   });
   assert.deepEqual(footerVisibility(100), {
     showBranch: true,
     showModel: true,
     showThinking: true,
+    showTokens: false,
+  });
+  assert.deepEqual(footerVisibility(110), {
+    showBranch: true,
+    showModel: true,
+    showThinking: true,
+    showTokens: true,
   });
 });
 
@@ -116,6 +125,7 @@ test("a preferred sidebar width is clamped and hidden on narrow terminals", () =
   assert.equal(workspaceColumnWidth(60, 80), 28);
   assert.equal(maxSidebarWidth(140), 108);
   assert.equal(workspaceColumnWidth(140, 200), 108);
+  assert.equal(workspaceColumnWidth(200, SIDEBAR_HIDDEN), 0);
   assert.equal(workspaceColumnWidth(200, SIDEBAR_PERCENT_NARROW), 28);
   assert.equal(workspaceColumnWidth(200, SIDEBAR_PERCENT_MEDIUM), 60);
   assert.equal(workspaceColumnWidth(200, SIDEBAR_PERCENT_WIDE), 80);
@@ -173,6 +183,10 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("width 40"), { ok: true, kind: "width", width: 40 });
   assert.deepEqual(parseSlateArgs("width 30%"), { ok: true, kind: "width", width: 30 });
   assert.deepEqual(parseSlateArgs("width narrow"), { ok: true, kind: "width", width: 0 });
+  assert.deepEqual(parseSlateArgs("vertical"), { ok: true, kind: "vertical" });
+  assert.deepEqual(parseSlateArgs("vertical on"), { ok: true, kind: "vertical", value: true });
+  assert.deepEqual(parseSlateArgs("vertical off"), { ok: true, kind: "vertical", value: false });
+  assert.deepEqual(parseSlateArgs("vertical nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
   assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });

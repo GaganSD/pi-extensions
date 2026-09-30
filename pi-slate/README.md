@@ -79,6 +79,7 @@ Selection is saved and also appears in `/settings` as `catppuccin-mocha-<style>`
 | Setting | Commands | Effect |
 | --- | --- | --- |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | How wide the sidebar is. `default` is 20%. |
+| Vertical | `/vertical` or `/slate vertical [on\|off]` | Hide the sidebar (default). Context sits on the composer top edge. No arg toggles. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Footer | `/slate footer [standard\|minimal]` | Standard shows model and thinking on the composer; minimal hides them. |

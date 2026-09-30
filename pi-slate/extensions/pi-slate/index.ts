@@ -36,6 +36,8 @@ import {
   centerOffset,
   compactPath,
   countSkillCommands,
+  formatContextResources,
+  formatContextTokens,
   mainColumnWidth,
   mergeMcpServerMaps,
   modelLabel,
@@ -81,6 +83,7 @@ type SlateConfig = {
   density: "comfortable" | "compact";
   footer: "standard" | "minimal";
   sidebarPercent?: number;
+  vertical?: boolean;
   messageLength?: number | "all";
   themeApplied?: boolean;
   fullscreenApplied?: boolean;
@@ -90,6 +93,7 @@ const CONFIG_PATH = join(getAgentDir(), "pi-slate.json");
 const DEFAULT_CONFIG: SlateConfig = {
   density: "comfortable",
   footer: "standard",
+  vertical: true,
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -114,6 +118,7 @@ function loadConfig(): SlateConfig {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
+      vertical: value.vertical !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
@@ -227,6 +232,10 @@ export default function piSlate(pi: ExtensionAPI): void {
   let activeTui: TUI | undefined;
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
+  let contextEdge = {
+    tokens: formatContextTokens(null, null, null),
+    resources: formatContextResources(null, 0, 0),
+  };
   let requestRender = (_force = false) => {};
 
   const syncVisibleMessages = (): void => {
@@ -239,7 +248,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   const columnWidth = (width: number): number => {
-    return sidebar.splitActive ? width : mainColumnWidth(width, sidebar.preferredWidth);
+    if (sidebar.hidden || sidebar.splitActive) return width;
+    return mainColumnWidth(width, sidebar.preferredWidth);
   };
 
   const syncSidebar = (ctx: ExtensionContext): void => {
@@ -258,16 +268,20 @@ export default function piSlate(pi: ExtensionAPI): void {
     } catch {
       return;
     }
+    const skills = countSkillCommands(pi.getCommands());
+    const mcp = parseMcpEnabledCount({
+      mcpServers: mergeMcpServerMaps(
+        readOptionalJson(join(getAgentDir(), "mcp.json")),
+        readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
+      ),
+    });
     sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
-    sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands()));
-    sidebar.setMcpConnected(
-      parseMcpEnabledCount({
-        mcpServers: mergeMcpServerMaps(
-          readOptionalJson(join(getAgentDir(), "mcp.json")),
-          readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
-        ),
-      }),
-    );
+    sidebar.setSkillsLoaded(skills);
+    sidebar.setMcpConnected(mcp);
+    contextEdge = {
+      tokens: formatContextTokens(tokens, percent, tokenRate.rate()),
+      resources: formatContextResources(spend, skills, mcp),
+    };
   };
   pi.events.on("subagent:async-complete", refreshFiles);
   pi.on("resources_discover", () => {
@@ -302,6 +316,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSelectedPreview(undefined);
     sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
     sidebar.setPreferredWidth(config.sidebarPercent);
+    sidebar.setHidden(config.vertical === true);
     sidebar.setActions({
       persistWidth: (percent) => {
         try {
@@ -389,6 +404,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             thinking: current.thinkingLevel,
             footer: config.footer,
             theme: current.ui.theme,
+            ...(config.vertical !== false ? { context: contextEdge } : {}),
           };
         },
         {
@@ -506,9 +522,10 @@ export default function piSlate(pi: ExtensionAPI): void {
       saveConfig(next);
       config = next;
       sidebar.setPreferredWidth(config.sidebarPercent);
+      sidebar.setHidden(config.vertical === true);
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
-      requestRender();
+      requestRender(true);
       ctx.ui.notify(message, "info");
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
@@ -683,8 +700,25 @@ export default function piSlate(pi: ExtensionAPI): void {
     await fileBug(ctx);
   };
 
+  const applyVertical = (ctx: ExtensionContext, value?: boolean): void => {
+    const on = value ?? !config.vertical;
+    apply({ ...config, vertical: on }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+  };
+
+  pi.registerCommand("vertical", {
+    description: "Hide the sidebar and use the full window",
+    handler: async (args, ctx) => {
+      const tail = args.trim().toLowerCase();
+      if (tail && tail !== "on" && tail !== "off") {
+        ctx.ui.notify("Usage: /vertical [on|off]", "error");
+        return;
+      }
+      applyVertical(ctx, tail === "" ? undefined : tail === "on");
+    },
+  });
+
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar width, message length, Catppuccin theme, or file a bug",
+    description: "Density, footer, sidebar, vertical mode, message length, Catppuccin theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -695,10 +729,11 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Vertical", "Message length", "Theme", "File a bug"]);
         if (setting === "Density") kind = "density";
         else if (setting === "Footer") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
+        else if (setting === "Vertical") kind = "vertical";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "File a bug") kind = "bug-menu";
@@ -719,8 +754,13 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
 
+      if (kind === "vertical") {
+        applyVertical(ctx, parsed.kind === "vertical" ? parsed.value : undefined);
+        return;
+      }
+
       if (parsed.kind === "width") {
-        apply(withSidebarPercent(config, parsed.width), widthMessage(parsed.width), ctx);
+        apply(withSidebarPercent({ ...config, vertical: false }, parsed.width), widthMessage(parsed.width), ctx);
         return;
       }
 
@@ -764,7 +804,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       const picked = await pickWidth(ctx);
       if (!picked) return;
-      apply(withSidebarPercent(config, picked.width), widthMessage(picked.width), ctx);
+      apply(withSidebarPercent({ ...config, vertical: false }, picked.width), widthMessage(picked.width), ctx);
     },
   });
 }

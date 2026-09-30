@@ -13,7 +13,7 @@ import {
   type Terminal,
 } from "@earendil-works/pi-tui";
 import { installSidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
-import { MESSAGE_LENGTH_DEFAULT, mainColumnWidth, workspaceColumnWidth } from "../extensions/pi-slate/layout.ts";
+import { MESSAGE_LENGTH_DEFAULT, SIDEBAR_HIDDEN, mainColumnWidth, workspaceColumnWidth } from "../extensions/pi-slate/layout.ts";
 
 const identity = (text: string) => text;
 const theme: MarkdownTheme = {
@@ -192,6 +192,15 @@ test("theme invalidation and root remounting keep correct cache lifetimes", (t) 
   f.tui.setLayoutRoot(f.main);
   f.tui.renderNow();
   f.assertCached();
+  f.assertFrame();
+});
+
+test("vertical mode hides the sidebar and gives chat the full width", (t) => {
+  const preferred: { value?: number } = { value: SIDEBAR_HIDDEN };
+  const f = fixture(t, 5, "auto", preferred);
+  f.assertFrame();
+  preferred.value = undefined;
+  f.tui.renderNow();
   f.assertFrame();
 });
 
