@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/slate-overview.png" alt="Slate standard mode with the sidebar and context dock" />
+  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.6/assets/slate-overview.png" alt="Slate standard mode with the sidebar and context dock" />
 </p>
 
 ## Setup
@@ -44,7 +44,7 @@ Vertical mode is the default. It unmounts the sidebar, gives chat the full windo
 The tall vertical screenshot is constrained so it does not dominate the page:
 
 <p align="center">
-  <img src="assets/slate-vertical.png" alt="Slate vertical mode with the sidebar unmounted" height="420" />
+  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.6/assets/slate-vertical.png" alt="Slate vertical mode with the sidebar unmounted" height="420" />
 </p>
 
 ### Rich Media Rendering
@@ -54,7 +54,7 @@ Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 > Usage: Caret-peek over text to display. Click Preview to copy a path. Double-click to open or edit. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
 
 <p align="center">
-  <img src="assets/slate-media.png" alt="Chat with image tokens and the sidebar image preview" />
+  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.6/assets/slate-media.png" alt="Chat with image tokens and the sidebar image preview" />
 </p>
 
 ### Interactive Observability
@@ -64,7 +64,7 @@ Inspect work-tree files and recent request activity directly from the terminal.
 > Usage: Single-click to preview files or drill into activity categories. Double-click to open files in your editor. Expand activity entries to inspect detailed tool executions.
 
 <p align="center">
-  <img src="assets/slate-observability.png" alt="Sidebar files and last-turn activity" />
+  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.6/assets/slate-observability.png" alt="Sidebar files and last-turn activity" />
 </p>
 
 ### Session Context Overview
@@ -78,7 +78,7 @@ Slate keeps usage and spend visible without sending context to your LLM.
 - Context usage may be estimated when provider usage is unavailable.
 
 <p align="center">
-  <img src="assets/slate-context.png" alt="Context usage, spend, skills, and MCP count" width="567" />
+  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.6/assets/slate-context.png" alt="Context usage, spend, skills, and MCP count" width="567" />
 </p>
 
 ### Update Notices
