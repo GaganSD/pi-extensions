@@ -513,7 +513,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       sidebar.setHidden(config.vertical === true);
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
-      requestRender();
+      requestRender(true);
       ctx.ui.notify(message, "info");
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
@@ -688,6 +688,23 @@ export default function piSlate(pi: ExtensionAPI): void {
     await fileBug(ctx);
   };
 
+  const applyVertical = (ctx: ExtensionContext, value?: boolean): void => {
+    const on = value ?? !config.vertical;
+    apply({ ...config, vertical: on || undefined }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+  };
+
+  pi.registerCommand("vertical", {
+    description: "Hide the sidebar and use the full window",
+    handler: async (args, ctx) => {
+      const tail = args.trim().toLowerCase();
+      if (tail && tail !== "on" && tail !== "off") {
+        ctx.ui.notify("Usage: /vertical [on|off]", "error");
+        return;
+      }
+      applyVertical(ctx, tail === "" ? undefined : tail === "on");
+    },
+  });
+
   pi.registerCommand("slate", {
     description: "Density, footer, sidebar, vertical mode, message length, Catppuccin theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
@@ -726,8 +743,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (kind === "vertical") {
-        const on = parsed.kind === "vertical" && parsed.value !== undefined ? parsed.value : !config.vertical;
-        apply({ ...config, vertical: on || undefined }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+        applyVertical(ctx, parsed.kind === "vertical" ? parsed.value : undefined);
         return;
       }
 
