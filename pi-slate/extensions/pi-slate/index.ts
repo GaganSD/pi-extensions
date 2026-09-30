@@ -36,6 +36,8 @@ import {
   centerOffset,
   compactPath,
   countSkillCommands,
+  formatContextResources,
+  formatContextTokens,
   mainColumnWidth,
   mergeMcpServerMaps,
   modelLabel,
@@ -91,6 +93,7 @@ const CONFIG_PATH = join(getAgentDir(), "pi-slate.json");
 const DEFAULT_CONFIG: SlateConfig = {
   density: "comfortable",
   footer: "standard",
+  vertical: true,
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -115,7 +118,7 @@ function loadConfig(): SlateConfig {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
-      ...(value.vertical === true ? { vertical: true } : {}),
+      vertical: value.vertical !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
@@ -229,6 +232,10 @@ export default function piSlate(pi: ExtensionAPI): void {
   let activeTui: TUI | undefined;
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
+  let contextEdge = {
+    tokens: formatContextTokens(null, null, null),
+    resources: formatContextResources(null, 0, 0),
+  };
   let requestRender = (_force = false) => {};
 
   const syncVisibleMessages = (): void => {
@@ -261,16 +268,20 @@ export default function piSlate(pi: ExtensionAPI): void {
     } catch {
       return;
     }
+    const skills = countSkillCommands(pi.getCommands());
+    const mcp = parseMcpEnabledCount({
+      mcpServers: mergeMcpServerMaps(
+        readOptionalJson(join(getAgentDir(), "mcp.json")),
+        readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
+      ),
+    });
     sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
-    sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands()));
-    sidebar.setMcpConnected(
-      parseMcpEnabledCount({
-        mcpServers: mergeMcpServerMaps(
-          readOptionalJson(join(getAgentDir(), "mcp.json")),
-          readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
-        ),
-      }),
-    );
+    sidebar.setSkillsLoaded(skills);
+    sidebar.setMcpConnected(mcp);
+    contextEdge = {
+      tokens: formatContextTokens(tokens, percent, tokenRate.rate()),
+      resources: formatContextResources(spend, skills, mcp),
+    };
   };
   pi.events.on("subagent:async-complete", refreshFiles);
   pi.on("resources_discover", () => {
@@ -393,6 +404,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             thinking: current.thinkingLevel,
             footer: config.footer,
             theme: current.ui.theme,
+            ...(config.vertical !== false ? { context: contextEdge } : {}),
           };
         },
         {
@@ -690,7 +702,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const applyVertical = (ctx: ExtensionContext, value?: boolean): void => {
     const on = value ?? !config.vertical;
-    apply({ ...config, vertical: on || undefined }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+    apply({ ...config, vertical: on }, on ? "Vertical mode on" : "Vertical mode off", ctx);
   };
 
   pi.registerCommand("vertical", {
@@ -748,7 +760,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       }
 
       if (parsed.kind === "width") {
-        apply(withSidebarPercent({ ...config, vertical: undefined }, parsed.width), widthMessage(parsed.width), ctx);
+        apply(withSidebarPercent({ ...config, vertical: false }, parsed.width), widthMessage(parsed.width), ctx);
         return;
       }
 
@@ -792,7 +804,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       const picked = await pickWidth(ctx);
       if (!picked) return;
-      apply(withSidebarPercent({ ...config, vertical: undefined }, picked.width), widthMessage(picked.width), ctx);
+      apply(withSidebarPercent({ ...config, vertical: false }, picked.width), widthMessage(picked.width), ctx);
     },
   });
 }

@@ -4,6 +4,7 @@ import { stripVTControlCharacters } from "node:util";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import {
   chromePaint,
+  composerContextEdge,
   composerLabels,
   composerPaddingX,
   frameComposerLines,
@@ -72,6 +73,22 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
   assert.match(narrow.left, /pi-configs/);
   assert.doesNotMatch(narrow.left, /main/);
   assert.equal(narrow.right, "");
+});
+
+test("vertical context sits on the composer top edge", () => {
+  const line = composerContextEdge(
+    "123,118 tokens · 25% used · 2,011 tokens/sec",
+    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    80,
+    (text) => text,
+  );
+  assert.equal(line[0], "╭");
+  assert.equal(line.at(-1), "╮");
+  assert.match(line, /123,118 tokens/);
+  assert.match(line, /\$7\.47/);
+  const squeezed = composerContextEdge("123,118 tokens", "$7.47 · 14 skills loaded", 28, (text) => text, 3);
+  assert.equal(visibleWidth(squeezed), 28);
+  assert.match(squeezed, /↑ 3 more/);
 });
 
 test("empty composer frames sides and prompt without a hint row", () => {

@@ -174,7 +174,19 @@ export type ComposerSource = {
   thinking?: string;
   footer: "standard" | "minimal";
   theme: Theme;
+  context?: { tokens: string; resources: string };
 };
+
+export function composerContextEdge(
+  tokens: string,
+  resources: string,
+  width: number,
+  paint: (text: string) => string,
+  hiddenLineCount = 0,
+): string {
+  const more = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
+  return inscribedBorder(`${more} ${tokens} `, ` ${resources} `, width, paint, "╭", "╮");
+}
 
 export class ComposerEditor extends CustomEditor {
   private readonly source: () => ComposerSource;
@@ -200,6 +212,16 @@ export class ComposerEditor extends CustomEditor {
 
   protected renderTopBorder(width: number, hiddenLineCount: number): string {
     if (width <= 2) return super.renderTopBorder(width, hiddenLineCount);
+    const src = this.source();
+    if (src.context) {
+      return composerContextEdge(
+        src.theme.fg("muted", src.context.tokens),
+        src.theme.fg("dim", src.context.resources),
+        width,
+        (text) => this.borderColor(text),
+        hiddenLineCount,
+      );
+    }
     return this.borderColor("╭") + super.renderTopBorder(width - 2, hiddenLineCount) + this.borderColor("╮");
   }
 
