@@ -15,6 +15,7 @@ import { TuiBase } from "../node_modules/@earendil-works/pi-tui/dist/tui.js";
 import { paintSelectedContent } from "../extensions/pi-slate/composer.ts";
 import {
   ComposerSelectionController,
+  pasteTokenAtCursor,
   type ComposerSelectionEditor,
 } from "../extensions/pi-slate/composer-selection.ts";
 
@@ -218,6 +219,37 @@ test("expand is a no-op when the prompt has no collapsed pastes", () => {
   assert.deepEqual(editor.inputCalls, [EXPAND]);
 });
 
+test("pasteTokenAtCursor finds Pi paste markers and ignores nearby text", () => {
+  const text = "see [paste #1 +10 lines] done";
+  assert.equal(pasteTokenAtCursor(text, { line: 0, col: 6 })?.number, "1");
+  assert.equal(pasteTokenAtCursor(text, { line: 0, col: 0 }), undefined);
+  assert.equal(pasteTokenAtCursor("see [image-1]", { line: 0, col: 6 }), undefined);
+});
+
+test("clicking a paste token expands it; moving the mouse does not", () => {
+  const editor = new FakeEditor("see [paste #1 +10 lines]");
+  editor.expandedText = "see one\ntwo";
+  editor.cursor = { line: 0, col: 10 };
+  attach(editor);
+
+  editor.handleMouse({ type: "move", button: "none" } as TuiMouseEvent);
+  assert.deepEqual(editor.setTextCalls, []);
+
+  editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+  assert.deepEqual(editor.setTextCalls, ["see one\ntwo"]);
+  assert.equal(editor.getText(), "see one\ntwo");
+});
+
+test("clicking away from a paste token does not expand", () => {
+  const editor = new FakeEditor("see [paste #1 +10 lines]");
+  editor.expandedText = "see body";
+  editor.cursor = { line: 0, col: 1 };
+  attach(editor);
+  editor.handleMouse({ type: "click", button: "left" } as TuiMouseEvent);
+  assert.deepEqual(editor.setTextCalls, []);
+  assert.equal(editor.getText(), "see [paste #1 +10 lines]");
+});
+
 test("paintSelectedContent skips rails, the › prompt, and empty shelf rows", () => {
   assert.equal(paintSelectedContent("  hello\x1b[0m world  "), "  \x1b[7mhello\x1b[0m\x1b[7m world\x1b[27m  ");
   assert.equal(paintSelectedContent("│ hello world │"), "│ \x1b[7mhello world\x1b[27m │");
@@ -327,6 +359,34 @@ test("selected Ctrl+X cuts; unselected Ctrl+X keeps the last-message copy action
   assert.deepEqual(copied, ["keep"]);
   assert.equal(editor.getText(), "");
   assert.equal(messageCopies, 1);
+  selection.dispose();
+});
+
+test("clicking a real paste marker expands it through getExpandedText", (t) => {
+  const { editor, tui } = createIntegratedEditor(t);
+  const selection = new ComposerSelectionController();
+  selection.attach(editor, { copy() {} });
+  const pasted = largePaste("click");
+  bracketedPaste(tui, pasted);
+  const marker = editor.getText();
+  assert.match(marker, /^\[paste #1/);
+  const state = editor as unknown as { state: { cursorLine: number; cursorCol: number } };
+  state.state.cursorLine = 0;
+  state.state.cursorCol = 3;
+  editor.handleMouse({
+    type: "click",
+    button: "left",
+    x: 3,
+    y: 1,
+    screenX: 3,
+    screenY: 1,
+    width: 80,
+    height: 4,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  });
+  assert.equal(editor.getText(), pasted);
   selection.dispose();
 });
 

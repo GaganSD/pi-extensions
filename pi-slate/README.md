@@ -113,9 +113,9 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 | Replace selection | Type, Backspace, or paste |
 | Submit selected prompt | `Enter` |
 | Clear the prompt | `Esc` `Esc` |
-| Expand collapsed pastes | `Ctrl+R` or `F4` |
+| Expand collapsed pastes | Click a `[paste #N]` token, or `Ctrl+R` / `F4` |
 
-`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. Copy uses the expanded paste body. Unselected `Ctrl+C` and `Ctrl+X` keep Pi's normal behavior. Image tokens stay as `[image-N]`.
+`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. Copy uses the expanded paste body. Unselected `Ctrl+C` and `Ctrl+X` keep Pi's normal behavior. Image tokens stay as `[image-N]`. Expanding a paste cannot be collapsed again.
 
 ## Commands
 

@@ -74,8 +74,28 @@ function isReplace(data: string): boolean {
     || matchesKey(data, "ctrl+j");
 }
 
+const PASTE_TOKEN = /\[paste #(\d+)(?: \+\d+ lines| \d+ chars)?\]/g;
+
+export function pasteTokenAtCursor(
+  text: string,
+  cursor: { line: number; col: number },
+): { start: number; end: number; number: string } | undefined {
+  const line = text.split("\n")[cursor.line];
+  if (line === undefined) return undefined;
+  for (const match of line.matchAll(PASTE_TOKEN)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (cursor.col >= start && cursor.col <= end) return { start, end, number: match[1]! };
+  }
+  return undefined;
+}
+
 function isExpand(data: string): boolean {
   return matchesKey(data, "ctrl+r") || matchesKey(data, "f4");
+}
+
+function isPasteClick(event: TuiMouseEvent): boolean {
+  return event.button === "left" && (event.type === "click" || event.type === "press");
 }
 
 function expandAll(editor: ComposerSelectionEditor): boolean {
@@ -83,6 +103,11 @@ function expandAll(editor: ComposerSelectionEditor): boolean {
   if (expanded === editor.getText()) return false;
   editor.setText(expanded);
   return true;
+}
+
+function expandTokenAtCursor(editor: ComposerSelectionEditor): boolean {
+  if (!pasteTokenAtCursor(editor.getText(), editor.getCursor())) return false;
+  return expandAll(editor);
 }
 
 /** Adds prompt selection and public-API paste expansion to one composer editor. */
@@ -213,7 +238,9 @@ export class ComposerSelectionController {
 
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
       clearInteraction();
-      return originalHandleMouse.call(editor, event);
+      const result = originalHandleMouse.call(editor, event);
+      if (isPasteClick(event) && expandTokenAtCursor(editor)) options.requestRender?.();
+      return result;
     };
 
     const render = (width: number): string[] => {
