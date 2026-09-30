@@ -412,9 +412,6 @@ export default function piSlate(pi: ExtensionAPI): void {
         copy: (text) => copyToClipboard(text),
         requestRender: () => tui.requestRender(),
         onCopyError: () => ctx.ui.notify("Could not copy", "error"),
-        imagePath: (number) => images.pathFor(number),
-        matchesImage: (number, path) => images.matchesImage(number, path),
-        onTokenExpansion: () => images.refreshEditor(),
       });
       images.attachEditor(activeEditor);
       return activeEditor;

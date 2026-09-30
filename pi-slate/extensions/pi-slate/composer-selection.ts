@@ -6,6 +6,7 @@ import {
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { decodePrintableKey } from "@earendil-works/pi-tui/dist/keys.js";
+import { paintSelectedContent } from "./composer.ts";
 
 export type ComposerSelectionEditor = {
   getText(): string;
@@ -17,38 +18,20 @@ export type ComposerSelectionEditor = {
   render(width: number): string[];
   isShowingAutocomplete(): boolean;
   focused?: boolean;
-  onPasteImage?(): void;
+  selectionActive?: boolean;
 };
 
 export type ComposerSelectionOptions = {
   copy(text: string): void | Promise<void>;
   requestRender?(): void;
   onCopyError?(error: unknown): void;
-  imagePath?(number: string): string | undefined;
-  matchesImage?(number: string, path: string): boolean;
-  onTokenExpansion?(): void;
 };
 
 type PasteableEditor = ComposerSelectionEditor & {
   handlePaste?: (text: string) => void;
   insertTextAtCursor?: (text: string) => void;
 };
-type PasteToken = { kind: "paste" | "image"; start: number; end: number; number?: string };
-// Pi has no public local paste expansion API; validate these fields before bypassing setText.
-type EditorInternals = {
-  state: { lines: string[]; cursorLine: number; cursorCol: number };
-  pastes: Map<number, string>;
-  normalizeText?: (text: string) => string;
-  pasteCounter: number;
-  undoStack: { push(value: unknown): void; pop(): unknown };
-  pushUndoSnapshot(): void;
-  cancelAutocomplete(): void;
-  exitHistoryBrowsing(): void;
-  lastAction: unknown;
-  preferredVisualCol?: unknown;
-  onChange?: (text: string) => void;
-  invalidate?(): void;
-};
+
 type InstalledEditor = {
   editor: PasteableEditor;
   originalHandleInput: ComposerSelectionEditor["handleInput"];
@@ -67,48 +50,8 @@ type InstalledEditor = {
   focusGetter?: () => boolean;
 };
 
-const ESCAPE_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|_[^\x07]*(?:\x07|$)|\][^\x07]*(?:\x07|\x1b\\|$))/y;
-const REVERSE_ON = "\x1b[7m";
-const REVERSE_OFF = "\x1b[27m";
-const RESET = "\x1b[0m";
-
-const FRAME_CHROME = /[│╭╮╰╯├┤─›]/u;
-
-function selectedLine(line: string): string {
-  const cells: Array<{ start: number; end: number; char: string }> = [];
-
-  for (let index = 0; index < line.length;) {
-    ESCAPE_SEQUENCE.lastIndex = index;
-    const escape = ESCAPE_SEQUENCE.exec(line);
-    if (escape) {
-      index += escape[0].length;
-      continue;
-    }
-
-    const codePoint = line.codePointAt(index);
-    if (codePoint === undefined) break;
-    const character = String.fromCodePoint(codePoint);
-    cells.push({ start: index, end: index + character.length, char: character });
-    index += character.length;
-  }
-
-  let from = 0;
-  let to = cells.length;
-  while (from < to && (/\s/u.test(cells[from]!.char) || FRAME_CHROME.test(cells[from]!.char))) from += 1;
-  while (to > from && (/\s/u.test(cells[to - 1]!.char) || FRAME_CHROME.test(cells[to - 1]!.char))) to -= 1;
-  // Rails, the empty › prompt, and padding-only shelf rows are chrome, not prompt text.
-  if (from >= to) return line;
-
-  const firstText = cells[from]!.start;
-  const lastTextEnd = cells[to - 1]!.end;
-  const before = line.slice(0, firstText);
-  const text = line.slice(firstText, lastTextEnd).replaceAll(RESET, `${RESET}${REVERSE_ON}`);
-  const after = line.slice(lastTextEnd);
-  return `${before}${REVERSE_ON}${text}${REVERSE_OFF}${after}`;
-}
-
 function isSelectAll(data: string): boolean {
-  return matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
+  return matchesKey(data, "ctrl+a") || matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
 }
 
 function isCopy(data: string): boolean {
@@ -116,7 +59,7 @@ function isCopy(data: string): boolean {
 }
 
 function isCut(data: string): boolean {
-  return matchesKey(data, "super+x") || matchesKey(data, "ctrl+shift+x");
+  return matchesKey(data, "ctrl+x") || matchesKey(data, "super+x") || matchesKey(data, "ctrl+shift+x");
 }
 
 function isPrintable(data: string): boolean {
@@ -131,154 +74,21 @@ function isReplace(data: string): boolean {
     || matchesKey(data, "ctrl+j");
 }
 
-function isPasteKey(data: string): boolean {
-  return matchesKey(data, "super+v") || matchesKey(data, "ctrl+v") || matchesKey(data, "alt+v");
+function isExpand(data: string): boolean {
+  return matchesKey(data, "ctrl+r") || matchesKey(data, "f4");
 }
 
-export function tokenAtCursor(
-  text: string,
-  cursor: { line: number; col: number },
-): PasteToken | undefined {
-  const line = text.split("\n")[cursor.line];
-  if (line === undefined) return undefined;
-  for (const match of line.matchAll(/\[paste #(\d+)( (?:\+\d+ lines|\d+ chars))?\]/g)) {
-    const start = match.index ?? 0;
-    const end = start + match[0].length;
-    if (cursor.col >= start && cursor.col <= end) return { kind: "paste", start, end, number: match[1] };
-  }
-  for (const match of line.matchAll(/\[image[ -](\d+)\]/g)) {
-    const start = match.index ?? 0;
-    const end = start + match[0].length;
-    if (cursor.col >= start && cursor.col <= end) {
-      return { kind: "image", start, end, number: match[1] };
-    }
-  }
-  return undefined;
-}
-
-function replaceToken(
-  editor: ComposerSelectionEditor,
-  token: PasteToken,
-  replacement: string,
-  onExpansion?: () => void,
-): boolean {
-  const internals = editor as unknown as Partial<EditorInternals>;
-  const state = internals.state;
-  const pastes = internals.pastes;
-  const cursor = editor.getCursor();
-  if (
-    !state || !Array.isArray(state.lines) || !state.lines.every((line) => typeof line === "string")
-    || !Number.isInteger(cursor.line) || !Number.isInteger(cursor.col)
-    || cursor.line < 0 || cursor.line >= state.lines.length
-    || cursor.col < 0 || cursor.col > state.lines[cursor.line]!.length
-    || state.cursorLine !== cursor.line || state.cursorCol !== cursor.col
-    || !(pastes instanceof Map) || !Number.isSafeInteger(internals.pasteCounter) || internals.pasteCounter! < 0
-    || !internals.undoStack || typeof internals.undoStack.push !== "function"
-    || typeof internals.undoStack.pop !== "function" || typeof internals.pushUndoSnapshot !== "function"
-    || typeof internals.cancelAutocomplete !== "function" || typeof internals.exitHistoryBrowsing !== "function"
-  ) return false;
-  let highestPasteId = 0;
-  for (const [id, body] of pastes) {
-    if (!Number.isSafeInteger(id) || id < 1 || typeof body !== "string") return false;
-    highestPasteId = Math.max(highestPasteId, id);
-  }
-  if (internals.pasteCounter! < highestPasteId) return false;
-
-  const line = state.lines[cursor.line]!;
-  if (token.end > line.length || token.start < 0 || token.start > cursor.col || cursor.col > token.end) return false;
-  const insertedLines = replacement.split("\n");
-  const nextLines = [...state.lines];
-  const before = line.slice(0, token.start);
-  const after = line.slice(token.end);
-  const firstLine = `${before}${insertedLines[0] ?? ""}`;
-  const lastLine = `${insertedLines.at(-1) ?? ""}${after}`;
-  const lineCount = insertedLines.length;
-  if (lineCount === 1) nextLines[cursor.line] = `${firstLine}${after}`;
-  else nextLines.splice(cursor.line, 1, firstLine, ...insertedLines.slice(1, -1), lastLine);
-
-  try {
-    internals.cancelAutocomplete.call(editor);
-    internals.exitHistoryBrowsing.call(editor);
-    internals.pushUndoSnapshot.call(editor);
-  } catch {
-    return false;
-  }
-
-  const nextPastes = new Map(pastes);
-  if (token.kind === "paste" && token.number) {
-    const id = Number(token.number);
-    const stillReferenced = nextLines.some((nextLine) =>
-      [...nextLine.matchAll(/\[paste #(\d+)(?: \+\d+ lines| \d+ chars)?\]/g)]
-        .some((match) => Number(match[1]) === id),
-    );
-    if (!stillReferenced) nextPastes.delete(id);
-  }
-  const nextCursorLine = cursor.line + lineCount - 1;
-  const nextCursorCol = lineCount === 1 ? firstLine.length : lastLine.length - after.length;
-  internals.state = { lines: nextLines, cursorLine: nextCursorLine, cursorCol: nextCursorCol };
-  internals.pastes = nextPastes;
-  internals.lastAction = null;
-  internals.preferredVisualCol = null;
-  internals.onChange?.(nextLines.join("\n"));
-  internals.invalidate?.call(editor);
-  try {
-    onExpansion?.();
-  } catch {
-    // Preview refresh is best-effort; the editor mutation and undo snapshot are complete.
-  }
+function expandAll(editor: ComposerSelectionEditor): boolean {
+  const expanded = editor.getExpandedText();
+  if (expanded === editor.getText()) return false;
+  editor.setText(expanded);
   return true;
 }
 
-function expandAtCursor(
-  editor: ComposerSelectionEditor,
-  imagePath?: (number: string) => string | undefined,
-  onExpansion?: () => void,
-): boolean {
-  const token = tokenAtCursor(editor.getText(), editor.getCursor());
-  if (!token) return false;
-  if (token.kind === "paste") {
-    const pastes = (editor as unknown as Partial<EditorInternals>).pastes;
-    const body = pastes instanceof Map ? pastes.get(Number(token.number)) : undefined;
-    return typeof body === "string" && replaceToken(editor, token, body, onExpansion);
-  }
-  const path = token.number ? imagePath?.(token.number) : undefined;
-  return Boolean(path && replaceToken(editor, token, path, onExpansion));
-}
-
-function normalizeEditorText(editor: ComposerSelectionEditor, text: string): string | undefined {
-  const normalizeText = (editor as unknown as Partial<EditorInternals>).normalizeText;
-  if (typeof normalizeText !== "function") return undefined;
-  try {
-    return normalizeText.call(editor, text);
-  } catch {
-    return undefined;
-  }
-}
-
-function expandsPayload(
-  editor: ComposerSelectionEditor,
-  text: string,
-  options: ComposerSelectionOptions,
-): boolean {
-  const token = tokenAtCursor(editor.getText(), editor.getCursor());
-  if (!token) return false;
-  if (token.kind === "paste") {
-    const pastes = (editor as unknown as Partial<EditorInternals>).pastes;
-    const body = pastes instanceof Map ? pastes.get(Number(token.number)) : undefined;
-    const normalizedText = normalizeEditorText(editor, text);
-    return normalizedText !== undefined && body === normalizedText
-      && replaceToken(editor, token, body, options.onTokenExpansion);
-  }
-  return Boolean(
-    token.number && options.matchesImage?.(token.number, text)
-    && options.imagePath && replaceToken(editor, token, options.imagePath(token.number) ?? "", options.onTokenExpansion),
-  );
-}
-
-/** Adds prompt selection and token-local expansion to one composer editor. */
+/** Adds prompt selection and public-API paste expansion to one composer editor. */
 export class ComposerSelectionController {
   private installed?: InstalledEditor;
-  private selectedLength?: number;
+  private selected = false;
   private escapeArmedText?: string;
   private escapeArmedAt = 0;
   private revision = 0;
@@ -299,8 +109,12 @@ export class ComposerSelectionController {
     const originalSetText = editor.setText;
     const originalRender = editor.render;
 
+    const setSelected = (on: boolean): void => {
+      this.selected = on;
+      if (editor.selectionActive !== undefined) editor.selectionActive = on;
+    };
     const collapse = (): void => {
-      this.selectedLength = undefined;
+      setSelected(false);
     };
     const disarmEscape = (): void => {
       this.escapeArmedText = undefined;
@@ -329,7 +143,6 @@ export class ComposerSelectionController {
         options.onCopyError?.(error);
       }
     };
-    const expandPayload = (text: string): boolean => expandsPayload(editor, text, options);
 
     const setText = (text: string): void => {
       clearInteraction();
@@ -370,24 +183,17 @@ export class ComposerSelectionController {
       this.revision += 1;
       disarmEscape();
       if (isSelectAll(data)) {
-        const length = editor.getText().length;
-        this.selectedLength = length > 0 ? length : undefined;
+        setSelected(editor.getText().length > 0);
         return;
       }
-      if (matchesKey(data, "super+v") && pasteable.onPasteImage) {
-        pasteable.onPasteImage.call(editor);
+      if (isExpand(data) && expandAll(editor)) {
+        options.requestRender?.();
         return;
       }
 
-      if (this.selectedLength !== undefined) {
+      if (this.selected) {
         if (isCopy(data) || isCut(data)) {
           copySelected(isCut(data));
-          return;
-        }
-        if (isPasteKey(data)) {
-          // Pi reads the clipboard asynchronously; the payload hook below decides
-          // whether to replace the selection or expand the token under the caret.
-          originalHandleInput.call(editor, data);
           return;
         }
         if (matchesKey(data, "backspace") || matchesKey(data, "delete")) {
@@ -400,8 +206,6 @@ export class ComposerSelectionController {
           return;
         }
         collapse();
-      } else if (matchesKey(data, "f4")) {
-        if (expandAtCursor(editor, options.imagePath, options.onTokenExpansion)) return;
       }
 
       originalHandleInput.call(editor, data);
@@ -418,10 +222,12 @@ export class ComposerSelectionController {
         disarmEscape();
       }
       const lines = originalRender.call(editor, width);
-      if (this.selectedLength === undefined || lines.length < 3 || editor.isShowingAutocomplete()) return lines;
+      if (editor.selectionActive !== undefined || !this.selected || lines.length < 3 || editor.isShowingAutocomplete()) {
+        return lines;
+      }
       return lines.map((line, index) => {
         if (index === 0 || index === lines.length - 1) return line;
-        return selectedLine(line);
+        return paintSelectedContent(line);
       });
     };
 
@@ -429,11 +235,9 @@ export class ComposerSelectionController {
       ? (text: string): void => {
         this.revision += 1;
         disarmEscape();
-        if (this.selectedLength !== undefined) {
+        if (this.selected) {
           editor.setText("");
           collapse();
-        } else if (expandPayload(text)) {
-          return;
         }
         originalHandlePaste.call(editor, text);
       }
@@ -443,11 +247,9 @@ export class ComposerSelectionController {
       ? (text: string): void => {
         this.revision += 1;
         disarmEscape();
-        if (this.selectedLength !== undefined) {
+        if (this.selected) {
           editor.setText("");
           collapse();
-        } else if (expandPayload(text)) {
-          return;
         }
         originalInsertTextAtCursor.call(editor, text);
       }
@@ -459,6 +261,7 @@ export class ComposerSelectionController {
     editor.setText = setText;
     if (handlePaste) pasteable.handlePaste = handlePaste;
     if (insertTextAtCursor) pasteable.insertTextAtCursor = insertTextAtCursor;
+    if (editor.selectionActive !== undefined) editor.selectionActive = false;
 
     let focusGetter: (() => boolean) | undefined;
     const originalFocus = Object.getOwnPropertyDescriptor(editor, "focused");
@@ -509,6 +312,7 @@ export class ComposerSelectionController {
       if (installed.insertTextAtCursor && installed.editor.insertTextAtCursor === installed.insertTextAtCursor) {
         installed.editor.insertTextAtCursor = installed.originalInsertTextAtCursor;
       }
+      if (installed.editor.selectionActive !== undefined) installed.editor.selectionActive = false;
       if (installed.originalFocus && installed.focusGetter) {
         const descriptor = Object.getOwnPropertyDescriptor(installed.editor, "focused");
         if (descriptor?.get === installed.focusGetter) {
@@ -520,7 +324,7 @@ export class ComposerSelectionController {
       }
     }
     this.installed = undefined;
-    this.selectedLength = undefined;
+    this.selected = false;
     this.escapeArmedText = undefined;
     this.revision += 1;
   }

@@ -16,6 +16,45 @@ export function chromePaint(theme: Theme): (text: string) => string {
   return (text) => theme.fg("border", text);
 }
 
+const ESCAPE_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|_[^\x07]*(?:\x07|$)|\][^\x07]*(?:\x07|\x1b\\|$))/y;
+const REVERSE_ON = "\x1b[7m";
+const REVERSE_OFF = "\x1b[27m";
+const RESET = "\x1b[0m";
+const FRAME_CHROME = /[│╭╮╰╯├┤─›]/u;
+
+/** Invert prompt text only. Leading/trailing space and box chrome stay unselected. */
+export function paintSelectedContent(line: string): string {
+  const cells: Array<{ start: number; end: number; char: string }> = [];
+
+  for (let index = 0; index < line.length;) {
+    ESCAPE_SEQUENCE.lastIndex = index;
+    const escape = ESCAPE_SEQUENCE.exec(line);
+    if (escape) {
+      index += escape[0].length;
+      continue;
+    }
+
+    const codePoint = line.codePointAt(index);
+    if (codePoint === undefined) break;
+    const character = String.fromCodePoint(codePoint);
+    cells.push({ start: index, end: index + character.length, char: character });
+    index += character.length;
+  }
+
+  let from = 0;
+  let to = cells.length;
+  while (from < to && (/\s/u.test(cells[from]!.char) || FRAME_CHROME.test(cells[from]!.char))) from += 1;
+  while (to > from && (/\s/u.test(cells[to - 1]!.char) || FRAME_CHROME.test(cells[to - 1]!.char))) to -= 1;
+  if (from >= to) return line;
+
+  const firstText = cells[from]!.start;
+  const lastTextEnd = cells[to - 1]!.end;
+  const before = line.slice(0, firstText);
+  const text = line.slice(firstText, lastTextEnd).replaceAll(RESET, `${RESET}${REVERSE_ON}`);
+  const after = line.slice(lastTextEnd);
+  return `${before}${REVERSE_ON}${text}${REVERSE_OFF}${after}`;
+}
+
 export const COMPOSER_SHELF_LINES = 4;
 
 let lastComposerFrameLines = COMPOSER_SHELF_LINES;
@@ -221,6 +260,7 @@ export function composerStatusContextEdge(
 type WorkingStatusIndicatorParameter = Parameters<CustomEditor["setWorkingStatusIndicator"]>[0];
 
 export class ComposerEditor extends CustomEditor {
+  selectionActive = false;
   private readonly source: () => ComposerSource;
   private statusIndicator: WorkingStatusIndicatorParameter;
 
@@ -284,8 +324,12 @@ export class ComposerEditor extends CustomEditor {
 
   render(width: number): string[] {
     const paint = (text: string) => this.borderColor(text);
+    const raw = super.render(width);
+    const selected = this.selectionActive && !this.isShowingAutocomplete()
+      ? raw.map((line, index) => index === 0 || index === raw.length - 1 ? line : paintSelectedContent(line))
+      : raw;
     const lines = padComposerFrame(
-      frameComposerLines(super.render(width), {
+      frameComposerLines(selected, {
         width,
         empty: this.getText().length === 0,
         paddingX: this.getPaddingX(),

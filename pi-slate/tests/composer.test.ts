@@ -5,6 +5,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { formatVerticalContextResources, formatVerticalContextTokens } from "../extensions/pi-slate/layout.ts";
 import {
   chromePaint,
+  paintSelectedContent,
   composerContextEdge,
   composerLabels,
   composerStatusContextEdge,
@@ -238,6 +239,26 @@ test("inscribed titles use composer corners", () => {
   assert.match(inscribedTitle("Summary", 16, (text) => text, "top"), /^╭─ Summary /);
   assert.ok(inscribedTitle("Preview", 16, (text) => text, "mid").startsWith("├"));
   assert.ok(inscribedTitle("Context", 20, (text) => text, "bottom", "0%").endsWith("╯"));
+});
+
+test("selection paint happens before rails so the frame stays uninverted", () => {
+  const width = 20;
+  const painted = [
+    "╭" + "─".repeat(width - 2) + "╮",
+    paintSelectedContent("    hello           "),
+    "╰" + "─".repeat(width - 2) + "╯",
+  ];
+  const lines = padComposerFrame(
+    frameComposerLines(painted, { width, empty: false, paddingX: 4, paint: (text) => text }),
+    width,
+    (text) => text,
+  );
+  const body = lines[1] ?? "";
+  assert.match(body, /^│/);
+  assert.match(body, /│$/);
+  assert.doesNotMatch(stripVTControlCharacters(body).slice(0, 1), /\x1b/);
+  assert.match(body, /\x1b\[7mhello\x1b\[27m/);
+  assert.doesNotMatch(body, /\x1b\[7m│/);
 });
 
 

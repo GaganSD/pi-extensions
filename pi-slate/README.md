@@ -107,15 +107,15 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 | Action | Keys |
 | --- | --- |
-| Select all prompt text | `Ctrl+Shift+A` |
-| Copy selected prompt | selected `Ctrl+C` / `Ctrl+Shift+C` |
-| Cut selected prompt | `Ctrl+Shift+X` |
+| Select all prompt text | `Ctrl+A` |
+| Copy selected prompt | selected `Ctrl+C` |
+| Cut selected prompt | selected `Ctrl+X` |
 | Replace selection | Type, Backspace, or paste |
 | Submit selected prompt | `Enter` |
 | Clear the prompt | `Esc` `Esc` |
-| Expand a collapsed paste or `[image-N]` | `F4`, or paste the same content while the caret is on the token |
+| Expand collapsed pastes | `Ctrl+R` or `F4` |
 
-Large pastes stay collapsed as `[paste #1 +18 lines]`. Image paths stay as `[image-1]`. Copy uses the expanded paste body. Unselected `Ctrl+C` still clears the session the way Pi does.
+`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. Copy uses the expanded paste body. Unselected `Ctrl+C` and `Ctrl+X` keep Pi's normal behavior. Image tokens stay as `[image-N]`.
 
 ## Commands
 
