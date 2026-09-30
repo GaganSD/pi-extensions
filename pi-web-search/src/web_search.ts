@@ -7,6 +7,8 @@ import { Type, type Static } from "typebox";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { resolveSettings } from "./providers/config.ts";
 import { type RunSearchOptions, runSearch } from "./providers/index.ts";
+import { augmentResults } from "./jev/augment.ts";
+import { resolveRouting } from "./jev/route.ts";
 import { errorResult, invalidConfigResult } from "./utils.ts";
 
 export const WebSearchSchema = Type.Object({
@@ -56,6 +58,15 @@ export async function webSearch(
 			details: {},
 		});
 
+		// Routing is optional and never fatal: a failure here just falls back
+		// to the configured provider.
+		const routing = await resolveRouting(
+			params.query,
+			resolved.family,
+			resolved.jev.enabled,
+			{ signal },
+		);
+
 		const result = await runSearch(
 			{
 				query: params.query,
@@ -64,10 +75,17 @@ export async function webSearch(
 				onUpdate,
 				settings: resolved,
 			},
-			options,
+			{ ...options, family: routing.family },
 		);
 
-		return formatWebSearchResult(result);
+		const augmented = await augmentResults(
+			{ query: params.query, signal, settings: resolved },
+			routing.note
+				? { ...result, warnings: [...(result.warnings ?? []), routing.note] }
+				: result,
+		);
+
+		return formatWebSearchResult(augmented);
 	} catch (e) {
 		return errorResult(e);
 	}
