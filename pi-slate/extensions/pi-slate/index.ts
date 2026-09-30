@@ -30,7 +30,6 @@ import { resolveContextTokens, sessionSpend } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import {
-  MCP_STATUS_EVENT,
   PI_LOGO,
   PI_LOGO_ASCII,
   paintLogo,
@@ -38,6 +37,7 @@ import {
   compactPath,
   countSkillCommands,
   mainColumnWidth,
+  mergeMcpServerMaps,
   modelLabel,
   parseMcpEnabledCount,
   parseMessageLength,
@@ -95,6 +95,14 @@ const DEFAULT_CONFIG: SlateConfig = {
 function loadMessageLength(value: unknown): number | "all" | undefined {
   if (value === "all") return "all";
   return parseMessageLength(value);
+}
+
+function readOptionalJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 function loadConfig(): SlateConfig {
@@ -252,11 +260,15 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
     sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
     sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands()));
+    sidebar.setMcpConnected(
+      parseMcpEnabledCount({
+        mcpServers: mergeMcpServerMaps(
+          readOptionalJson(join(getAgentDir(), "mcp.json")),
+          readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
+        ),
+      }),
+    );
   };
-
-  pi.events.on(MCP_STATUS_EVENT, (data) => {
-    sidebar.setMcpConnected(parseMcpEnabledCount(data));
-  });
   pi.events.on("subagent:async-complete", refreshFiles);
   pi.on("resources_discover", () => {
     queueMicrotask(() => sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands())));

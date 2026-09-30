@@ -71,8 +71,6 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
-export const MCP_STATUS_EVENT = "pi-mcp-adapter/status/v1";
-
 export function formatMcpEnabled(count: number): string {
   const servers = Math.max(0, Math.round(count));
   return `${servers} MCPs enabled`;
@@ -100,15 +98,29 @@ export function countSkillCommands(commands: readonly { source?: string; sourceI
   return seen.size;
 }
 
+/** Later sources override the same server name (project over global). */
+export function mergeMcpServerMaps(...sources: unknown[]): Record<string, unknown> {
+  const servers: Record<string, unknown> = {};
+  for (const data of sources) {
+    if (!data || typeof data !== "object" || Array.isArray(data)) continue;
+    const next = (data as { mcpServers?: unknown }).mcpServers;
+    if (!next || typeof next !== "object" || Array.isArray(next)) continue;
+    Object.assign(servers, next);
+  }
+  return servers;
+}
+
 export function parseMcpEnabledCount(data: unknown): number | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
-  const servers = (data as { servers?: unknown }).servers;
-  if (!Array.isArray(servers)) return null;
-  return servers.filter(isEnabledMcpServer).length;
+  const servers = (data as { mcpServers?: unknown }).mcpServers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return null;
+  return Object.values(servers).filter(isEnabledMcpServer).length;
 }
 
 function isEnabledMcpServer(server: unknown): boolean {
-  return !!server && typeof server === "object" && !Array.isArray(server) && (server as { disabled?: unknown }).disabled !== true;
+  if (!server || typeof server !== "object" || Array.isArray(server)) return false;
+  const entry = server as { enabled?: unknown; disabled?: unknown };
+  return entry.enabled !== false && entry.disabled !== true;
 }
 
 export function footerVisibility(width: number): {
