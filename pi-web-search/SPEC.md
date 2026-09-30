@@ -287,6 +287,157 @@ Required coverage:
   details shape
 - utils: each error result's `details.error`
 
+## Sources: two families, four providers (added 2026-09-30)
+
+`ProviderKind` gains two members. They are **not peers** — they fall into two
+families, and the fallback chain must never cross a family boundary.
+
+```ts
+export type ProviderKind = "exa" | "parallel" | "grep" | "github";
+export type ProviderFamily = "web" | "code";
+export const PROVIDER_FAMILY: Record<ProviderKind, ProviderFamily> = {
+  exa: "web", parallel: "web", grep: "code", github: "code",
+};
+```
+
+Cross-family fallback is a correctness bug, not a config choice: if Exa fails
+and the chain falls through to grep.app, a web question silently receives code
+results. `resolveProviderChain` becomes family-aware and returns a chain
+confined to one family.
+
+### grep.app — keyless, MCP only
+
+- **REST `GET https://grep.app/api/search` is UNUSABLE.** Verified 2026-09-30: it
+  returns a Vercel bot-challenge HTML page, not JSON, from a plain script.
+  Do not implement it.
+- **Use `POST https://mcp.grep.app`** (streamable HTTP). Verified working.
+  No `mcp-session-id` header is returned, so `McpClient.close()` correctly no-ops.
+  `searchGitHub` args: `query`, `matchCase`, `matchWholeWords`, `useRegexp`,
+  `repo`, `language`, `path`.
+- Response is plain text: repeated `Repository:/Path:/URL:/License:` groups with
+  `--- Snippet N (Line X) ---` bodies. Parse in the style of `parseExaSearchText`.
+- **The `language` filter is nondeterministically broken.** Verified: identical
+  query and `language: ["typescript"]` returned 504, empty, and 504 across three
+  attempts; `["TypeScript"]` returned 504, 504, OK. Neither an empty result nor
+  a 504 from a filtered query is trustworthy.
+  - 504 is already retryable (5xx) and falls through the chain.
+  - **Zero results while a filter was applied MUST surface as a warning**, never
+    as an empty result. Otherwise the model concludes the pattern does not exist
+    in the ecosystem, which is a confidently wrong answer. Silent failure.
+
+### GitHub — official MCP, needs a token
+
+- `POST https://api.githubcopilot.com/mcp/`, `Authorization: Bearer $GITHUB_TOKEN`.
+  Without a token: 401. Returns a real `mcp-session-id`, so sessions must be
+  closed. `notifications/initialized` returns 202 with an empty body.
+- `search_code` is present among 45 tools. Args: `query`, `perPage` (max 100),
+  `page`, `order`, and `fields`.
+  - **Always pass `fields: ["path","sha","repository","text_matches"]`.** Omitting
+    `repository`/`text_matches` is what makes responses huge, and `sha` is
+    required to build a citable URL.
+  - Build the source URL as `https://github.com/{repository}/blob/{sha}/{path}`.
+    Verified working. `grounded` depends on real URLs, so this is load-bearing.
+  - The response is JSON **wrapped inside** a text content block; unwrap it.
+  - Sorting is deprecated — results are always best-match and the ordering is not
+    ours to control. `order` exists in the schema; do not rely on it.
+- **Code search has its own 10 req/min limit**, separate from other search types.
+  Observed live: back-to-back probes returned transient failures. Treat 429 and
+  5xx as retryable and back off.
+
+### MCP framing caveat
+
+GitHub's server is inconsistent **within one session**: `initialize` and
+`tools/call` use `event: message\ndata: {...}`, but `tools/list` uses
+`event: message\n{...}` with no `data:` prefix. `extractSseData` collects only
+`data:` lines, so it would return zero payloads for the bare form. Production
+calls are unaffected, but make `extractSseData` tolerate a bare JSON line after
+`event: message` rather than depend on that holding.
+
+## Jev decision layer (`src/jev/`)
+
+**Jev is not a provider.** It never appears in `ProviderKind` or the fallback
+chain. It judges results the providers already returned. `grep`/`github` are
+real providers; Jev is not.
+
+Gated on **both** config `jev.enabled` and `TYPESAFE_API_KEY`. Absent either, or
+on any error, results pass through byte-identically. A decision layer that is
+down must degrade a search, never fail it. Every failure becomes a warning.
+
+Raw `POST https://api.typesafe.ai/v1/systemone`, Bearer auth, like every other
+transport here. **Do not add `@typesafe-ai/sdk`** — zero runtime deps is a hard
+constraint. **Pin `jev-1.13.0`, never `jev-latest`**; the alias moves.
+
+### Two calls, in this order
+
+**1. Route (pre-dispatch, query only).** `Choice` over `{web, code}` selects the
+family. Small state, cheap. Skipped when config pins a family.
+
+**2. Judge (post-retrieval, query + candidates).** All questions share one state
+and go in a single request, so every candidate fits one round trip — instructions
+reference candidates by backticked path (`candidates[0].excerpt`).
+
+Per candidate:
+
+| question | type | purpose |
+| --- | --- | --- |
+| `c{i}_answers` | noul | answers the query, vs merely sharing vocabulary |
+| `c{i}_offtopic` | noul | different subject / product / version |
+| `c{i}_selfcontained` | noul | citable without missing context |
+| `c{i}_safety` | choice | `safe`, `prompt_injection`, `harmful_content`, `phishing`, `other` |
+
+Once per request:
+
+| question | type | purpose |
+| --- | --- | --- |
+| `sufficient` | noul | do these results contain what's needed to answer |
+| `direct` | choice | which candidate (or `none`) answers the query outright |
+
+### Policy lives in code, never in the prompt
+
+- **Ranking** composes the three nouls with configurable weights, sorts in code.
+  Never return empty: if every score is low, keep the best result and set
+  `lowConfidence`. Returning nothing is a worse failure than returning something
+  mediocre.
+- **Safety is a separate axis from quality and must not be folded into the
+  ranking weights.** Any non-`safe` outcome suppresses the result. Use a
+  `Choice`, not a single noul threshold, so suppression reasons stay auditable.
+  Asymmetric costs — a false clear admits unsafe content, a false flag hides a
+  good result — so the safety threshold sits well above the rerank threshold, and
+  the mid-band is **held, not passed**.
+- **Suppress, never silently.** Every suppression is reported in
+  `details.jev.suppressed` with count and URLs. Silent filtering makes a Jev
+  misjudgment invisible, which is the one failure that cannot be debugged later.
+- **"Direct text" means extract-and-select, never generate.** Jev returns typed
+  judgments, not prose. `direct` selects *which* candidate answers the query and
+  we copy that excerpt **verbatim**. Do not synthesize text from it.
+- Thresholds and weights are config, not constants. Nothing here is validated on
+  real traffic; ship the switch and collect `details.jev` before trusting order.
+
+### Budget
+
+Cap the judged set. State size is `candidates × excerptChars`; at
+`maxResults: 20 × 2500` it approaches the 32k state limit. Above a configurable
+character budget, skip augmentation entirely and pass results through.
+
+### Injection risk
+
+Jev reads the same untrusted excerpts the model does. Ranking misjudgments cost
+bad ordering; a manipulated `sufficient` verdict pushes the model toward
+answering on weak evidence. Adversarial fixtures are required, not optional.
+
+## Onboarding (`/web-search-settings`)
+
+Mirrors `pi-ask`'s `/ask-settings` (`pi.registerCommand` + a status panel). One
+consistent view of every credential rather than four ad-hoc ones:
+
+- grouped by family, each source with its state: ready / needs key / disabled /
+  unreachable
+- shows whether Jev is active and which family routing would pick
+- shows the resolved config path and current `provider` / `fallback`
+- never prints a key, only its presence
+
+Keys live in env only. Never written into the config file or the repo.
+
 ## Non-goals
 
 - **No `url_context` tool.** Decided 2026-09-30 (see `.reports/url-context-decision.md`).
