@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -14,11 +15,18 @@ import {
 
 export const DEFAULT_PROVIDER: ProviderKind = "exa";
 export const DEFAULT_FALLBACK: ProviderKind[] = ["parallel"];
+export const DEFAULT_CODE_PROVIDER: ProviderKind = "grep";
+export const DEFAULT_CODE_FALLBACK: ProviderKind[] = ["github"];
 export const DEFAULT_TIMEOUT_MS = 20000;
 export const DEFAULT_MAX_RESULTS = 8;
 export const DEFAULT_MODE: SearchMode = "simple";
 
 export type SearchMode = "simple" | "parallel";
+
+export interface FamilyChain {
+	provider: ProviderKind;
+	fallback: ProviderKind[];
+}
 export const MIN_MAX_RESULTS = 1;
 export const MAX_MAX_RESULTS = 20;
 
@@ -44,10 +52,12 @@ export interface ResolvedSettings {
 	timeoutMs: number;
 	maxResults: number;
 	configPath: string;
-	/** `simple` is web fallback. `parallel` fans out every available source. */
+	/** Legacy. Ordinary tools ignore this; `parallel` only enables research_search. */
 	mode: SearchMode;
-	/** Pins the family, skipping Jev routing entirely when set. */
 	family?: ProviderFamily;
+	web: FamilyChain;
+	code: FamilyChain;
+	researchEnabled: boolean;
 	jev: JevSettings;
 	/** Non-fatal config problems, surfaced to the model as warnings. */
 	notices: string[];
@@ -66,6 +76,9 @@ export interface WebSearchConfig {
 	maxResults?: number;
 	mode?: SearchMode;
 	family?: ProviderFamily;
+	web?: Partial<FamilyChain>;
+	code?: Partial<FamilyChain>;
+	research?: { enabled?: boolean };
 	jev?: Partial<Omit<JevSettings, "weights">> & {
 		weights?: Partial<JevSettings["weights"]>;
 	};
@@ -216,6 +229,36 @@ export async function readWebSearchConfig(
 		config.family = family as ProviderFamily;
 	}
 
+	if ("web" in parsed || "code" in parsed) {
+		for (const key of ["web", "code"] as const) {
+			if (!(key in parsed)) {
+				continue;
+			}
+			const block = parsed[key];
+			if (!isPlainObject(block)) {
+				notices.push(`Ignored ${key}: expected an object.`);
+				continue;
+			}
+			const chain: Partial<FamilyChain> = {};
+			if (typeof block.provider === "string" && PROVIDER_KIND_SET.has(block.provider)) {
+				chain.provider = block.provider as ProviderKind;
+			}
+			if (Array.isArray(block.fallback) && isProviderKindList(block.fallback)) {
+				chain.fallback = [...(block.fallback as ProviderKind[])];
+			}
+			config[key] = chain;
+		}
+	}
+
+	if ("research" in parsed) {
+		const research = parsed.research;
+		if (isPlainObject(research)) {
+			config.research = { enabled: research.enabled === true };
+		} else {
+			notices.push(`Ignored research: expected an object.`);
+		}
+	}
+
 	if ("jev" in parsed) {
 		const jev = parsed.jev;
 		if (!isPlainObject(jev)) {
@@ -249,13 +292,16 @@ export function applyConfig(
 	configPath: string,
 	config: WebSearchConfig,
 ): ResolvedSettings {
-	const provider = config.provider ?? DEFAULT_PROVIDER;
-	const family = config.family ?? providerFamily(provider);
 	const notices: string[] = [...(config.notices ?? [])];
+	const web = resolveFamilyChain("web", config, notices);
+	const code = resolveFamilyChain("code", config, notices);
 
-	// A fallback may never cross a family boundary. Dropping it silently would
-	// leave the operator believing a fallback exists when none does.
-	const configuredFallback = config.fallback ?? [...DEFAULT_FALLBACK];
+	// Legacy top-level provider/fallback still populate the matching family
+	// and remain on ResolvedSettings so existing registry tests stay valid.
+	const provider = config.provider ?? web.provider;
+	const family = config.family ?? providerFamily(provider);
+	const configuredFallback = config.fallback ??
+		(providerFamily(provider) === "code" ? [...DEFAULT_CODE_FALLBACK] : [...DEFAULT_FALLBACK]);
 	const fallback = configuredFallback.filter((kind) => {
 		if (providerFamily(kind) === family) {
 			return true;
@@ -266,19 +312,88 @@ export function applyConfig(
 		return false;
 	});
 
+	if (config.provider && providerFamily(config.provider) === "code") {
+		notices.push(
+			`Mapped provider "${config.provider}" to code_search. web_search is web-only now.`,
+		);
+	}
+	if (config.family === "code") {
+		notices.push(`Legacy family "code" is ignored. Use code_search.`);
+	}
+
+	const researchEnabled =
+		config.research?.enabled === true ||
+		(config.mode === "parallel" && config.research?.enabled !== false);
+	if (config.mode === "parallel" && config.research?.enabled !== true) {
+		notices.push(
+			`Legacy mode "parallel" enables research_search; web_search no longer fans out.`,
+		);
+	}
+
 	return {
 		provider,
 		fallback,
-		// A non-positive timeout would disable the deadline entirely, so it is
-		// corrected here rather than trusted from the config file.
 		timeoutMs: normalizeTimeoutMs(config.timeoutMs),
 		maxResults: clampMaxResults(config.maxResults ?? DEFAULT_MAX_RESULTS),
 		configPath,
 		mode: config.mode ?? DEFAULT_MODE,
 		...(config.family ? { family } : {}),
+		web,
+		code,
+		researchEnabled,
 		jev: applyJevConfig(config.jev, notices),
 		notices,
 	};
+}
+
+/** Sync peek used at extension load to decide whether to register research_search. */
+export function peekResearchEnabled(path?: string): boolean {
+	try {
+		const raw = readFileSync(path ?? defaultWebSearchConfigPath(), "utf-8");
+		const parsed: unknown = JSON.parse(raw);
+		if (!isPlainObject(parsed)) {
+			return false;
+		}
+		if (isPlainObject(parsed.research) && parsed.research.enabled === true) {
+			return true;
+		}
+		return parsed.mode === "parallel";
+	} catch {
+		return false;
+	}
+}
+
+function resolveFamilyChain(
+	family: ProviderFamily,
+	config: WebSearchConfig,
+	notices: string[],
+): FamilyChain {
+	const defaults: FamilyChain = family === "web"
+		? { provider: DEFAULT_PROVIDER, fallback: [...DEFAULT_FALLBACK] }
+		: { provider: DEFAULT_CODE_PROVIDER, fallback: [...DEFAULT_CODE_FALLBACK] };
+	const scoped = family === "web" ? config.web : config.code;
+	let provider = scoped?.provider ?? defaults.provider;
+	let fallback = scoped?.fallback ?? defaults.fallback;
+
+	if (config.provider && providerFamily(config.provider) === family && !scoped?.provider) {
+		provider = config.provider;
+	}
+	if (config.fallback && providerFamily(provider) === family && !scoped?.fallback) {
+		fallback = config.fallback.filter((kind) => providerFamily(kind) === family);
+	}
+
+	if (providerFamily(provider) !== family) {
+		notices.push(`Ignored ${family}.provider "${provider}": wrong family.`);
+		provider = defaults.provider;
+	}
+	fallback = fallback.filter((kind) => {
+		if (providerFamily(kind) === family) {
+			return true;
+		}
+		notices.push(`Ignored ${family} fallback "${kind}": wrong family.`);
+		return false;
+	});
+	return { provider, fallback };
 }
 
 function applyJevConfig(

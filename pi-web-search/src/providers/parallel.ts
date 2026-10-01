@@ -112,6 +112,9 @@ export async function parallelSearch(
 			}
 			warnings.push(...normalizeExtractErrorUrls(readField(extracted, "errors")));
 		} catch (error) {
+			if (isProviderError(error) && error.code === "aborted") {
+				throw error;
+			}
 			// A failed extract must not discard the search results.
 			warnings.push(`parallel extract failed: ${errorText(error)}`);
 		}

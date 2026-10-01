@@ -8,42 +8,31 @@ import { executeSearch } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
 
-export const WebSearchSchema = Type.Object({
+export const CodeSearchSchema = Type.Object({
 	query: Type.String({
 		minLength: 1,
-		description: "Web question or search terms",
+		description: "Code identifiers or a literal snippet, not a prose question",
 	}),
-	urls: Type.Optional(
-		Type.Array(Type.String(), {
-			description: "URLs to retrieve alongside the search",
-			maxItems: 20,
-		}),
-	),
 });
 
-export type WebSearchInput = Static<typeof WebSearchSchema>;
+export type CodeSearchInput = Static<typeof CodeSearchSchema>;
 
-/** Everyday web search: one family, sequential fallback, no Jev. */
-export async function webSearch(
+/** Everyday code search: grep.app then GitHub. No URLs, no Jev. */
+export async function codeSearch(
 	_toolCallId: string,
-	params: WebSearchInput,
+	params: CodeSearchInput,
 	signal: AbortSignal | undefined,
 	onUpdate: AgentToolUpdateCallback<WebSearchDetails> | undefined,
 	ctx: ExtensionContext,
 	options: RunSearchOptions = {},
 ): Promise<AgentToolResult<WebSearchDetails>> {
-	const urlCount = params.urls?.length ?? 0;
 	return executeSearch(
 		{
 			query: params.query,
-			urls: params.urls,
-			scope: "web",
+			scope: "code",
 			parallel: false,
 			judge: false,
-			progress:
-				urlCount > 0
-					? `Searching and analyzing ${urlCount} URL(s)...`
-					: `Searching for "${params.query}"...`,
+			progress: `Searching code for "${params.query}"...`,
 		},
 		signal,
 		onUpdate,

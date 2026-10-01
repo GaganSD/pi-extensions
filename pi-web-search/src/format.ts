@@ -19,6 +19,7 @@ export const EXCERPT_MAX_CHARS = 400;
 export const RESULTS_HEADING = "## Results";
 export const SOURCES_HEADING = "## Sources";
 export const WARNINGS_HEADING = "## Warnings";
+export const COVERAGE_HEADING = "## Coverage";
 
 /**
  * Structured payload returned in `AgentToolResult.details`.
@@ -55,6 +56,8 @@ export interface WebSearchDetails {
 	grounded?: boolean;
 	/** Decision-layer verdicts; present only when jev actually ran. */
 	jev?: StreamResult["jev"];
+	scope?: StreamResult["scope"];
+	jevStatus?: StreamResult["jevStatus"];
 }
 
 export interface TruncationLimits {
@@ -98,6 +101,10 @@ export function formatWebSearchResult(
 	const warnings = result.warnings ?? [];
 
 	const sections: string[] = [];
+	const coverage = buildCoverageSection(result);
+	if (coverage) {
+		sections.push(coverage);
+	}
 	if (result.text.length > 0) {
 		sections.push(result.text);
 	}
@@ -125,7 +132,26 @@ export function formatWebSearchResult(
 		warnings,
 		grounded: sources.length > 0,
 		...(result.jev ? { jev: result.jev } : {}),
+		...(result.scope ? { scope: result.scope } : {}),
+		...(result.jevStatus ? { jevStatus: result.jevStatus } : {}),
 	}, limits);
+}
+
+function buildCoverageSection(result: StreamResult): string {
+	if (!result.scope && !result.jevStatus && !result.providers && !result.skipped?.length) {
+		return "";
+	}
+	const lines = [
+		result.scope ? `- scope: ${result.scope}` : undefined,
+		result.providers?.length
+			? `- consulted: ${result.providers.join(", ")}`
+			: `- consulted: ${result.providerKind}`,
+		result.jevStatus ? `- jev: ${result.jevStatus}` : undefined,
+	];
+	for (const skipped of result.skipped ?? []) {
+		lines.push(`- ${skipped}`);
+	}
+	return `${COVERAGE_HEADING}\n\n${lines.filter(Boolean).join("\n")}`;
 }
 
 function buildResultsSection(results: SearchResultDetail[]): string {
@@ -133,8 +159,8 @@ function buildResultsSection(results: SearchResultDetail[]): string {
 	results.forEach((result, index) => {
 		const label = result.title?.trim() || result.url?.trim() || `Result ${index + 1}`;
 		const heading = result.url ? `[${label}](${result.url})` : label;
-		const excerpt = buildExcerpt(result.citedText);
-		entries.push(excerpt ? `${index + 1}. ${heading}\n> ${excerpt}` : `${index + 1}. ${heading}`);
+		const excerpt = buildExcerpt(result);
+		entries.push(excerpt ? `${index + 1}. ${heading}\n${excerpt}` : `${index + 1}. ${heading}`);
 	});
 	if (entries.length === 0) {
 		return "";
@@ -152,14 +178,20 @@ function buildSourcesSection(sources: Source[]): string {
 	return `${SOURCES_HEADING}\n\n${lines.join("\n")}`;
 }
 
-/** Collapses whitespace and caps the excerpt; empty input yields no quote. */
-function buildExcerpt(citedText: string | undefined): string {
+/** Caps the excerpt. Code keeps newlines; web previews collapse whitespace. */
+function buildExcerpt(result: SearchResultDetail): string {
+	const citedText = result.citedText;
 	if (!citedText) {
 		return "";
+	}
+	const isCode = result.source === "grep" || result.source === "github";
+	if (isCode) {
+		const clipped = citedText.replace(/\s+$/u, "").slice(0, EXCERPT_MAX_CHARS);
+		return clipped.length > 0 ? `\`\`\`\n${clipped}\n\`\`\`` : "";
 	}
 	const collapsed = citedText.replace(/\s+/g, " ").trim();
 	if (collapsed.length === 0) {
 		return "";
 	}
-	return collapsed.slice(0, EXCERPT_MAX_CHARS);
+	return `> ${collapsed.slice(0, EXCERPT_MAX_CHARS)}`;
 }

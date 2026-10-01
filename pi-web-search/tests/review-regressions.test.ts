@@ -197,7 +197,8 @@ test("the direct excerpt reaches the result text verbatim", () =>
 					)) as unknown as FetchLike,
 			},
 		);
-		assert.equal(out.text, "the exact excerpt");
+		assert.equal(out.text, "", "jev must not hoist an uncited top-level answer");
+		assert.equal(out.searchResults?.[0]?.citedText, "the exact excerpt");
 	}));
 
 test("provider metadata survives judging", () =>
@@ -304,9 +305,8 @@ test("an abort during judging is honoured, not just the deadline", () =>
 					})) as unknown as FetchLike,
 			},
 		);
-		const out = await pending;
+		await assert.rejects(pending, (error: { code?: string }) => error.code === "aborted");
 		const elapsed = Date.now() - started;
-		assert.match(out.warnings?.join(" ") ?? "", /jev judging unavailable/);
 		assert.ok(elapsed < 4000, `abort must beat the 5s deadline, took ${elapsed}ms`);
 	}));
 

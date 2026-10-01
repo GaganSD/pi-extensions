@@ -15,6 +15,8 @@ import {
 } from "../src/providers/config.ts";
 import type { SearchTransport } from "../src/providers/index.ts";
 import { type StreamResult, providerError } from "../src/providers/types.ts";
+import { CodeSearchSchema, codeSearch } from "../src/code_search.ts";
+import { ResearchSearchSchema, researchSearch } from "../src/research_search.ts";
 import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
 
 const VALID_CONFIG = JSON.stringify({ provider: "exa", fallback: [] });
@@ -169,57 +171,16 @@ test("a successful search returns the formatted result and forwards the request"
 		assert.equal(result.details.requestId, "req_1");
 		assert.equal(result.details.grounded, true);
 		assert.equal(result.details.resultCount, 1);
-		assert.equal(
-			textOf(result),
-			[
-				"## Results",
-				"",
-				"1. [Exa](https://exa.ai)",
-				"> search infra",
-				"",
-				"## Sources",
-				"",
-				"1. [Exa](https://exa.ai)",
-			].join("\n"),
-		);
+		assert.equal(result.details.scope, "web");
+		assert.equal(result.details.jevStatus, "disabled");
+		assert.match(textOf(result), /## Results/);
+		assert.match(textOf(result), /\[Exa\]\(https:\/\/exa\.ai\)/);
+		assert.match(textOf(result), /> search infra/);
 		assert.deepEqual(calls, [
 			{ query: "what is exa", urls: ["https://exa.ai"], maxResults: 8 },
 		]);
 		assert.deepEqual(updates, ["Searching and analyzing 1 URL(s)..."]);
 	});
-});
-
-test("parallel mode fans out and still formats a single result", async () => {
-	await withConfigFile(
-		JSON.stringify({ mode: "parallel", provider: "exa", fallback: [] }),
-		async () => {
-			const result = await webSearch(
-				"call_1",
-				{ query: "timeout" },
-				undefined,
-				undefined,
-				ctx,
-				{
-					availability: { exa: true, grep: true },
-					transports: {
-						exa: recordingTransport(SEARCH_RESULT, []),
-						grep: async () => ({
-							text: "",
-							providerKind: "grep",
-							searchResults: [
-								{ title: "code", url: "https://grep.example", citedText: "fn" },
-							],
-							sources: [{ title: "code", url: "https://grep.example" }],
-						}),
-					},
-				},
-			);
-			assert.equal(result.details.error, undefined);
-			assert.deepEqual(result.details.providers, ["exa", "grep"]);
-			assert.equal(result.details.resultCount, 2);
-			assert.equal(result.details.grounded, true);
-		},
-	);
 });
 
 test("the progress update names the query when no URLs are given", async () => {
@@ -238,4 +199,70 @@ test("the progress update names the query when no URLs are given", async () => {
 		assert.deepEqual(updates, ['Searching for "pi"...']);
 		assert.deepEqual(calls, [{ query: "pi", urls: undefined, maxResults: 8 }]);
 	});
+});
+
+test("code_search is query-only and stays in the code family", async () => {
+	assert.deepEqual(Object.keys(CodeSearchSchema.properties), ["query"]);
+	await withConfigFile(VALID_CONFIG, async () => {
+		const result = await codeSearch(
+			"call_1",
+			{ query: "AbortSignal.timeout" },
+			undefined,
+			undefined,
+			ctx,
+			{
+				availability: { grep: true, github: false },
+				transports: {
+					grep: async () => ({
+						text: "",
+						providerKind: "grep",
+						searchResults: [
+							{ title: "node/abort", url: "https://github.com/n/a", citedText: "timeout", source: "grep" },
+						],
+						sources: [{ title: "node/abort", url: "https://github.com/n/a" }],
+					}),
+					exa: async () => SEARCH_RESULT,
+				},
+			},
+		);
+		assert.equal(result.details.error, undefined);
+		assert.equal(result.details.scope, "code");
+		assert.equal(result.details.provider, "grep");
+		assert.equal(result.details.jevStatus, "disabled");
+	});
+});
+
+test("research_search fans out in the requested scope", async () => {
+	assert.ok("scope" in ResearchSearchSchema.properties);
+	await withConfigFile(
+		JSON.stringify({ research: { enabled: true }, provider: "exa", fallback: [] }),
+		async () => {
+			const result = await researchSearch(
+				"call_1",
+				{ query: "AbortSignal.any", scope: "both" },
+				undefined,
+				undefined,
+				ctx,
+				{
+					availability: { exa: true, grep: true },
+					transports: {
+						exa: recordingTransport(SEARCH_RESULT, []),
+						grep: async () => ({
+							text: "",
+							providerKind: "grep",
+							searchResults: [
+								{ title: "code", url: "https://grep.example", citedText: "fn", source: "grep" },
+							],
+							sources: [{ title: "code", url: "https://grep.example" }],
+						}),
+					},
+				},
+			);
+			assert.equal(result.details.error, undefined);
+			assert.equal(result.details.scope, "both");
+			assert.deepEqual(result.details.providers, ["exa", "grep"]);
+			assert.equal(result.details.resultCount, 2);
+			assert.match(textOf(result), /parallel skipped|github skipped/);
+		},
+	);
 });

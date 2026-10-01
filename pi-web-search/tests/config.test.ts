@@ -217,5 +217,8 @@ test("applyConfig fills defaults from a parsed file", () => {
 	assert.equal(settings.timeoutMs, 20000);
 	assert.equal(settings.maxResults, 8);
 	assert.equal(settings.mode, "simple");
+	assert.equal(settings.researchEnabled, false);
+	assert.equal(settings.web.provider, "exa");
+	assert.deepEqual(settings.code.fallback, ["github"]);
 	assert.equal(settings.jev.backend, "auto");
 });

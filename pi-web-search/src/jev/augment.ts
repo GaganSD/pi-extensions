@@ -1,5 +1,5 @@
 import type { SearchRequest } from "../providers/index.ts";
-import type { StreamResult } from "../providers/types.ts";
+import { isProviderError, providerError, type StreamResult } from "../providers/types.ts";
 import { hasJevAuth, JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
 import {
 	type Candidate,
@@ -63,6 +63,12 @@ export async function augmentResults(
 		const outcome = applyPolicy(candidates, response, settings);
 		return merge(result, outcome);
 	} catch (error) {
+		// User cancel is fatal. A Jev deadline/network failure is not.
+		if (req.signal?.aborted && isAbortLike(error)) {
+			throw isProviderError(error) && error.code === "aborted"
+				? error
+				: providerError("aborted", "jev judging was aborted.");
+		}
 		return withWarning(result, `jev judging unavailable: ${describe(error)}`);
 	}
 }
@@ -98,9 +104,8 @@ function merge(
 
 	return {
 		...result,
-		// The direct answer is the provider's own excerpt, copied verbatim.
-		// Jev selected which one; it did not write it.
-		...(outcome.directText === undefined ? {} : { text: outcome.directText }),
+		// Keep citation-bound results only. Do not hoist a Jev pick into an
+		// uncited top-level answer.
 		searchResults: results,
 		sources: results
 			.map((entry) => ({ title: entry.title ?? "", url: entry.url ?? "" }))
@@ -121,6 +126,18 @@ function withWarning(result: StreamResult, message: string): StreamResult {
 		...result,
 		warnings: [...(result.warnings ?? []), message],
 	};
+}
+
+function isAbortLike(error: unknown): boolean {
+	if (isProviderError(error) && error.code === "aborted") {
+		return true;
+	}
+	return (
+		!!error &&
+		typeof error === "object" &&
+		"name" in error &&
+		(error as { name?: unknown }).name === "AbortError"
+	);
 }
 
 function describe(error: unknown): string {

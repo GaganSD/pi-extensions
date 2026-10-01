@@ -154,12 +154,10 @@ export function applyPolicy(
 	const judgements = candidates.map((candidate) =>
 		judgeOne(candidate, answers, settings));
 
-	// Keep at least one result: returning nothing is a worse failure than
-	// returning something mediocre, and the model can see a low-confidence flag.
+	// Unsafe results stay out. An empty admitted set is insufficient, not a
+	// reason to smuggle the "best" unsafe hit back in.
 	const survivors = judgements.filter((judgement) => !judgement.suppressed);
-	const ranked = (survivors.length > 0 ? survivors : [bestOf(judgements)])
-		.slice()
-		.sort((a, b) => b.score - a.score);
+	const ranked = survivors.slice().sort((a, b) => b.score - a.score);
 
 	const suppressed = judgements.filter((judgement) => judgement.suppressed);
 	const suppressedUrls = suppressed.map((judgement) =>
@@ -249,12 +247,6 @@ function judgeOne(
 		url: candidate.url,
 		citedText: candidate.excerpt,
 	};
-}
-
-function bestOf(judgements: Judgement[]): Judgement {
-	return judgements.reduce(
-		(best, current) => (current.score > best.score ? current : best),
-	);
 }
 
 function readUsage(

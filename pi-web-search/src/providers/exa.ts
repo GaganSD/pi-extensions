@@ -224,6 +224,9 @@ async function keyedUrlFetch(
 			return detail;
 		});
 	} catch (error) {
+		if (isProviderError(error) && error.code === "aborted") {
+			throw error;
+		}
 		warn(describeError("URL fetch", error));
 		return [];
 	}
@@ -294,6 +297,9 @@ async function keylessUrlFetch(
 			return [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
 		});
 	} catch (error) {
+		if (isProviderError(error) && error.code === "aborted") {
+			throw error;
+		}
 		warn(describeError("URL fetch", error));
 		return [];
 	}

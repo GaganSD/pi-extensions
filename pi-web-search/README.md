@@ -1,11 +1,16 @@
 # pi-web-search
 
-A `web_search` tool for the [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent). It calls search APIs directly, so it works with every model and returns documents with citations instead of a model's paraphrase.
+Search tools for the [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent). Calls search APIs directly, so it works with every model and returns cited documents.
 
-Two modes, one tool:
+## Tools
 
-- **simple** (default) — Exa, with Parallel as a fallback. No key required. Use this most of the time.
-- **parallel** — Exa, Parallel, grep.app and GitHub run together. Failures become warnings. Optional Jev ranking, safety filter and sufficiency check.
+| Tool | Default? | What it does |
+| --- | --- | --- |
+| `web_search` | yes | Web pages and docs. Exa, Parallel fallback. Optional `urls`. |
+| `code_search` | yes | Public source. grep.app, GitHub fallback. Query only. |
+| `research_search` | only if `research.enabled` | Parallel retrieval in an explicit `scope`: `web`, `code`, or `both`. Optional Jev ranking. |
+
+The agent never picks a vendor. Providers, keys, fallback and Jev stay internal.
 
 ## Install
 
@@ -13,81 +18,35 @@ Two modes, one tool:
 pi install npm:@gagansd/pi-web-search
 ```
 
-Or from a checkout, add it to `settings.json`:
+## Keys
 
-```jsonc
-{ "packages": ["../../GitHub/pi-extensions/pi-web-search"] }
-```
+**Exa and grep.app work with no key.** Parallel needs `PARALLEL_API_KEY`. GitHub needs `GITHUB_TOKEN` or `GH_TOKEN`.
 
-## No key required
-
-**Exa works with no API key** via `https://mcp.exa.ai/mcp`. grep.app is also keyless. Parallel needs `PARALLEL_API_KEY`. GitHub needs `GITHUB_TOKEN` or `GH_TOKEN`.
-
-```bash
-export EXA_API_KEY=...          # optional; switches Exa to REST
-export PARALLEL_API_KEY=...     # optional; enables Parallel
-export GITHUB_TOKEN=...         # optional; enables GitHub code search
-export TYPESAFE_API_KEY=...     # optional; native Jev
-export AI_GATEWAY_API_KEY=...   # optional; Jev via Vercel AI Gateway
-```
-
-Jev also reads Pi's `auth.json` (`typesafe` or `vercel-ai-gateway`) when the tool runs inside Pi. Native TypeSafe wins if both keys exist. A pinned native model id is remapped on the Vercel backend.
+Jev (research only): `TYPESAFE_API_KEY` / `JEV_API_KEY`, or `AI_GATEWAY_API_KEY`, or Pi `auth.json` (`typesafe`, `vercel-ai-gateway`). Parallel can also live in `auth.json` as `parallel`.
 
 ## Configuration
 
-Optional, at `~/.pi/agent/web-search.json`. A leftover third-party file (`provider: "openai"`) is ignored, not fatal.
+`~/.pi/agent/web-search.json`. Leftover `{ "provider": "openai" }` is ignored, not fatal.
 
 ```jsonc
 {
-  "mode": "simple",            // or "parallel"
-  "provider": "exa",
-  "fallback": ["parallel"],
+  "web": { "provider": "exa", "fallback": ["parallel"] },
+  "code": { "provider": "grep", "fallback": ["github"] },
+  "research": { "enabled": false },
   "timeoutMs": 20000,
   "maxResults": 8,
-  // "family": "web",          // pin "web" or "code"; skips Jev routing
-  "jev": {
-    "enabled": false,
-    "backend": "auto",         // auto | typesafe | vercel
-    "model": "jev-1.13.0"
-  }
+  "jev": { "enabled": false, "backend": "auto" }
 }
 ```
 
-Set `PI_WEB_SEARCH_CONFIG` to point somewhere else.
-
-`simple` stays in one family and walks `provider` then `fallback`. `parallel` fans out every available source (or the pinned family) and merges what comes back. Jev never appears in the provider chain — it only judges results.
-
-## The tool
-
-```jsonc
-{
-  "query": "What changed in the Node.js release policy in 2026?",
-  "urls": ["https://example.com/spec"]   // optional, up to 20
-}
-```
-
-`urls` are fetched alongside search results. A failed fetch is a warning, never a lost search.
-
-## Cost
-
-| Source | Search | Notes |
-| --- | --- | --- |
-| Exa (keyless MCP) | Free | No key, no account |
-| Exa (REST) | Exa's published rates | Used when `EXA_API_KEY` is set |
-| Parallel | $1 / 1,000 | `fast` mode |
-| grep.app | Free | Keyless MCP |
-| GitHub | GitHub's code-search limits | Needs a token; 10 req/min |
-| Jev | TypeSafe / Vercel rates | One batched call per search when enabled |
+Legacy `mode: "parallel"` turns on `research_search`. Ordinary `web_search` never fans out and never calls Jev.
 
 ## Development
 
 ```bash
-npm install
 npm test
 npm run typecheck
 ```
-
-The suite is hermetic — every transport is tested through an injected `fetch`. `SPEC.md` is the implementation contract.
 
 ## License
 

@@ -20,7 +20,7 @@ import {
 	stateSize,
 	toCandidates,
 } from "../src/jev/judge.ts";
-import { readRoute, resolveRouting } from "../src/jev/route.ts";
+
 
 type FetchLike = typeof globalThis.fetch;
 
@@ -122,58 +122,6 @@ test("noul and choice reads tolerate malformed answers", () => {
 	const bad = readChoice({}, "x");
 	assert.equal(bad.choice, "");
 	assert.equal(bad.probability, Number.NaN);
-});
-
-// --- routing ----------------------------------------------------------------
-
-test("routing reads the family from the choice answer", () => {
-	assert.equal(readRoute({ answers: { kind: choiceAnswer("code", 0.9) } }).family, "code");
-	assert.equal(readRoute({ answers: { kind: choiceAnswer("web", 0.9) } }).family, "web");
-});
-
-test("an unknown routing family is rejected", () => {
-	assert.throws(
-		() => readRoute({ answers: { kind: choiceAnswer("something_else", 0.5) } }),
-		/unknown family/,
-	);
-});
-
-test("a pinned family skips routing entirely", async () => {
-	let called = false;
-	const spy = (() => {
-		called = true;
-		return Promise.reject(new Error("should not be called"));
-	}) as unknown as FetchLike;
-	const outcome = await resolveRouting("q", "code", true, { fetchImpl: spy });
-	assert.equal(outcome.family, "code");
-	assert.equal(called, false);
-});
-
-test("routing failure degrades to the configured provider", async () => {
-	// A decision layer that is down must not break the search.
-	const previous = process.env.TYPESAFE_API_KEY;
-	process.env.TYPESAFE_API_KEY = "test-key";
-	try {
-		const failing = (() =>
-			Promise.resolve(new Response("boom", { status: 500 }))) as unknown as FetchLike;
-		const outcome = await resolveRouting("q", undefined, true, { fetchImpl: failing });
-		assert.equal(outcome.family, undefined);
-		assert.match(outcome.note ?? "", /routing unavailable/);
-	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
-	}
-});
-
-test("routing is skipped when jev is disabled", async () => {
-	const outcome = await resolveRouting("q", undefined, false, {
-		fetchImpl: (() => Promise.reject(new Error("nope"))) as unknown as FetchLike,
-	});
-	assert.equal(outcome.family, undefined);
-	assert.equal(outcome.note, undefined);
 });
 
 // --- question construction --------------------------------------------------
@@ -284,16 +232,16 @@ test("a missing judgment never scores as perfect", () => {
 	assert.equal(outcome.suppressed, 0);
 });
 
-test("every result being unsafe still returns one", () => {
-	// Returning nothing is a worse failure than returning something mediocre.
+test("every result being unsafe returns none", () => {
 	const answers: Record<string, JevAnswer> = {};
 	for (const candidate of CANDIDATES) {
 		Object.assign(answers, goodFor(candidate.index));
 		answers[`c${candidate.index}_safety`] = choiceAnswer("harmful_content", 0.99);
 	}
 	const outcome = applyPolicy(CANDIDATES, { answers }, settingsWith());
-	assert.equal(outcome.results.length, 1);
+	assert.equal(outcome.results.length, 0);
 	assert.equal(outcome.suppressed, 3);
+	assert.equal(outcome.sufficient, false);
 	assert.match(outcome.warnings[0], /suppressed 3 result/);
 });
 

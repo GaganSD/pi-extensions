@@ -257,11 +257,19 @@ export async function tryRunParallelSearch(
 		return { ok: false, error: aborted(req.signal?.reason) };
 	}
 
+	const availability = options.availability ?? providerAvailability();
+	const requested =
+		options.family === undefined
+			? [...DEFAULT_CHAIN.web, ...DEFAULT_CHAIN.code]
+			: DEFAULT_CHAIN[options.family];
 	const kinds = listRunnableProviders(
 		req.settings,
-		options.availability,
+		availability,
 		options.family,
 	);
+	const skipNotes = requested
+		.filter((kind) => availability[kind] !== true)
+		.map((kind) => `${kind} skipped: not available.`);
 	if (kinds.length === 0) {
 		return {
 			ok: false,
@@ -277,7 +285,7 @@ export async function tryRunParallelSearch(
 		options.transports ??
 		(await loadTransports().catch(() => ({} as ProviderTransportMap)));
 
-	const warnings: string[] = [];
+	const warnings: string[] = [...skipNotes];
 	const runnable: ProviderKind[] = [];
 	for (const kind of kinds) {
 		if (!transports[kind]) {

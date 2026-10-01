@@ -5,9 +5,9 @@ invent new public exports, rename symbols, or add files outside your assigned se
 
 ## Goal
 
-A minimal, self-hosted replacement for `npm:pi-web-search` that exposes **only** a
-`web_search` agent tool. Default path is Exa (+ Parallel fallback). Optional
-`mode: "parallel"` fans out Exa, Parallel, grep.app and GitHub, then Jev judges.
+A self-hosted search package that exposes **two default tools** (`web_search`,
+`code_search`) and an **opt-in** `research_search`. Providers stay internal.
+See `.reports/astra-architecture.md` for the decision.
 
 The third-party package required a paid LLM provider with native web search. We
 search through dedicated search APIs instead, so a search costs a fraction of a
