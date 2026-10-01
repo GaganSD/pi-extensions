@@ -1,6 +1,7 @@
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
 import { githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
+import { awaitWithSignal } from "./http.ts";
 import { mergeStreamResults } from "./results.ts";
 import {
 	DEFAULT_CHAIN,
@@ -119,15 +120,13 @@ export async function runSearch(
 	req: SearchRequest,
 	options: RunSearchOptions = {},
 ): Promise<StreamResult> {
+	if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
 	const chain = resolveProviderChain(req.settings, options.availability, options.family);
 	if (chain.length === 0) {
 		throw missingCredentials(req.settings[options.family ?? "web"].provider, describeNoCredentials(options.family));
 	}
 
-	const loadTransports = options.loadTransports ?? loadDefaultTransports;
-	// A loader failure must degrade to "no transports", never throw out of here.
-	const transports = options.transports ??
-		(await loadTransports().catch(() => ({} as ProviderTransportMap)));
+	const transports = await searchTransports(req, options);
 	let lastError: ProviderError = missingCredentials(
 		chain[0],
 		`No transport registered for ${chain[0]}.`,
@@ -146,7 +145,7 @@ export async function runSearch(
 			continue;
 		}
 		try {
-			return await transport(req);
+			return await runTransport(transport, req);
 		} catch (error) {
 			if (isAborted(req.signal)) {
 				throw abortReason(req.signal?.reason);
@@ -160,6 +159,39 @@ export async function runSearch(
 	}
 
 	throw lastError;
+}
+
+/** Loader failures skip transports, but operation cancellation must not degrade. */
+async function searchTransports(req: SearchRequest, options: RunSearchOptions): Promise<ProviderTransportMap> {
+	if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
+	const pending = options.transports
+		? Promise.resolve(options.transports)
+		: Promise.resolve().then(options.loadTransports ?? loadDefaultTransports).catch(() => ({} as ProviderTransportMap));
+	const transports = req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+	if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
+	return transports;
+}
+
+/** Bound even signal-ignoring transports and stop their late progress updates. */
+async function runTransport(transport: SearchTransport, req: SearchRequest): Promise<StreamResult> {
+	let active = true;
+	try {
+		const pending = Promise.resolve().then(() => {
+			if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
+			return transport({
+				...req,
+				onUpdate: req.onUpdate ? (partial) => {
+					if (!active || isAborted(req.signal)) return;
+					try { req.onUpdate?.(partial); } catch { /* Progress is advisory. */ }
+				} : undefined,
+			});
+		});
+		const result = req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+		if (isAborted(req.signal)) throw abortReason(req.signal?.reason);
+		return result;
+	} finally {
+		active = false;
+	}
 }
 
 function missingCredentials(kind: ProviderKind, message: string): ProviderError {
@@ -236,10 +268,7 @@ export async function runParallelSearch(
 		throw missingCredentials(req.settings[options.family ?? "web"].provider, describeNoCredentials(options.family));
 	}
 
-	const loadTransports = options.loadTransports ?? loadDefaultTransports;
-	const transports =
-		options.transports ??
-		(await loadTransports().catch(() => ({} as ProviderTransportMap)));
+	const transports = await searchTransports(req, options);
 
 	const warnings: string[] = [...skipNotes];
 	const runnable: ProviderKind[] = [];
@@ -263,7 +292,7 @@ export async function runParallelSearch(
 			if (!transport) {
 				throw missingCredentials(kind, `No transport is registered for ${kind}.`);
 			}
-			return { kind, result: await transport(req) };
+			return { kind, result: await runTransport(transport, req) };
 		}),
 	);
 

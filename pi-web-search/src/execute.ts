@@ -190,12 +190,6 @@ export async function executeSearch(
 				...raw,
 				scope: params.scope,
 				skipped,
-				warnings: [
-					...resolved.notices,
-					...urls.warnings,
-					...(dropped ? [dropped] : []),
-					...(raw.warnings ?? []),
-				],
 			};
 
 			const wantJudge = params.judge && resolved.jev.enabled;
@@ -224,6 +218,15 @@ export async function executeSearch(
 			progress.finish();
 			return formatWebSearchResult({
 				...judged,
+				// Local policy notices are not upstream evidence. Add them after
+				// judging so suppression can redact untrusted provider diagnostics
+				// without hiding scope/config/argument guidance.
+				warnings: [
+					...resolved.notices,
+					...urls.warnings,
+					...(dropped ? [dropped] : []),
+					...(judged.warnings ?? []),
+				],
 				jevStatus: jevStatus(wantJudge, judged),
 			});
 		} finally {

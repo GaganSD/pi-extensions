@@ -1,5 +1,5 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import { formatResult, type WebSearchDetails } from "./format.ts";
+import { formatResult, PROVIDER_TEXT_MAX_CHARS, type WebSearchDetails } from "./format.ts";
 import { isProviderError } from "./providers/types.ts";
 
 export type SearchToolName = "web_search" | "code_search" | "research_search";
@@ -24,9 +24,12 @@ export function droppedParamsWarning(
 /** Keep machine-readable failures intact instead of discarding data on throw. */
 export function formatSearchError(tool: SearchToolName, error: unknown): AgentToolResult<WebSearchDetails> {
 	const code = isProviderError(error) ? error.code : "unknown";
-	const message = `${tool} failed (${code}): ${error instanceof Error ? error.message : String(error)}`;
+	const fullMessage = `${tool} failed (${code}): ${error instanceof Error ? error.message : String(error)}`;
+	const truncated = fullMessage.length > PROVIDER_TEXT_MAX_CHARS;
+	const message = truncated ? `${fullMessage.slice(0, PROVIDER_TEXT_MAX_CHARS)}\n[Truncated]` : fullMessage;
 	return formatResult(message, {
-		resultCount: 0, grounded: false, sources: [], searchResults: [], warnings: [],
+		resultCount: 0, grounded: false, sources: [], searchResults: [],
+		warnings: truncated ? ["Error message truncated; the error code and status are unchanged."] : [],
 		error: {
 			code, message,
 			...(isProviderError(error) ? {

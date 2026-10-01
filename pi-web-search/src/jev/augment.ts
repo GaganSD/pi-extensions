@@ -102,7 +102,20 @@ function merge(
 			: { title: judged.title, url: judged.url, citedText: judged.citedText };
 	});
 
-	const warnings = [...(result.warnings ?? []), ...outcome.warnings];
+	// Provider diagnostics can quote the same evidence policy withheld. They
+	// have no per-candidate provenance, so retain only count-based disclosure
+	// when suppressing; the runner appends its trusted local notices afterward.
+	const warnings = [
+		...(outcome.suppressed > 0 ? [] : result.warnings ?? []),
+		...outcome.warnings,
+	];
+	if (outcome.suppressed > 0 && result.warnings?.length) {
+		warnings.push(`jev withheld ${result.warnings.length} provider warning(s) because they may quote suppressed evidence.`);
+	}
+	const withholdProse = outcome.suppressed > 0 && result.text.length > 0;
+	if (withholdProse) {
+		warnings.push("jev withheld aggregate provider prose because it may include suppressed evidence; use the admitted cited results instead.");
+	}
 	if (!outcome.sufficient) {
 		warnings.push(
 			outcome.sufficiencyUnconfirmed
@@ -118,6 +131,9 @@ function merge(
 
 	return {
 		...result,
+		// Aggregate prose cannot be attributed to individual candidates. Once a
+		// candidate is suppressed, it must not leak back through that prose.
+		text: withholdProse ? "" : result.text,
 		// Keep citation-bound results only. Do not hoist a Jev pick into an
 		// uncited top-level answer.
 		searchResults: results,

@@ -159,8 +159,10 @@ export function applyPolicy(
 	const ranked = survivors.slice().sort((a, b) => b.score - a.score);
 
 	const suppressed = judgements.filter((judgement) => judgement.suppressed);
+	// An unparsed result may put unsafe excerpt text in its title. Do not echo
+	// withheld content through the audit trail when no citation URL is known.
 	const suppressedUrls = suppressed.map((judgement) =>
-		judgement.url || judgement.title || "(unknown)");
+		judgement.url || "(unknown)");
 
 	// A result the model did not confidently clear is surfaced, not silently
 	// presented as vetted. This is a heuristic filter, not a security boundary.

@@ -14,6 +14,14 @@ import type {
 /** Excerpts are a preview, not the document: keep them short. */
 export const EXCERPT_MAX_CHARS = 400;
 
+/** Structured excerpts stay useful to scripts without persisting upstream documents. */
+export const STRUCTURED_EXCERPT_MAX_CHARS = 4_000;
+export const STRUCTURED_EXCERPT_TOTAL_CHARS = 32_000;
+export const PROVIDER_TEXT_MAX_CHARS = 8_000;
+const METADATA_MAX_CHARS = 1_000;
+const METADATA_TOTAL_CHARS = 16_000;
+const WARNINGS_TOTAL_CHARS = 8_000;
+
 /** Heading text of each rendered section, exported so tests can assert on them. */
 export const RESULTS_HEADING = "## Results";
 export const SOURCES_HEADING = "## Sources";
@@ -91,8 +99,8 @@ export function formatResult(
 }
 
 /**
- * Renders a provider result as markdown: the provider's own text (when it has
- * any), then `## Results`, `## Sources` and `## Warnings`. A section is only
+ * Renders bounded markdown: the provider's own text (when it has any),
+ * then `## Results`, `## Sources` and `## Warnings`. A section is only
  * emitted when it has content, so the output never has an orphan header.
  * Deterministic for a given `StreamResult`.
  */
@@ -100,6 +108,7 @@ export function formatWebSearchResult(
 	result: StreamResult,
 	limits?: TruncationLimits,
 ): AgentToolResult<WebSearchDetails> {
+	result = compactResult(result);
 	const sources = result.sources ?? [];
 	const searchResults = result.searchResults ?? [];
 	const warnings = result.warnings ?? [];
@@ -109,10 +118,12 @@ export function formatWebSearchResult(
 	if (coverage) {
 		sections.push(coverage);
 	}
-	if (result.text.length > 0) {
+	const results = buildResultsSection(searchResults);
+	// Only discard prose when exact equality proves it duplicates our Results
+	// section. Unattributed summaries and text-only contributions stay intact.
+	if (result.text.length > 0 && result.text.trim() !== results) {
 		sections.push(result.text);
 	}
-	const results = buildResultsSection(searchResults);
 	if (results) {
 		sections.push(results);
 	}
@@ -140,6 +151,71 @@ export function formatWebSearchResult(
 		...(result.scope ? { scope: result.scope } : {}),
 		...(result.jevStatus ? { jevStatus: result.jevStatus } : {}),
 	}, limits);
+}
+
+/**
+ * Bound evidence and non-URL text before rendering or copying structured data.
+ * URLs and result cardinality are retained: this is not a total byte cap, and
+ * no citation is silently shortened into a different/unusable address.
+ */
+function compactResult(result: StreamResult): StreamResult {
+	let excerptBudget = STRUCTURED_EXCERPT_TOTAL_CHARS;
+	let metadataBudget = METADATA_TOTAL_CHARS;
+	let clippedExcerpts = 0;
+	let clippedMetadata = false;
+	const metadata = (value: string): string => {
+		const clipped = clipText(value, Math.min(METADATA_MAX_CHARS, metadataBudget));
+		metadataBudget -= clipped.length;
+		clippedMetadata ||= clipped.length < value.length;
+		return clipped;
+	};
+	const searchResults = (result.searchResults ?? []).map((entry) => {
+		const compact: SearchResultDetail = { ...entry };
+		if (entry.citedText !== undefined) {
+			compact.citedText = clipText(entry.citedText, Math.min(STRUCTURED_EXCERPT_MAX_CHARS, excerptBudget));
+			excerptBudget -= compact.citedText.length;
+			if (compact.citedText.length < entry.citedText.length) clippedExcerpts++;
+		}
+		for (const key of ["title", "query", "source", "pageAge", "status", "type"] as const) {
+			const value = entry[key];
+			if (typeof value === "string") {
+				// Keep recognized provenance tags even if large titles consumed the
+				// metadata budget: code rendering depends on these fixed-size tags.
+				compact[key] = key === "source" && ["exa", "parallel", "grep", "github"].includes(value)
+					? value : metadata(value);
+			}
+		}
+		return compact;
+	});
+	const sources = (result.sources ?? []).map((source) => ({ title: metadata(source.title), url: source.url }));
+	const requestId = result.requestId === undefined ? undefined : metadata(result.requestId);
+	const usage = result.usage?.map((item) => ({ name: metadata(item.name), count: item.count }));
+	const text = clipText(result.text, PROVIDER_TEXT_MAX_CHARS);
+	let warningBudget = WARNINGS_TOTAL_CHARS;
+	let clippedWarnings = false;
+	const warnings: string[] = [];
+	for (const warning of result.warnings ?? []) {
+		if (warnings.length >= 100 || warningBudget === 0) {
+			clippedWarnings = true;
+			break;
+		}
+		const clipped = clipText(warning, Math.min(METADATA_MAX_CHARS, warningBudget));
+		warningBudget -= clipped.length;
+		clippedWarnings ||= clipped.length < warning.length;
+		warnings.push(clipped);
+	}
+	if (clippedExcerpts) warnings.push(`Result excerpts truncated for ${clippedExcerpts} hit(s): citedText is a preview capped at ${STRUCTURED_EXCERPT_MAX_CHARS} characters per hit and ${STRUCTURED_EXCERPT_TOTAL_CHARS} in total. Follow citation URLs for full evidence.`);
+	if (text.length < result.text.length) warnings.push(`Provider prose truncated to ${PROVIDER_TEXT_MAX_CHARS} characters; use the cited results for evidence.`);
+	if (clippedMetadata) warnings.push(`Result metadata truncated to ${METADATA_MAX_CHARS} characters per field and ${METADATA_TOTAL_CHARS} in total; citation URLs are unchanged.`);
+	if (clippedWarnings) warnings.push("Provider warnings truncated (100 entries, 1000 characters each, 8000 in total).");
+	return { ...result, text, sources, searchResults, warnings, requestId, usage };
+}
+
+/** Do not split a surrogate pair when clipping a preview. */
+function clipText(text: string, maxChars: number): string {
+	let end = Math.min(text.length, maxChars);
+	if (end < text.length && end > 0 && /[\uD800-\uDBFF]/u.test(text[end - 1])) end--;
+	return text.slice(0, end);
 }
 
 function buildCoverageSection(result: StreamResult): string {
