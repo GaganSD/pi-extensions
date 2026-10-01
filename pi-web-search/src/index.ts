@@ -250,6 +250,13 @@ async function buildSettingsReport(): Promise<string> {
 	for (const id of CREDENTIAL_PROVIDER_IDS) {
 		const found = resolveCredential(id);
 		const aliases = CREDENTIAL_ENV_ALIASES[id].join(" or ");
+		if (id === "typesafe" || id === "vercel-ai-gateway") {
+			const visibility = found
+				? `package-visible key via ${found.source === "env" ? found.name : "auth.json"}`
+				: "no package-visible key";
+			lines.push(`- ${id}: ${visibility} — Pi owns classifier auth; use /login or Pi provider config. JEV_API_KEY alone is not Pi classifier authentication.`);
+			continue;
+		}
 		lines.push(
 			found
 				? `- ${id}: present via ${found.source === "env" ? found.name : "auth.json"}`
@@ -261,7 +268,7 @@ async function buildSettingsReport(): Promise<string> {
 	lines.push(
 		"",
 		"Setup:",
-		"- Secrets live in Pi's <agent-dir>/auth.json (or the env aliases above; env always overrides).",
+		"- Retrieval secrets can live in Pi's <agent-dir>/auth.json or env; Pi separately resolves classifier credentials (see /login).",
 		"- Nonsecret settings live in web-search.json; see the repo README for the full example.",
 		"- Parallel native MCP is keyless by default; check /mcp for connection status or a same-name mcp.json override.",
 		"- Run /reload after changing research_search exposure or a Parallel credential (its MCP header is captured at registration).",

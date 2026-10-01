@@ -1,7 +1,7 @@
 {
   "name": "pi-extensions",
   "private": true,
-  "description": "Monorepo of Pi extensions I use and build.",
+  "description": "Monorepo of Pi extensions I use and build, including keyless public web/code search through native Pi MCP.",
   "license": "MIT",
   "author": "Gagan Devagiri",
   "repository": {

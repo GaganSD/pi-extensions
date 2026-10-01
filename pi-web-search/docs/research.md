@@ -16,7 +16,7 @@ Call `research_search` with a required query and explicit scope:
 { "query": "AbortSignal.timeout", "scope": "both" }
 ```
 
-`web` consults eligible Exa/Parallel sources; `code` consults eligible grep.app/GitHub sources; `both` sends the same query to both families. There is no `urls` parameter. Use identifiers/snippets rather than prose for code or mixed scope. Without retrieval keys, Exa and grep.app remain eligible.
+`web` consults eligible Exa/Parallel sources; `code` consults eligible grep.app/GitHub sources; `both` sends the same query to both families. There is no `urls` parameter. Use identifiers/snippets rather than prose for code or mixed scope. Without retrieval keys, Exa, Parallel native MCP, and grep.app remain eligible. Check `/mcp` for native connection status; a same-name `pi_web_search_parallel` entry in `mcp.json` overrides the package server. Pi SDK embeddings must load Pi’s MCP and codemode extensions and call `bindExtensions()` (see the README).
 
 Research appends family defaults to the configured preferences and runs all eligible sources concurrently. Empty fallback arrays do not exclude providers. Successful responses are concatenated, with source-index URLs deduplicated but same-URL hits retained. Within a live operation deadline, one failed source becomes a warning if another succeeds. All-source failure, caller cancellation, or a shared deadline expiring during retrieval fails the call, even after a sibling succeeded. Coverage is not agreement analysis or proof of exhaustive search.
 
@@ -24,7 +24,7 @@ Research registration is fixed at extension load. Execution rechecks the current
 
 ## Enable external judgment
 
-Merge these independent switches, and provide a [supported judgment credential](../README.md#credentials):
+Merge these independent switches, and configure a Pi classifier model via a supported Pi provider credential or `/login` (see [Pi classifier models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models)). Parallel retrieval remains anonymous if no Parallel key is set:
 
 ```json
 {
@@ -33,7 +33,7 @@ Merge these independent switches, and provide a [supported judgment credential](
 }
 ```
 
-Run `/reload` if research was not already exposed. Other judgment config/key changes are read next operation; new shell exports still require starting Pi with that environment.
+Run `/reload` if research was not already exposed. Other judgment config changes are read next operation; Pi owns model availability and auth, and new shell exports still require starting Pi with that environment. `/web-search-settings` reports package-visible key presence but cannot establish classifier availability or Pi credential validity.
 
 **Data sent:** at most one judgment request contains the query and every retained candidate's index, title, URL, and complete provider-returned `citedText`. This happens before formatter preview caps and before safety suppression. All candidates share one request with relevance, off-topic, self-contained, safety, and set-sufficiency questions. Do not enable it for evidence you are unwilling to send to the selected external service. This is a heuristic, not a security firewall or verified-answer guarantee.
 
@@ -61,9 +61,9 @@ All fields are optional. This block shows the defaults; it deliberately leaves b
 
 | Field | Behavior |
 | --- | --- |
-| `enabled` | Only literal `true` enables judgment. Other values leave it off. Research must also be enabled to expose the tool that uses it. |
-| `backend` | `auto`, `typesafe`, or `vercel`; invalid known values default with a search warning. Explicit selection restricts credentials to that backend, with no cross-backend retry on failure. |
-| `model` | Nonempty configured identifier. Invalid known values default with a warning. Backend catalog mapping below applies; this is not an upstream model-availability guarantee. |
+| `enabled` | Only literal `true` enables judgment. Other values leave it off. Research must also be enabled to expose the tool that uses it; ordinary web/code tools never classify. |
+| `backend` | `auto`, `typesafe`, or `vercel`; invalid known values default with a search warning. Explicit selection restricts the Pi classifier provider to that backend, with no cross-backend retry on failure. |
+| `model` | Nonempty Pi catalog identifier. Invalid known values default with a warning. Only the legacy default ID maps across catalogs; an explicit unknown ID fails open with a warning rather than silently switching models. |
 | `weights.answers` | Weight for answer relevance. |
 | `weights.offtopic` | Signed weight for off-topic score; default negative penalizes off-topic evidence. |
 | `weights.selfcontained` | Weight for usability without missing context. |
@@ -74,21 +74,11 @@ Finite numeric values are accepted for weights and the two numeric settings; bad
 
 There is no `jev.timeoutMs` config field. The judge has a fixed **8,000 ms request deadline**, limited by the remaining shared `timeoutMs` operation budget. Increasing `timeoutMs` does not increase that judge-specific deadline.
 
-## Credentials, backends, and model mapping
+## Pi classifier ownership and model mapping
 
-Per credential, nonblank environment aliases beat the current literal key in Pi's `auth.json`:
+The package never sends a Jev HTTP request or authenticates Jev itself. Pi’s `ctx.modelRegistry.findOfType("classifier", …)`, `getAvailableOfType()`, and `classify()` select and execute an available classifier with Pi’s own credential resolution. Configure `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (or another Pi-supported credential source such as `/login`); a legacy package-only `JEV_API_KEY` alias is **not** a Pi classifier authentication source. Check Pi’s [model catalog and authentication documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models). No key is needed for anonymous Parallel search without judgment.
 
-- Native `typesafe`: `TYPESAFE_API_KEY`, then `JEV_API_KEY`, then stored `typesafe.key`.
-- Gateway `vercel-ai-gateway`: `AI_GATEWAY_API_KEY`, then stored `vercel-ai-gateway.key`.
-
-For `backend: "auto"`, selection order is **native environment → gateway environment → native stored → gateway stored**. Thus a gateway environment key beats a native stored key. Explicit `typesafe` or `vercel` selects only that backend's environment/stored credential. Resolved key values are not included in the settings report; this does not imply all upstream messages are secret-redacted.
-
-| Backend | Endpoint | Default model identifier |
-| --- | --- | --- |
-| `typesafe` | `https://api.typesafe.ai/v1/systemone` | `jev-1.13.0` |
-| `vercel` | `https://ai-gateway.vercel.sh/typesafe/v1/systemone` | `typesafe-ai/jev` |
-
-Native-looking `jev-*` identifiers and `jev-latest` map to `typesafe-ai/jev` on Vercel. Identifiers containing `/` map to the native default on TypeSafe. The gateway catalog ID is unversioned; do not assume it pins the same native version. Selection and mapping are defined in [`jev/auth.ts`](../src/jev/auth.ts).
+The retained default setting `jev-1.13.0` is a legacy direct-API identifier. With `backend: "auto"`, it maps to Pi `typesafe/jev-latest` when available, otherwise `vercel-ai-gateway/typesafe-ai/jev`. Pi’s catalog determines availability and service pricing; the default is not a promise of the old pinned model version. Set `jev.model` to `jev-latest` with `backend: "typesafe"`, or `typesafe-ai/jev` with `backend: "vercel"`, to pin a current Pi catalog ID. A different explicit ID is looked up as-is in the selected provider and is not auto-remapped. Missing model/auth, malformed or nonfinite answers, provider failure, or a classifier deadline leave retrieval unchanged with a warning; caller abort remains fatal. Pi classifier usage (tokens and catalog-priced cost when available) is attached to the tool result; nested MCP usage is counted separately by Pi, not copied twice.
 
 ## Outcomes and limits
 
@@ -97,12 +87,12 @@ Native-looking `jev-*` identifiers and `jev-latest` map to `typesafe-ai/jev` on 
 | Status | Meaning |
 | --- | --- |
 | `disabled` | Not requested by this tool or config. Ordinary searches always use this status. |
-| `unavailable` | Missing selected credential, service/parse failure, or a deadline during optional judgment. Retrieval remains, with warnings. |
-| `skipped` | No candidates after enabling/authenticating, or the state exceeds `maxStateChars` (with a budget warning). |
+| `unavailable` | Missing Pi classifier/credentials, service/malformed-answer failure, or a deadline during optional judgment. Retrieval remains, with warnings. |
+| `skipped` | No candidates after enabling, or the state exceeds `maxStateChars` (with a budget warning). |
 | `ran` | A response was processed; it does not certify complete or trustworthy judgments. |
 
 Ranking is local weighted scoring; missing relevance scores use `0.5`. Confident non-safe classifications are suppressed, while uncertain/missing safety judgments can remain with safety-unverified warnings. There is no separate minimum safe-confidence gate. Missing sufficiency is treated as insufficient. Any suppression prevents a positive sufficiency claim for the surviving set because the global judgment saw the withheld candidates; survivors are not judged again.
 
 When suppression occurs, aggregate provider prose and original provider warnings are conservatively withheld because they may quote suppressed content. Count-based notices, admitted results, citation audit URLs, and local config/input notices remain. This can hide otherwise useful upstream diagnostics. Structured `jev` records `sufficient`, `lowConfidence`, `suppressed`, and `suppressedUrls`; an unknown suppressed URL is reported as `(unknown)`, not the withheld title.
 
-Missing credentials, over-budget state, failures, and judgment deadlines **fail open** to the retrieved evidence, subject to normal output clipping. Genuine caller cancellation remains fatal. Jev does not guarantee truth, safe instructions, independence among sources, or agreement, and does not trigger another search. Inspect warnings and citations rather than treating `ran` or `sufficient` as a security decision. The implementation boundary is [`jev/augment.ts`](../src/jev/augment.ts).
+Missing Pi classifier/authentication, over-budget state, failures, and judgment deadlines **fail open** to the retrieved evidence, subject to normal output clipping. Genuine caller cancellation remains fatal. Jev does not guarantee truth, safe instructions, independence among sources, or agreement, and does not trigger another search. Inspect warnings and citations rather than treating `ran` or `sufficient` as a security decision. The implementation boundary is [`jev/augment.ts`](../src/jev/augment.ts).

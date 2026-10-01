@@ -5,7 +5,7 @@ import type {
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
-import { augmentResults } from "./jev/augment.ts";
+import { augmentResults, type AugmentedStreamResult } from "./jev/augment.ts";
 import { resolveSettings } from "./providers/config.ts";
 import { withTimeout } from "./providers/http.ts";
 import {
@@ -196,13 +196,13 @@ export async function executeSearch(
 			};
 
 			const wantJudge = params.judge && resolved.jev.enabled;
-			const judged = wantJudge
+			const judged: AugmentedStreamResult = wantJudge
 				? await augmentResults(
 						req,
 						withNotes,
 						{
 							signal: composed.signal,
-							usePiAuth: true,
+							modelRegistry: ctx.modelRegistry,
 							backend: resolved.jev.backend,
 							model: resolved.jev.model,
 						},
@@ -219,7 +219,7 @@ export async function executeSearch(
 			}
 
 			progress.finish();
-			return formatWebSearchResult({
+			const formatted = formatWebSearchResult({
 				...judged,
 				// Local policy notices are not upstream evidence. Add them after
 				// judging so suppression can redact untrusted provider diagnostics
@@ -232,6 +232,10 @@ export async function executeSearch(
 				],
 				jevStatus: jevStatus(wantJudge, judged),
 			});
+			if (judged.classifierUsage) {
+				formatted.usage = judged.classifierUsage;
+			}
+			return formatted;
 		} finally {
 			composed.dispose();
 		}

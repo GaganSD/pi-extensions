@@ -11,7 +11,7 @@ Search is not on npm; load `./pi-web-search` from a checkout. Slate and Ask are 
 - [Root README](README.md): package index, search checkout install, development
 - [Slate README](pi-slate/README.md): TUI setup, commands, themes, composer keys
 - [Ask README](pi-ask/README.md): `ask_user` contract, commands, TUI-only behavior
-- [Web Search README](pi-web-search/README.md): tools, config, credentials, limits
+- [Web Search README](pi-web-search/README.md): tools, native Parallel MCP, optional Pi-hosted Jev classifier, config, credentials, limits
 - [Web Search research](pi-web-search/docs/research.md): opt-in research_search and Jev
 
 ## Packages

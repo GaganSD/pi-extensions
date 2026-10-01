@@ -101,8 +101,12 @@ test("optional judging survives an otherwise idle operation deadline with its ev
 				query: "q", signal: deadline.signal,
 				settings: { jev: { enabled: true, backend: "typesafe", model: "jev-1.13.0", maxStateChars: 20000 } },
 			}, input, {
-				apiKey: "offline-test-key", timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
-				fetchImpl: async () => new Promise(() => {}),
+				timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
+				modelRegistry: {
+					findOfType: () => ({ provider: "typesafe", id: "jev-latest" }),
+					getAvailableOfType: async () => [{ provider: "typesafe", id: "jev-latest" }],
+					classify: async () => new Promise(() => {}),
+				},
 			});
 			assert.deepEqual(result.searchResults, input.searchResults);
 			assert.deepEqual(result.sources, input.sources);

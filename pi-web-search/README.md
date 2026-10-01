@@ -2,7 +2,7 @@
 
 pi-web-search is a [Pi](https://github.com/earendil-works/pi) extension for developers who need public documentation and code evidence in their coding session. Look up an API with `web_search` or find a literal implementation pattern with `code_search`, then inspect source links, excerpts, and coverage warnings before using the results.
 
-**Start with keyless search:** Exa handles web retrieval and grep.app handles public code by default. No search-provider key is needed to try them; Pi still needs its own model setup and authentication. Public endpoint availability, quotas, and indexing are best effort—not a guarantee of complete or verified answers. Research and external Jev judgment are separate opt-ins, both off by default.
+**Start with keyless search:** Exa handles web retrieval, Parallel is the native Pi MCP web fallback, and grep.app handles public code by default. No search-provider key is needed to try them; Pi still needs its own model setup and authentication. Public endpoint availability, quotas, and indexing are best effort—not a guarantee of complete or verified answers. Research and Pi-hosted Jev classifier judgment are separate opt-ins, both off by default. Parallel anonymous retrieval does not require Jev authentication.
 
 [Try a first search](#install-and-first-search) · [Choose a tool](#tools-and-examples) · [Configure providers](#configuration) · [Understand data handling](#data-handling)
 
@@ -30,7 +30,7 @@ Run this command in Pi:
 /web-search-settings
 ```
 
-The offline diagnostic reports the config path, configured feature flags, and credential presence/source—not resolved key values. It does not test provider reachability, credential validity, or whether a newly enabled research tool has been reloaded. Missing optional keys are expected.
+The offline diagnostic reports the config path, configured feature flags, and credential presence/source—not resolved key values. It does not test provider reachability, credential validity, Pi classifier availability, or whether a newly enabled research tool has been reloaded. Inspect `/mcp` for the native Parallel connection and any same-name override. Missing optional keys are expected.
 
 Ask: **“Use web_search to look up Node.js setImmediate with https://nodejs.org/api/timers.html in urls. Cite the page if retrieved and report coverage warnings.”** The tool arguments are:
 
@@ -135,25 +135,25 @@ To expose `research_search`, merge this into the config path printed by `/web-se
 
 Research sends the same query to all eligible sources in the chosen scope, concurrently. It is not an autonomous research agent, agreement checker, or automatic follow-up search. It merges successful responses while the operation deadline remains live. Ordinary web/code searches do not run Jev.
 
-External Jev ranking, safety classification, and sufficiency judgment additionally require `jev.enabled: true` **and** a TypeSafe or Vercel AI Gateway credential. Before enabling it, read [research and Jev settings](docs/research.md) for every setting/default, backend precedence, data sent externally, and fail-open behavior. Judgment is an optional heuristic, **not a security boundary**.
+Optional Jev ranking, safety classification, and sufficiency judgment additionally require `jev.enabled: true` and an available Pi classifier model (TypeSafe or Vercel AI Gateway). Pi owns classifier authentication through `/login` or its supported provider credentials; anonymous Parallel search does not depend on it. Before enabling it, read [research and Jev settings](docs/research.md) for every setting/default, backend precedence, data sent externally, and fail-open behavior. Judgment is an optional heuristic, **not a security boundary**.
 
 ## Credentials
 
 ### Which providers need an API key?
 
-Default Exa web search and grep.app code search need no search-provider key. An Exa key selects REST instead of keyless MCP; Parallel requires its own key, and GitHub requires a token. External Jev judgment requires a separate credential and opt-in. Additional providers do not guarantee more results or availability.
+Default Exa web search, native Parallel MCP web fallback, and grep.app code search need no search-provider key. Parallel anonymous access has lower server-controlled rate limits; an already configured key is optional for higher limits. An Exa key selects REST instead of keyless MCP; GitHub requires a token. Jev is independently opt-in and uses Pi classifier authentication. Additional providers do not guarantee more results or availability.
 
 For each ID, the first nonblank environment alias below overrides its current stored key in `<agent-dir>/auth.json`, as defined by the [credential resolver](src/env.ts):
 
 | Stored ID | Environment aliases, in precedence order | Enables |
 | --- | --- | --- |
 | `exa` | `EXA_API_KEY` | Exa REST instead of keyless MCP. |
-| `parallel` | `PARALLEL_API_KEY` | Parallel web search and extraction. |
+| `parallel` | `PARALLEL_API_KEY` | Optional Bearer header for Parallel native MCP (anonymous without it). |
 | `github` | `GITHUB_TOKEN`, `GH_TOKEN` | Authenticated GitHub search; only verified public results are returned. |
-| `typesafe` | `TYPESAFE_API_KEY`, `JEV_API_KEY` | Native Jev judgment, when enabled. |
-| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Jev through Vercel AI Gateway, when enabled. |
+| `typesafe` | `TYPESAFE_API_KEY`, `JEV_API_KEY` | Diagnostic of legacy package keys only; Pi classifier authentication uses Pi-supported `TYPESAFE_API_KEY` or `/login`, not a package-local `JEV_API_KEY` precheck. |
+| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Diagnostic of a possible Pi gateway credential; Pi owns availability/authentication. |
 
-Set environment variables **before starting Pi**. A new export in another shell cannot change a running Pi process; restart Pi with that environment. Stored key rotation/removal is observed on the next operation, but a present environment alias continues to override it.
+Set environment variables **before starting Pi**. A new export in another shell cannot change a running Pi process; restart Pi with that environment. Exa/GitHub stored keys are read each operation; the Parallel Bearer header is captured when its MCP server is registered, so changing its key requires `/reload`. Pi, not this package, resolves classifier credentials at judgment time.
 
 To store a key, merge an entry of this form into Pi's existing `auth.json` (replace the placeholder privately; do not replace other credentials):
 
@@ -161,7 +161,7 @@ To store a key, merge an entry of this form into Pi's existing `auth.json` (repl
 { "parallel": { "type": "api_key", "key": "<your-api-key>" } }
 ```
 
-This extension reads literal `.key` strings; it does not resolve shell commands, environment references inside those strings, or OAuth refresh credentials. Unreadable/malformed auth is treated as no stored key. It does not write credentials. Keep auth files out of version control and use narrowly scoped keys/tokens. Additional sources have their own quotas and billing; no price or quota increase is promised here.
+For retrieval keys, this extension reads literal `.key` strings; it does not resolve shell commands, environment references inside those strings, or OAuth refresh credentials. Pi owns classifier credential resolution, including its other supported auth sources. Unreadable/malformed retrieval auth is treated as no stored key. This extension does not write credentials. Keep auth files out of version control and use narrowly scoped keys/tokens. Additional sources have their own quotas and billing; no price or quota increase is promised here.
 
 `/web-search-settings` does not echo resolved key values. **That is not a general secret-redaction guarantee**: tool queries, URLs, upstream errors, warnings, and excerpts may contain sensitive text. See [data handling](#data-handling).
 
@@ -170,11 +170,13 @@ This extension reads literal `.key` strings; it does not resolve shell commands,
 | Source | Default eligibility | Behavior |
 | --- | --- | --- |
 | Exa | Keyless; a resolved key selects REST | Web search and supplied-URL extraction run concurrently. URL extraction requests excerpts up to 3,000 characters per page. |
-| Parallel | Requires key | Web search uses `fast` mode; supplied-URL extraction follows successful search. Requests excerpts, not full content. |
+| Parallel | Keyless native Pi MCP; configured key adds Bearer header | Pi connects to `https://search.parallel.ai/mcp`. Search uses server defaults; supplied-URL `web_fetch` requests excerpts (`full_content: false`) after search. The local `maxResults` cap limits presented search hits. |
 | grep.app (`grep`) | Keyless | Indexed literal public-code search over hosted MCP; results locally limited to `maxResults`. |
 | GitHub | Requires token | REST code search; non-public or unverifiable returned repositories are withheld. |
 
-Eligibility means credential availability, not health. Ordinary defaults are **Exa → Parallel** for web and **grep.app → GitHub** for code. A successful empty or unparsed reply ends that chain. Only retryable failures try the next eligible source while the operation deadline remains live; there is no same-provider retry/backoff loop or guaranteed failover. Without keys, the default family has only its keyless source.
+An explicit `pi_web_search_parallel` entry in Pi `mcp.json` takes precedence over the package registration: configure your own server there if needed, inspect `/mcp`, and `/reload`. Without a key, the package sends no Authorization header and does not start OAuth. Parallel's `https://search.parallel.ai/mcp-oauth` endpoint is an explicitly chosen authenticated account-enforcement option configured in your own `mcp.json` entry, not a silent fallback. An unavailable/disabled built-in MCP host (or an adapter replacing it) must be fixed in Pi; this package does not spawn an independent Parallel client. Native raw MCP tools may also be reachable through Pi deferred exposure. The package sends a stable opaque hashed `session_id` per conversation, and only a known runtime model ID as `model_name` (omits absent/unknown); no workspace or transcript data is used for these fields.
+
+Eligibility means credential availability, not health. Ordinary defaults are **Exa → Parallel** for web and **grep.app → GitHub** for code. A successful empty or unparsed reply ends that chain. Only retryable failures try the next eligible source while the operation deadline remains live; there is no same-provider retry/backoff loop or guaranteed failover. Without keys, both default web sources remain eligible. A native MCP connection/permission failure is reported with `/mcp` guidance; it is never bypassed with a private Parallel transport. Authentication/permission denials are not retried into another source.
 
 If a configured ordinary chain has no eligible source, available family defaults are restored. Research appends the family defaults to the configured set and runs all eligible sources. **`fallback: []` is not a research exclusion or privacy allowlist.** Research hits sharing a URL remain distinct; only the source index is deduplicated. Consulted-provider coverage is not an exhaustive index or a trace of every failed ordinary attempt.
 
@@ -194,7 +196,7 @@ Applicable clipping adds warnings. Character budgets use JavaScript string lengt
 
 ## Timeouts, fallback, and errors
 
-The default **20-second operation budget** covers retrieval plus optional judgment, starting after local config reading and input normalization. Stages share that budget; no time is reserved for fallback. MCP teardown has an independent best-effort deadline of up to **2 seconds per session**, so do not interpret `timeoutMs` as an exact wall-clock limit. Fully framed, correlated streamed MCP replies can complete without waiting for stream EOF.
+The default **20-second operation budget** covers retrieval plus optional judgment, starting after local config reading and input normalization. Stages share that budget; no time is reserved for fallback. Legacy Exa/grep.app MCP teardown has an independent best-effort deadline of up to **2 seconds per session**; native Parallel MCP connection lifecycle is owned by Pi, so do not interpret `timeoutMs` as an exact wall-clock limit. Fully framed, correlated streamed MCP replies can complete without waiting for stream EOF.
 
 | Situation | Behavior and next step |
 | --- | --- |
@@ -228,7 +230,7 @@ npm run typecheck
 npm run pack:check
 ```
 
-Development uses locked dependencies and Node's native TypeScript stripping. Tests use injected transports and isolated config/auth environments; they do not establish live upstream availability. `pack:check` validates an actual source-only tarball, installs it in an isolated consumer, loads its entrypoint through Pi, and runs regressions against extracted source. No bundler output, tests, credentials, or validation tooling ship in the package. The pack check also requires `tar`.
+Development uses locked dependencies and Node's native TypeScript stripping. Tests use injected transports and isolated config/auth environments plus a local stdio MCP fixture loaded through the real Pi SDK nested tool pipeline; they do not establish live upstream availability. `pack:check` validates an actual source-only tarball, installs it in an isolated consumer, loads its entrypoint through Pi, and runs regressions against extracted source. No bundler output, tests, credentials, or validation tooling ship in the package. The pack check also requires `tar`. The CLI loads Pi’s native MCP and codemode built-ins automatically. SDK embeddings do not: put `createMcpExtension()` and `createCodemodeExtension()` in `DefaultResourceLoader.extensionFactories` alongside the package path, reload that loader, pass it into `createAgentSession()`, call `session.bindExtensions({})`, and wait for native MCP connection before searching. See [Pi's checked SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts) and this package's offline [`native-sdk.test.ts`](tests/native-sdk.test.ts) for the complete loader/fixture setup. An SDK session without built-in MCP support cannot use this package's Parallel provider.
 
 [llms.txt](llms.txt) is a short navigation index for agents to find these docs and source contracts. It does not change Pi tool routing, retrieval quality, or performance.
 

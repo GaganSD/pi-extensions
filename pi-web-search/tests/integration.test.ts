@@ -12,6 +12,7 @@ import { systemOne } from "../src/jev/api.ts";
 import { researchSearch } from "../src/research_search.ts";
 import { webSearch } from "../src/web_search.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { classifierRegistry } from "./fixtures/native-jev.ts";
 
 const ctx = {} as ExtensionContext;
 const document = { text: "", providerKind: "exa" as const, searchResults: [{ title: "Evidence", url: "https://example.com", citedText: "Retrieved evidence" }], sources: [{ title: "Evidence", url: "https://example.com" }] };
@@ -144,24 +145,15 @@ test("progress observers cannot fail retrieval or emit after completion/cancella
 }));
 
 test("operation budget exhausted only during optional judging preserves retrieved evidence", () => withSettings({ timeoutMs: 1000, research: { enabled: true }, jev: { enabled: true } }, async () => {
-	const previousKey = process.env.JEV_API_KEY;
-	const previousFetch = globalThis.fetch;
-	process.env.JEV_API_KEY = "dummy-judge";
-	globalThis.fetch = async () => new Promise(() => {});
-	try {
-		const result = await researchSearch("id", { query: "example", scope: "web" }, undefined, undefined, ctx, {
-			availability: { exa: true },
-			transports: { exa: async () => { await new Promise((resolve) => setTimeout(resolve, 850)); return document; } },
-		});
-		assert.equal(result.details.resultCount, 1);
-		assert.equal(result.details.grounded, true);
-		assert.equal(result.details.jevStatus, "unavailable");
-		assert.match(result.details.warnings?.join(" ") ?? "", /operation timeout/);
-	} finally {
-		globalThis.fetch = previousFetch;
-		if (previousKey === undefined) delete process.env.JEV_API_KEY;
-		else process.env.JEV_API_KEY = previousKey;
-	}
+	const judgeContext = { modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})) } as ExtensionContext;
+	const result = await researchSearch("id", { query: "example", scope: "web" }, undefined, undefined, judgeContext, {
+		availability: { exa: true },
+		transports: { exa: async () => { await new Promise((resolve) => setTimeout(resolve, 850)); return document; } },
+	});
+	assert.equal(result.details.resultCount, 1);
+	assert.equal(result.details.grounded, true);
+	assert.equal(result.details.jevStatus, "unavailable");
+	assert.match(result.details.warnings?.join(" ") ?? "", /operation timeout/);
 }));
 
 test("JSON as well as SSE replies must match the MCP request id and protocol", async () => {
@@ -174,11 +166,12 @@ test("JSON as well as SSE replies must match the MCP request id and protocol", a
 	}
 });
 
-test("optional judgment bounds an injected transport that ignores abort", async () => {
+test("optional judgment bounds a native classifier that ignores abort", async () => {
 	const keepAlive = setTimeout(() => {}, 1000);
 	try {
-		await assert.rejects(systemOne({}, {}, { apiKey: "dummy", timeoutMs: 20, fetchImpl: async () => new Promise(() => {}) }),
-			(error: { code?: string }) => error.code === "timeout");
+		await assert.rejects(systemOne({ query: "q", candidates: [] }, {}, {
+			modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})), timeoutMs: 20,
+		}), /deadline exceeded/);
 	} finally { clearTimeout(keepAlive); }
 });
 

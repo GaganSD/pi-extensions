@@ -180,6 +180,7 @@ test("Parallel registration is anonymous by default, or Bearer when a key alread
 			let report = "";
 			await commands[0].handler("", { hasUI: true, ui: { notify: (text) => { report = text; } } });
 			assert.match(report, /parallel: anonymous MCP needs no key/);
+			assert.match(report, /Pi owns classifier auth.*JEV_API_KEY alone is not Pi classifier authentication/);
 			assert.match(report, /\/reload after changing.*Parallel credential/);
 		});
 		process.env.PARALLEL_API_KEY = "  configured-key  ";

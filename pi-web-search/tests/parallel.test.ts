@@ -92,6 +92,9 @@ test("stable conversation hash survives separate calls and reload; new conversat
 	const oversized = fixture(undefined, "conversation-one", "x".repeat(101));
 	await parallelSearch(request(oversized.ctx));
 	assert.equal(oversized.calls[0].args.model_name, undefined);
+	const unknown = fixture(undefined, "conversation-one", "unknown");
+	await parallelSearch(request(unknown.ctx));
+	assert.equal(unknown.calls[0].args.model_name, undefined);
 });
 
 test("fetch reuses search queries, session and model, clips objective and URL count, preserves requested evidence", async () => {

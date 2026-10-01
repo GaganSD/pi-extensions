@@ -1,6 +1,6 @@
 # pi-web-search
 
-> Pi tools for best-effort public web and public code retrieval with source links when available. Research and external Jev judgment are separate opt-ins, off by default.
+> Pi tools for best-effort public web (keyless Exa and native Parallel MCP fallback) and public code retrieval with source links when available. Research and external Jev judgment are separate opt-ins, off by default.
 
 This file is a navigation index for agents, not an API specification or a retrieval/performance feature. Paths are relative to this package. For the monorepo, see [root llms.txt](../llms.txt).
 
@@ -13,11 +13,13 @@ This file is a navigation index for agents, not an API specification or a retrie
 - [Provider behavior and limits](README.md#provider-behavior-and-limits): eligibility, excerpt/citation limits, and fallback scope.
 - [Timeouts, fallback, and errors](README.md#timeouts-fallback-and-errors): deadline and partial-result semantics; troubleshooting.
 - [Data handling](README.md#data-handling): external query/evidence egress, untrusted content, and privacy boundaries.
-- [Research and Jev reference](docs/research.md): every judgment setting/default, backend selection, external data flow, and fail-open outcomes.
+- [Research and Jev reference](docs/research.md): every judgment setting/default, Pi classifier model selection, external data flow, and fail-open outcomes.
 
 ## Source contracts
 
 - [Tool registration](src/index.ts): tool exposure, guidance, namespace, and settings command.
 - [Configuration resolver](src/providers/config.ts): accepted settings and effective defaults.
 - [Provider orchestration](src/providers/index.ts): ordinary chains versus research fan-out.
+- [Parallel native MCP](src/providers/parallel.ts): Pi `executeTool` envelope, anonymous/optional Bearer registration, metadata and extract evidence.
+- [Jev classifier](src/jev/api.ts): Pi model registry typed classification and usage; never a package HTTP client.
 - [Structured output schema and formatter](src/format.ts): fields, previews, truncation, and error results.

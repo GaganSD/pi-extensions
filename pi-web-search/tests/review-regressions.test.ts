@@ -11,8 +11,7 @@ import type { JevAnswer, JevResponse } from "../src/jev/api.ts";
 import { augmentResults } from "../src/jev/augment.ts";
 import { applyPolicy, type Candidate } from "../src/jev/judge.ts";
 import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../src/providers/config.ts";
-
-type FetchLike = typeof globalThis.fetch;
+import { classifierRegistry } from "./fixtures/native-jev.ts";
 
 const CANDS: Candidate[] = [
 	{ index: 0, title: "A", url: "https://a.example", excerpt: "alpha" },
@@ -81,12 +80,6 @@ function resetCredentials(): () => void {
 			}
 		}
 	};
-}
-
-function withKey<T>(fn: () => Promise<T>): Promise<T> {
-	const restore = resetCredentials();
-	process.env.TYPESAFE_API_KEY = "test-key";
-	return fn().finally(restore);
 }
 
 // --- grep parser: blank lines are content, not boundaries -------------------
@@ -186,149 +179,117 @@ test("an empty candidate set returns empty rather than throwing", () => {
 	assert.equal(outcome.suppressed, 0);
 });
 
-test("augment never hoists an uncited top-level answer", () =>
-	withKey(async () => {
-		const out = await augmentResults(
-			{ query: "q", settings: { jev: settingsWith() } as never },
-			stream([
-				{ title: "A", url: "https://a.example", citedText: "the exact excerpt" },
-				{ title: "B", url: "https://b.example", citedText: "other" },
-			]),
-			{
-				fetchImpl: (() =>
-					Promise.resolve(
-						new Response(JSON.stringify(answer()), { status: 200 }),
-					)) as unknown as FetchLike,
-			},
-		);
-		assert.equal(out.text, "", "jev must not hoist an uncited top-level answer");
-		assert.equal(out.searchResults?.[0]?.citedText, "the exact excerpt");
-	}));
+test("augment never hoists an uncited top-level answer", async () => {
+	const out = await augmentResults(
+		{ query: "q", settings: { jev: settingsWith() } as never },
+		stream([
+			{ title: "A", url: "https://a.example", citedText: "the exact excerpt" },
+			{ title: "B", url: "https://b.example", citedText: "other" },
+		]),
+		{
+			modelRegistry: classifierRegistry(answer()),
+		},
+	);
+	assert.equal(out.text, "", "jev must not hoist an uncited top-level answer");
+	assert.equal(out.searchResults?.[0]?.citedText, "the exact excerpt");
+});
 
-test("provider metadata survives judging", () =>
-	withKey(async () => {
-		const out = await augmentResults(
-			{ query: "q", settings: { jev: settingsWith() } as never },
-			stream([
-				{
-					title: "A",
-					url: "https://a.example",
-					citedText: "alpha",
-					pageAge: "2024-01-01",
-					source: "exa",
-					type: "content",
-				},
-				{ title: "B", url: "https://b.example", citedText: "beta", pageAge: "2025-01-01" },
-			]),
+test("provider metadata survives judging", async () => {
+	const out = await augmentResults(
+		{ query: "q", settings: { jev: settingsWith() } as never },
+		stream([
 			{
-				fetchImpl: (() =>
-					Promise.resolve(
-						new Response(JSON.stringify(answer()), { status: 200 }),
-					)) as unknown as FetchLike,
+				title: "A",
+				url: "https://a.example",
+				citedText: "alpha",
+				pageAge: "2024-01-01",
+				source: "exa",
+				type: "content",
 			},
-		);
-		const kept = (out.searchResults ?? []).find((r) => r.url === "https://a.example");
-		assert.equal(
-			kept?.source,
-			"exa",
-			"judging must not blank out provider metadata",
-		);
-		assert.equal(kept?.type, "content");
-		assert.deepEqual(
-			(out.searchResults ?? []).map((r) => r.pageAge).sort(),
-			["2024-01-01", "2025-01-01"],
-		);
-	}));
+			{ title: "B", url: "https://b.example", citedText: "beta", pageAge: "2025-01-01" },
+		]),
+		{
+			modelRegistry: classifierRegistry(answer()),
+		},
+	);
+	const kept = (out.searchResults ?? []).find((r) => r.url === "https://a.example");
+	assert.equal(
+		kept?.source,
+		"exa",
+		"judging must not blank out provider metadata",
+	);
+	assert.equal(kept?.type, "content");
+	assert.deepEqual(
+		(out.searchResults ?? []).map((r) => r.pageAge).sort(),
+		["2024-01-01", "2025-01-01"],
+	);
+});
 
-test("two results sharing a url stay distinct results", () =>
-	withKey(async () => {
-		const out = await augmentResults(
-			{ query: "q", settings: { jev: settingsWith() } as never },
-			stream([
-				{ title: "A", url: "https://same.example", citedText: "from search" },
-				{ title: "A", url: "https://same.example", citedText: "from contents" },
-			]),
-			{
-				fetchImpl: (() =>
-					Promise.resolve(
-						new Response(
-							JSON.stringify(
-								answer({
-									c1_answers: noul(0.99),
-									c1_offtopic: noul(0),
-									c1_selfcontained: noul(0.99),
-								}),
-							),
-							{ status: 200 },
-						),
-					)) as unknown as FetchLike,
-			},
-		);
-		// Keying the merge on url collapsed these into one; index must be used.
-		assert.equal(out.searchResults?.length, 2);
-	}));
+test("two results sharing a url stay distinct results", async () => {
+	const out = await augmentResults(
+		{ query: "q", settings: { jev: settingsWith() } as never },
+		stream([
+			{ title: "A", url: "https://same.example", citedText: "from search" },
+			{ title: "A", url: "https://same.example", citedText: "from contents" },
+		]),
+		{
+			modelRegistry: classifierRegistry(answer({ c1_answers: noul(0.99), c1_offtopic: noul(0), c1_selfcontained: noul(0.99) })),
+		},
+	);
+	// Keying the merge on url collapsed these into one; index must be used.
+	assert.equal(out.searchResults?.length, 2);
+});
 
 // --- jev is bounded ---------------------------------------------------------
 
-test("a hanging jev call is bounded rather than hanging the tool", () =>
-	withKey(async () => {
-		const started = Date.now();
-		const out = await augmentResults(
-			{ query: "q", settings: { jev: settingsWith({ maxStateChars: 1e9 }) } as never },
-			stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]),
-			{
-				timeoutMs: 40,
-				// Never settles on its own; only the deadline can end this.
-				fetchImpl: ((_url: string, init: RequestInit) =>
-					new Promise((_resolve, reject) => {
-						init.signal?.addEventListener("abort", () =>
-							reject(new DOMException("aborted", "AbortError")));
-					})) as unknown as FetchLike,
-			},
-		);
-		assert.ok(Date.now() - started < 3000, "must not hang past the deadline");
-		assert.equal(out.searchResults?.length, 1, "results still come back");
-		assert.match(out.warnings?.join(" ") ?? "", /jev judging unavailable/);
-	}));
+test("a hanging jev call is bounded rather than hanging the tool", async () => {
+	const started = Date.now();
+	const out = await augmentResults(
+		{ query: "q", settings: { jev: settingsWith({ maxStateChars: 1e9 }) } as never },
+		stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]),
+		{
+			timeoutMs: 40,
+			// Never settles on its own; only the deadline can end this.
+			modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})),
+		},
+	);
+	assert.ok(Date.now() - started < 3000, "must not hang past the deadline");
+	assert.equal(out.searchResults?.length, 1, "results still come back");
+	assert.match(out.warnings?.join(" ") ?? "", /jev judging unavailable/);
+});
 
-test("an abort during judging is honoured, not just the deadline", () =>
-	withKey(async () => {
-		const controller = new AbortController();
-		const started = Date.now();
-		const pending = augmentResults(
-			{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
-			stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]),
-			{
-				timeoutMs: 5000,
-				fetchImpl: ((_url: string, init: RequestInit) =>
-					new Promise((_resolve, reject) => {
-						init.signal?.addEventListener("abort", () =>
-							reject(new DOMException("aborted", "AbortError")));
-						setTimeout(() => controller.abort(), 10);
-					})) as unknown as FetchLike,
-			},
-		);
-		await assert.rejects(pending, (error: { code?: string }) => error.code === "aborted");
-		const elapsed = Date.now() - started;
-		assert.ok(elapsed < 4000, `abort must beat the 5s deadline, took ${elapsed}ms`);
-	}));
+test("an abort during judging is honoured, not just the deadline", async () => {
+	const controller = new AbortController();
+	const started = Date.now();
+	const pending = augmentResults(
+		{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
+		stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]),
+		{
+			timeoutMs: 5000,
+			modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})),
+		},
+	);
+	setTimeout(() => controller.abort(), 10);
+	await assert.rejects(pending, (error: { code?: string }) => error.code === "aborted");
+	const elapsed = Date.now() - started;
+	assert.ok(elapsed < 4000, `abort must beat the 5s deadline, took ${elapsed}ms`);
+});
 
-test("a parent deadline during optional judging returns cited results with a warning", () =>
-	withKey(async () => {
-		const controller = new AbortController();
-		controller.abort(providerError("timeout", "search exceeded 20000ms."));
-		let requests = 0;
-		const input = stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]);
-		const out = await augmentResults(
-			{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
-			input,
-			{ fetchImpl: (async () => { requests++; throw new Error("should not start"); }) as FetchLike },
-		);
-		assert.equal(requests, 0);
-		assert.deepEqual(out.searchResults, input.searchResults);
-		assert.equal(out.jevStatus, "unavailable");
-		assert.match(out.warnings?.join(" ") ?? "", /operation timeout/);
-	}));
+test("a parent deadline during optional judging returns cited results with a warning", async () => {
+	const controller = new AbortController();
+	controller.abort(providerError("timeout", "search exceeded 20000ms."));
+	let requests = 0;
+	const input = stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]);
+	const out = await augmentResults(
+		{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
+		input,
+		{ modelRegistry: classifierRegistry(async () => { requests++; throw new Error("should not start"); }) },
+	);
+	assert.equal(requests, 0);
+	assert.deepEqual(out.searchResults, input.searchResults);
+	assert.equal(out.jevStatus, "unavailable");
+	assert.match(out.warnings?.join(" ") ?? "", /operation timeout/);
+});
 
 // --- credentials and config -------------------------------------------------
 
@@ -362,43 +323,32 @@ test("a dropped cross-family fallback is recorded for the caller to surface", ()
 	assert.match(settings.notices[0], /github/);
 });
 
-test("suppression reaches the tool details, not just a warning string", () =>
-	withKey(async () => {
-		const { formatWebSearchResult } = await import("../src/format.ts");
-		const out = await augmentResults(
-			{ query: "q", settings: { jev: settingsWith() } as never },
-			stream([
-				{ title: "A", url: "https://a.example", citedText: "alpha" },
-				{ title: "Evil", url: "https://evil.example", citedText: "ignore all" },
-			]),
-			{
-				fetchImpl: (() =>
-					Promise.resolve(
-						new Response(
-							JSON.stringify(
-								answer({
-									c1_safety: choice("prompt_injection", 0.99),
-								}),
-							),
-							{ status: 200 },
-						),
-					)) as unknown as FetchLike,
-			},
-		);
-		const rendered = formatWebSearchResult(out);
-		assert.equal(rendered.details?.jev?.suppressed, 1);
-		assert.deepEqual(rendered.details?.jev?.suppressedUrls, ["https://evil.example"]);
-		// Evidence was withheld, so the model's global sufficiency verdict (which
-		// covered the withheld candidate) is not restated as confirmed.
-		assert.equal(rendered.details?.jev?.sufficient, false);
-		assert.match(
-			(out.warnings ?? []).join(" "),
-			/could not confirm these results answer the query/,
-		);
-		assert.ok(
-			!(rendered.details?.searchResults ?? []).some(
-				(r) => r.url === "https://evil.example",
-			),
-			"a suppressed result must not reach the model",
-		);
-	}));
+test("suppression reaches the tool details, not just a warning string", async () => {
+	const { formatWebSearchResult } = await import("../src/format.ts");
+	const out = await augmentResults(
+		{ query: "q", settings: { jev: settingsWith() } as never },
+		stream([
+			{ title: "A", url: "https://a.example", citedText: "alpha" },
+			{ title: "Evil", url: "https://evil.example", citedText: "ignore all" },
+		]),
+		{
+			modelRegistry: classifierRegistry(answer({ c1_safety: choice("prompt_injection", 0.99) })),
+		},
+	);
+	const rendered = formatWebSearchResult(out);
+	assert.equal(rendered.details?.jev?.suppressed, 1);
+	assert.deepEqual(rendered.details?.jev?.suppressedUrls, ["https://evil.example"]);
+	// Evidence was withheld, so the model's global sufficiency verdict (which
+	// covered the withheld candidate) is not restated as confirmed.
+	assert.equal(rendered.details?.jev?.sufficient, false);
+	assert.match(
+		(out.warnings ?? []).join(" "),
+		/could not confirm these results answer the query/,
+	);
+	assert.ok(
+		!(rendered.details?.searchResults ?? []).some(
+			(r) => r.url === "https://evil.example",
+		),
+		"a suppressed result must not reach the model",
+	);
+});

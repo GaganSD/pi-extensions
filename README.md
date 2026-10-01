@@ -49,7 +49,7 @@ pi -e ./pi-web-search
 
 Run `/web-search-settings`, then ask Pi to look up a public docs page with `web_search`. Expand the tool result and read **Coverage** and **Warnings** before using the answer.
 
-Default Exa web and grep.app code endpoints need no search-provider key. Pi still needs its own model auth. Queries and URLs go to external services — do not submit secrets. Full setup, tools, and limits: [pi-web-search README](./pi-web-search/README.md).
+Default Exa web, native Parallel MCP fallback, and grep.app code endpoints need no search-provider key. `/mcp` shows Parallel connection status; Pi owns the MCP lifecycle and optional Jev classifier authentication. Pi still needs its own model auth. Queries and URLs go to external services — do not submit secrets. Full setup, tools, and limits: [pi-web-search README](./pi-web-search/README.md).
 
 To keep search installed: `pi install ./pi-web-search`. Local installs load in place, so keep the checkout. Installing the **repository root** also loads Slate and Ask; it is not search-only.
 

@@ -72,7 +72,7 @@ function requestMetadata(runtime: ExtensionToolContext): Record<string, string> 
 	const modelId = runtime.model?.id;
 	return {
 		...(sessionId ? { session_id: createHash("sha256").update(sessionId).digest("hex") } : {}),
-		...(modelId && modelId.length <= 100 ? { model_name: modelId } : {}),
+		...(modelId && modelId !== "unknown" && modelId.length <= 100 ? { model_name: modelId } : {}),
 	};
 }
 
