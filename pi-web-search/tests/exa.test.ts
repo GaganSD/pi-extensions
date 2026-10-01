@@ -744,3 +744,40 @@ test("a rejecting keyless fetch is reported as a warning too", async () => {
 	assert.match(result.warnings?.[0] ?? "", /URL fetch failed \(network_error\)/);
 	assert.match(result.warnings?.[0] ?? "", /socket hang up/);
 });
+
+test("a keyless rate-limit refusal raises rate_limited so the family can fall back", async () => {
+	// The refusal arrives in-band with HTTP success, so without this the text
+	// became a fake search result and parallel was never consulted.
+	const { fetchImpl } = mcpFetch([
+		"You've hit Exa's free MCP rate limit. To continue using without limits, create your own Exa API key.",
+	]);
+
+	await assert.rejects(
+		withoutKey(() => exaSearch(request(), { fetchImpl })),
+		(error: { code?: string; retryable?: boolean }) => {
+			assert.equal(error.code, "rate_limited");
+			assert.equal(error.retryable, true, "must be retryable so the chain moves on");
+			return true;
+		},
+	);
+});
+
+test("a 429 phrased fetch refusal also raises rate_limited", async () => {
+	const { fetchImpl } = mcpFetch([
+		MCP_SEARCH_TEXT,
+		"HTTP 429 too many requests",
+	]);
+
+	await assert.rejects(
+		withoutKey(() =>
+			exaSearch(
+				{ ...request(), urls: ["https://example.com/a"] },
+				{ fetchImpl },
+			),
+		),
+		(error: { code?: string }) => {
+			assert.equal(error.code, "rate_limited");
+			return true;
+		},
+	);
+});

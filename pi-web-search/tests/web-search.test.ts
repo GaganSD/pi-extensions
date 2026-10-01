@@ -17,6 +17,8 @@ import {
 import type { SearchTransport } from "../src/providers/index.ts";
 import { type StreamResult, providerError } from "../src/providers/types.ts";
 import { CodeSearchSchema, codeSearch } from "../src/code_search.ts";
+import { MCP_PROTOCOL_VERSION } from "../src/providers/mcp.ts";
+import type { FetchLike } from "../src/providers/http.ts";
 import { exaObjective } from "../src/providers/exa.ts";
 import { ResearchSearchSchema, researchSearch } from "../src/research_search.ts";
 import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
@@ -310,4 +312,102 @@ test("research_search fans out in the requested scope", async () => {
 			assert.match(textOf(result), /parallel skipped|github skipped/);
 		},
 	);
+});
+
+test("a hallucinated parameter is rejected by name instead of silently dropped", async () => {
+	await withConfigFile(VALID_CONFIG, async () => {
+		let called = false;
+		await assertToolError(
+			codeSearch(
+				"call_1",
+				{ query: "parseArgs", top_n: 20, path: "/" } as unknown as { query: string },
+				undefined,
+				undefined,
+				ctx,
+				{ transports: { grep: async () => { called = true; return SEARCH_RESULT; } } },
+			),
+			(error) => error.code === "invalid_arguments",
+		);
+		assert.equal(called, false, "must not reach the network");
+		const result = await codeSearch(
+			"call_2",
+			{ query: "parseArgs", top_n: 20 } as unknown as { query: string },
+			undefined,
+			undefined,
+			ctx,
+			{ transports: { grep: async () => SEARCH_RESULT } },
+		);
+		assert.match(textOf(result), /code_search received unknown parameter `top_n`.*accepts only: `query`/s);
+	});
+});
+
+test("web_search names its own parameters when one is unknown", async () => {
+	await withConfigFile(VALID_CONFIG, async () => {
+		const result = await webSearch(
+			"call_1",
+			{ query: "pi", limit: 5 } as unknown as WebSearchInput,
+			undefined,
+			undefined,
+			ctx,
+			{ transports: { exa: async () => SEARCH_RESULT } },
+		);
+		assert.equal(result.details.error?.code, "invalid_arguments");
+		assert.match(textOf(result), /web_search received unknown parameter `limit`.*`query`, `urls`/s);
+	});
+});
+
+/** Drives the real grep provider: the no-match warning lives there, not in the transport stub. */
+async function runGrepProvider(query: string, reply: string) {
+	const { grepSearch } = await import("../src/providers/grep.ts");
+	const frame = (m: unknown) => `event: message\ndata: ${JSON.stringify(m)}\n\n`;
+	const fetchImpl: FetchLike = (_url, init) => {
+		const method = (JSON.parse(init.body ?? "{}") as { method?: string }).method;
+		if (method === "initialize") {
+			return Promise.resolve(new Response(frame({
+				jsonrpc: "2.0", id: 1, result: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {} },
+			})) as Response);
+		}
+		if (method === "notifications/initialized") {
+			return Promise.resolve(new Response("") as Response);
+		}
+		return Promise.resolve(new Response(frame({
+			jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: reply }] },
+		})) as Response);
+	};
+	return grepSearch(
+		{
+			query,
+			settings: { timeoutMs: 5000, maxResults: 5, researchEnabled: false },
+			signal: undefined,
+			onUpdate: undefined,
+		} as unknown as Parameters<typeof grepSearch>[0],
+		{ fetchImpl },
+	);
+}
+
+test("zero code hits are a warning, not a rendered result", async () => {
+	const result = await runGrepProvider(
+		"sync_fs_poll repo:torvalds/linux",
+		"No results found for your query.",
+	);
+	assert.deepEqual(result.searchResults, [], "an empty search reports no hits");
+	assert.equal(result.sources?.length, 0);
+	assert.match(
+		result.warnings?.join(" ") ?? "",
+		/repo:torvalds\/linux\. That repository may not be indexed/,
+	);
+	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /No results found for your query/);
+});
+
+test("zero code hits without a repo qualifier suggest a shorter pattern", async () => {
+	const result = await runGrepProvider(
+		"import parseArgs from node:util",
+		"No results found for your query.",
+	);
+	assert.match(result.warnings?.join(" ") ?? "", /shorter literal identifier/);
+});
+
+test("an upstream grep error is preserved instead of being read as a no-match", async () => {
+	const result = await runGrepProvider("parseArgs", "500: Internal Server Error");
+	assert.match(result.warnings?.join(" ") ?? "", /grep\.app returned: 500: Internal Server Error/);
 });

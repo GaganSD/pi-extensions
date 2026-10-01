@@ -58,7 +58,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		promptGuidelines: [
 			"Use `web_search` for documentation, prose, and current events on the public web.",
 			"Use local `rg`/`grep` for files in the workspace; use `code_search` for literal code across public repositories.",
-			"Pass `urls` to `web_search` only when you already have specific pages to read.",
+			"To read a specific web page, call `web_search` with the URL in `urls`; `read` cannot open URLs.",
 		],
 		parameters: WebSearchSchema,
 		outputSchema: SearchOutputSchema,

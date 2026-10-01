@@ -297,6 +297,10 @@ async function keylessSearch(
 				throw searchOutcome.error;
 			}
 			const parsed = parseExaSearchText(searchOutcome.value);
+			// A keyless quota refusal arrives as ordinary tool text, not an
+			// error, so it would otherwise be returned as a fake search result
+			// and the family would never fall back to parallel.
+			throwIfRateLimited(searchOutcome.value);
 			// The model still needs the content the server did return.
 			const base = parsed.length > 0
 				? parsed
@@ -318,6 +322,7 @@ async function keylessSearch(
 				warnings.push(describeError("URL fetch", fetchOutcome.error));
 				return base;
 			}
+			throwIfRateLimited(fetchOutcome.value);
 			const pages = parseExaFetchText(fetchOutcome.value);
 			warnings.push(...pages.warnings);
 			const requested = requestedContents(pages.results, fetched.urls, warnings);
@@ -515,4 +520,16 @@ function describeError(prefix: string, error: unknown): string {
 	}
 	const message = error instanceof Error ? error.message : String(error);
 	return `${prefix} failed: ${message}`;
+}
+
+/** Keyless Exa MCP answers a quota refusal in-band, with HTTP success. */
+const RATE_LIMIT_RE =
+	/rate limit|rate-limited|too many requests|\b429\b|quota exceeded/i;
+
+function throwIfRateLimited(text: string): void {
+	if (!RATE_LIMIT_RE.test(text)) return;
+	throw providerError(
+		"rate_limited",
+		"Exa's keyless MCP endpoint refused this request (rate limit). Set EXA_API_KEY for a keyed quota; otherwise the next provider in the chain answers.",
+	);
 }

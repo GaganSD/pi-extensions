@@ -35,6 +35,10 @@ export interface ExecuteSearchParams {
 	progress: string;
 	/** The registered tool this run belongs to; used in every failure message. */
 	tool: SearchToolName;
+	/** The valid top-level parameter names for `tool`; used to reject unknown ones. */
+	acceptedParams: readonly string[];
+	/** The original, untyped argument object so unknown keys can be detected. */
+	rawParams?: Record<string, unknown>;
 	/** `research_search` requires an explicit opt-in in the resolved settings. */
 	requireResearch?: boolean;
 }
@@ -123,6 +127,7 @@ export async function executeSearch(
 	const progress = createProgressObserver(onUpdate, signal);
 	try {
 		if (signal?.aborted) throw abortedError(signal.reason);
+		rejectUnknownParams(params);
 		const resolved = await resolveSettings();
 		if ("error" in resolved) {
 			throw resolved.error;
@@ -224,6 +229,25 @@ export async function executeSearch(
 		progress.finish();
 		return formatSearchError(params.tool, error);
 	}
+}
+
+/**
+ * Fails loudly on hallucinated parameters. A model that sends `top_n` or
+ * `path` and has it silently dropped believes a filter ran that never did;
+ * a typed error naming the real parameters lets it self-correct immediately.
+ */
+function rejectUnknownParams(params: ExecuteSearchParams): void {
+	const raw = params.rawParams;
+	if (!raw || typeof raw !== "object") return;
+	const unknown = Object.keys(raw).filter(
+		(key) => !params.acceptedParams.includes(key),
+	);
+	if (unknown.length === 0) return;
+	const list = unknown.map((key) => `\`${key}\``).join(", ");
+	throw providerError(
+		"invalid_arguments",
+		`${params.tool} received unknown parameter${unknown.length === 1 ? "" : "s"} ${list}. It accepts only: ${params.acceptedParams.map((key) => `\`${key}\``).join(", ")}.`,
+	);
 }
 
 function skippedSources(

@@ -51,16 +51,26 @@ export async function grepSearch(
 	);
 
 	const results = parseGrepSearchText(text, req.settings.maxResults);
-	const usable = results.length > 0
-		? results
-		: [{ source: PROVIDER_NAME, citedText: text, type: "content" }];
+	// Zero hits are a real answer, not a result to render. Wrapping grep.app's
+	// "No results found" text as a hit made an empty search look like one
+	// result and told the model nothing about why. Warnings carry the
+	// explanation instead; the raw upstream text is kept only when it is
+	// something other than the plain no-match message (an upstream error).
+	const usable = results;
+	const noMatch = results.length === 0;
+	const upstream = text.trim();
+	const noMatchWarnings = noMatch
+		? [
+			parsed.repo !== undefined
+				? `grep.app found no matches in repo:${parsed.repo}. That repository may not be indexed; retry without the repo: qualifier or with web_search.`
+				: "grep.app found no matches. Retry with a shorter literal identifier (not a sentence), or drop repo:/language: qualifiers.",
+			...(upstream.length > 0 && upstream !== NO_MATCH_TEXT
+				? [`grep.app returned: ${upstream.slice(0, 200)}`]
+				: []),
+		]
+		: [];
 
-	const allWarnings = [
-		...warnings,
-		...(usable.length === 1 && usable[0].citedText === text
-			? ["grep.app returned no usable matches for this query."]
-			: []),
-	];
+	const allWarnings = [...warnings, ...noMatchWarnings];
 
 	return {
 		text: "",
@@ -264,3 +274,6 @@ function unquote(value: string): string {
 
 const LANGUAGE_FILTER_WARNING =
 	"grep.app's language filter is unreliable and may have returned no matches; treat zero results with a language filter as inconclusive.";
+
+/** grep.app's plain zero-hit reply; not worth echoing back to the model. */
+const NO_MATCH_TEXT = "No results found for your query.";
