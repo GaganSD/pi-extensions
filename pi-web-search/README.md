@@ -135,7 +135,7 @@ To expose `research_search`, merge this into the config path printed by `/web-se
 
 Research sends the same query to all eligible sources in the chosen scope, concurrently. It is not an autonomous research agent, agreement checker, or automatic follow-up search. It merges successful responses while the operation deadline remains live. Ordinary web/code searches do not run Jev.
 
-Optional Jev ranking, safety classification, and sufficiency judgment additionally require `jev.enabled: true` and an available Pi classifier model (TypeSafe or Vercel AI Gateway). Pi owns classifier authentication through `/login` or its supported provider credentials; anonymous Parallel search does not depend on it. Before enabling it, read [research and Jev settings](docs/research.md) for every setting/default, backend precedence, data sent externally, and fail-open behavior. Judgment is an optional heuristic, **not a security boundary**.
+Optional Jev ranking, safety classification, and sufficiency judgment additionally require `jev.enabled: true` and an available Pi classifier model (TypeSafe or Vercel AI Gateway). Pi owns classifier authentication through `TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`, or Pi-supported stored/runtime/model auth; anonymous Parallel search does not depend on it. Before enabling it, read [research and Jev settings](docs/research.md) for every setting/default, backend precedence, data sent externally, and fail-open behavior. Judgment is an optional heuristic, **not a security boundary**.
 
 ## Credentials
 
@@ -143,15 +143,15 @@ Optional Jev ranking, safety classification, and sufficiency judgment additional
 
 Default Exa web search, native Parallel MCP web fallback, and grep.app code search need no search-provider key. Parallel anonymous access has lower server-controlled rate limits; an already configured key is optional for higher limits. An Exa key selects REST instead of keyless MCP; GitHub requires a token. Jev is independently opt-in and uses Pi classifier authentication. Additional providers do not guarantee more results or availability.
 
-For each ID, the first nonblank environment alias below overrides its current stored key in `<agent-dir>/auth.json`, as defined by the [credential resolver](src/env.ts):
+For retrieval IDs, the first nonblank environment alias below overrides the current stored key in `<agent-dir>/auth.json`, as defined by the [credential resolver](src/env.ts). The classifier rows report package-visible key presence only; Pi independently resolves classifier authentication:
 
 | Stored ID | Environment aliases, in precedence order | Enables |
 | --- | --- | --- |
 | `exa` | `EXA_API_KEY` | Exa REST instead of keyless MCP. |
 | `parallel` | `PARALLEL_API_KEY` | Optional Bearer header for Parallel native MCP (anonymous without it). |
 | `github` | `GITHUB_TOKEN`, `GH_TOKEN` | Authenticated GitHub search; only verified public results are returned. |
-| `typesafe` | `TYPESAFE_API_KEY`, `JEV_API_KEY` | Diagnostic of legacy package keys only; Pi classifier authentication uses Pi-supported `TYPESAFE_API_KEY` or `/login`, not a package-local `JEV_API_KEY` precheck. |
-| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Diagnostic of a possible Pi gateway credential; Pi owns availability/authentication. |
+| `typesafe` | `TYPESAFE_API_KEY`, legacy `JEV_API_KEY` | Diagnostic only. Pi uses `TYPESAFE_API_KEY` or its stored/runtime/model auth; `JEV_API_KEY` alone does not authenticate Pi's classifier. |
+| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Diagnostic only. Pi uses `AI_GATEWAY_API_KEY` or its stored/runtime/model auth; Pi owns availability. |
 
 Set environment variables **before starting Pi**. A new export in another shell cannot change a running Pi process; restart Pi with that environment. Exa/GitHub stored keys are read each operation; the Parallel Bearer header is captured when its MCP server is registered, so changing its key requires `/reload`. Pi, not this package, resolves classifier credentials at judgment time.
 
@@ -176,7 +176,7 @@ For retrieval keys, this extension reads literal `.key` strings; it does not res
 
 An explicit `pi_web_search_parallel` entry in Pi `mcp.json` takes precedence over the package registration: configure your own server there if needed, inspect `/mcp`, and `/reload`. Without a key, the package sends no Authorization header and does not start OAuth. Parallel's `https://search.parallel.ai/mcp-oauth` endpoint is an explicitly chosen authenticated account-enforcement option configured in your own `mcp.json` entry, not a silent fallback. An unavailable/disabled built-in MCP host (or an adapter replacing it) must be fixed in Pi; this package does not spawn an independent Parallel client. Native raw MCP tools may also be reachable through Pi deferred exposure. The package sends a stable opaque hashed `session_id` per conversation, and only a known runtime model ID as `model_name` (omits absent/unknown); no workspace or transcript data is used for these fields.
 
-Eligibility means credential availability, not health. Ordinary defaults are **Exa → Parallel** for web and **grep.app → GitHub** for code. A successful empty or unparsed reply ends that chain. Only retryable failures try the next eligible source while the operation deadline remains live; there is no same-provider retry/backoff loop or guaranteed failover. Without keys, both default web sources remain eligible. A native MCP connection/permission failure is reported with `/mcp` guidance; it is never bypassed with a private Parallel transport. Authentication/permission denials are not retried into another source.
+Eligibility means credential availability, not health. Ordinary defaults are **Exa → Parallel** for web and **grep.app → GitHub** for code. A successful empty or unparsed reply ends that chain. Only retryable failures try the next eligible source while the operation deadline remains live; there is no same-provider retry/backoff loop or guaranteed failover. Without keys, both default web sources remain eligible. Pi host/pipeline failures without an MCP error envelope (including arbitrary permission-hook reasons) are nonretryable and reported with `/mcp` guidance, never bypassed with a private Parallel transport. Only an actual MCP server error envelope can authorize fallback for a reported 429/5xx; authentication/permission denials do not retry into another source.
 
 If a configured ordinary chain has no eligible source, available family defaults are restored. Research appends the family defaults to the configured set and runs all eligible sources. **`fallback: []` is not a research exclusion or privacy allowlist.** Research hits sharing a URL remain distinct; only the source index is deduplicated. Consulted-provider coverage is not an exhaustive index or a trace of every failed ordinary attempt.
 

@@ -72,7 +72,8 @@ test("native absence gives actionable failure; never uses a private fallback", a
 		return true;
 	});
 	const { ctx } = fixture(() => ({ isError: true, result: { content: [{ type: "text", text: "Tool not found" }] } }));
-	await assert.rejects(parallelSearch(request(ctx)), /not callable.*\/mcp/);
+	await assert.rejects(parallelSearch(request(ctx)), (error: { code: string; retryable: boolean; message: string }) =>
+		error.code === "tool_error" && error.retryable === false && /Tool not found.*Check \/mcp/.test(error.message));
 });
 
 test("stable conversation hash survives separate calls and reload; new conversation changes it", async () => {
@@ -154,15 +155,29 @@ test("malformed prose cannot invent citations or count as success", async () => 
 	await assert.rejects(parallelSearch(request(ctx)), (e: { code: string }) => e.code === "parse_error");
 });
 
-test("outer permission denial, inner 429 and auth errors remain failures", async () => {
+test("MCP server errors retain auth and retryable 429/5xx classifications", async () => {
 	for (const [text, code, retryable] of [
 		["Tool execution was blocked: permission denied", "tool_error", false],
-		["HTTP 429 too many requests", "rate_limited", true],
+		["HTTP 429 permission denied: too many requests", "rate_limited", true],
+		["HTTP 503 temporarily unavailable", "http_error", true],
 		["HTTP 401 unauthorized", "http_error", false],
 		["HTTP 422 invalid objective", "http_error", false],
 	] as const) {
 		const { ctx } = fixture(() => ({ isError: true, result: { content: [{ type: "text", text }], details: {}, structuredContent: { content: [{ type: "text", text }], isError: true } } }));
 		await assert.rejects(parallelSearch(request(ctx)), (e: { code: string; retryable: boolean }) => e.code === code && e.retryable === retryable);
+	}
+});
+
+test("Pi host failures without an MCP error envelope cannot trigger fallback from arbitrary reason text", async () => {
+	for (const text of ["No thanks", "HTTP 429 too many requests", "Tool execution was blocked: permission denied"]) {
+		const { ctx } = fixture(() => ({ isError: true, result: { content: [{ type: "text", text }], details: {} } }));
+		await assert.rejects(parallelSearch(request(ctx)), (error: { code: string; retryable: boolean; message: string }) => {
+			assert.equal(error.code, "tool_error");
+			assert.equal(error.retryable, false);
+			assert.match(error.message, /Pi's tool pipeline:.*Check \/mcp/);
+			assert.ok(error.message.includes(text));
+			return true;
+		});
 	}
 });
 

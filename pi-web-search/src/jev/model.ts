@@ -55,5 +55,5 @@ export async function selectJevModel(
 export function jevUnavailableMessage(options: JevModelOptions): string {
 	const backend = options.backend ?? "auto";
 	const id = options.model?.trim() || JEV_LEGACY_MODEL;
-	return `jev judging unavailable: Pi has no available classifier for jev.backend=${backend}, jev.model=${id}. Check /login and the Pi classifier model catalog.`;
+	return `jev judging unavailable: Pi has no available classifier for jev.backend=${backend}, jev.model=${id}. Check the Pi classifier model catalog and configure TYPESAFE_API_KEY or AI_GATEWAY_API_KEY (or Pi stored/runtime/model auth).`;
 }

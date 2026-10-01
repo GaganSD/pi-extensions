@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +16,74 @@ const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const fixture = fileURLToPath(new URL("./fixtures/parallel-mcp-server.mjs", import.meta.url));
 const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+
+test("Pi SDK permission-hook reasons never retry Parallel through Exa, even when they resemble HTTP 429", { timeout: 20000 }, async () => {
+	const root = await mkdtemp(join(tmpdir(), "pi-native-permission-"));
+	const callsPath = join(root, "mcp-calls.jsonl");
+	const configPath = join(root, "web-search.json");
+	const prior = { agent: process.env.PI_CODING_AGENT_DIR, config: process.env.PI_WEB_SEARCH_CONFIG, fetch: globalThis.fetch };
+	process.env.PI_CODING_AGENT_DIR = root;
+	process.env.PI_WEB_SEARCH_CONFIG = configPath;
+	let fetchCalls = 0;
+	globalThis.fetch = async () => { fetchCalls++; throw new Error("offline fixture: Exa fallback must not run"); };
+	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+	try {
+		await writeFile(join(root, "auth.json"), "{}");
+		await writeFile(configPath, JSON.stringify({ web: { provider: "parallel", fallback: ["exa"] }, timeoutMs: 5000 }));
+		await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
+			command: process.execPath, args: [fixture, callsPath], exposure: "codemode-deferred",
+		} } }));
+		const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search"], compaction: { enabled: false }, retry: { enabled: false } });
+		const native = `mcp__${PARALLEL_MCP_SERVER}__web_search`;
+		let reason = "No thanks";
+		let deniedCalls = 0;
+		const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
+			noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+			additionalExtensionPaths: [packageRoot],
+			extensionFactories: [createMcpExtension(), createCodemodeExtension(), (pi) => {
+				pi.on("tool_call", (event) => {
+					if (event.toolName === native) { deniedCalls++; return { block: true, reason }; }
+				});
+			}],
+		});
+		await loader.reload();
+		assert.deepEqual(loader.getExtensions().errors, []);
+		const modelRuntime = await ModelRuntime.create({ authPath: join(root, "auth.json"), modelsPath: join(root, "models.json") });
+		({ session } = await createAgentSession({ cwd: root, agentDir: root, resourceLoader: loader,
+			settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(root) }));
+		await session.bindExtensions({});
+		const readyBy = Date.now() + 5000;
+		while (!session.getCallableToolNames().includes(native) && Date.now() < readyBy) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		assert.ok(session.getCallableToolNames().includes(native), "native tool must be callable before permission hook blocks it");
+		session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id: "permission-call", name: "web_search", arguments: { query: "fixture" } }],
+			api: "openai-responses", provider: "openai", model: "fixture", usage: zeroUsage, stopReason: "toolUse", timestamp: Date.now() });
+		session.refreshContext();
+		const ctx = session.extensionRunner.createToolContext("permission-call", AbortSignal.timeout(6000));
+		for (const denialReason of ["No thanks", "HTTP 429 too many requests"]) {
+			reason = denialReason;
+			const outcome = await ctx.executeTool("web_search", { query: "fixture" });
+			assert.equal(outcome.isError, true, reason);
+			const data = outcome.result.structuredContent as { error?: { code?: string; message?: string; retryable?: boolean } };
+			assert.equal(data.error?.code, "tool_error");
+			assert.equal(data.error?.retryable, false);
+			assert.match(data.error?.message ?? "", /Pi's tool pipeline:.*Check \/mcp/);
+			assert.ok(data.error?.message?.includes(reason));
+		}
+		assert.equal(deniedCalls, 2);
+		assert.equal(fetchCalls, 0, "Exa fallback must not start after a permission denial");
+		assert.equal(existsSync(callsPath), false, "denied MCP tool must never reach the fixture server");
+	} finally {
+		if (session) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); session.dispose(); }
+		globalThis.fetch = prior.fetch;
+		if (prior.agent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = prior.agent;
+		if (prior.config === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
+		else process.env.PI_WEB_SEARCH_CONFIG = prior.config;
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
 for (const judge of [false, true]) {
 	test(`Pi SDK local MCP override runs package search/fetch${judge ? " and optional classifier" : " anonymously"}`, { timeout: 20000 }, async () => {

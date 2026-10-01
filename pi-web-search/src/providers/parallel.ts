@@ -90,8 +90,14 @@ async function callNative(
 	const result = outcome.result;
 	const inner = record(result?.structuredContent);
 	if (outcome.isError || result?.isError || inner?.isError === true) {
-		const message = textBlocks(inner?.content) || textBlocks(result?.content) || "no error details";
-		throw nativeError(name, message);
+		// Only an MCP CallToolResult that itself declares isError can authorize
+		// interpreting its text as a server status. Pi permission hooks and other
+		// host failures return arbitrary text without this envelope.
+		if (inner?.isError === true && Array.isArray(inner.content)) {
+			throw nativeError(name, textBlocks(inner.content) || "no error details");
+		}
+		const message = (textBlocks(result?.content) || "no error details").slice(0, 500);
+		throw providerError("tool_error", `${name} failed in Pi's tool pipeline: ${message}. Check /mcp for ${PARALLEL_MCP_SERVER} and run /reload.`, { retryable: false });
 	}
 	if (!inner) throw providerError("parse_error", `${name} returned no MCP CallToolResult.`);
 	return inner;
@@ -102,14 +108,11 @@ function abortError(signal: AbortSignal) {
 }
 
 function unavailable(reason: string) {
-	return providerError("tool_error", `${reason}. Enable Pi's built-in MCP support, check /mcp for ${PARALLEL_MCP_SERVER} and run /reload.`, { retryable: true });
+	return providerError("tool_error", `${reason}. Enable Pi's built-in MCP support, check /mcp for ${PARALLEL_MCP_SERVER} and run /reload.`, { retryable: false });
 }
 
 function nativeError(name: string, rawMessage: string) {
 	const message = rawMessage.slice(0, 500);
-	if (/\b(?:blocked|permission|denied|not approved)\b/i.test(message)) {
-		return providerError("tool_error", `${name} was denied: ${message}`, { retryable: false });
-	}
 	if (/\b(?:401|403|unauthorized|forbidden|authentication|invalid api key)\b/i.test(message)) {
 		return providerError("http_error", `${name}: ${message}`, { status: /\b403\b|forbidden/i.test(message) ? 403 : 401 });
 	}
@@ -118,6 +121,9 @@ function nativeError(name: string, rawMessage: string) {
 	}
 	const httpStatus = /\bHTTP\s+([45]\d\d)\b/i.exec(message);
 	if (httpStatus) return providerError("http_error", `${name}: ${message}`, { status: Number(httpStatus[1]) });
+	if (/\b(?:blocked|permission|denied|not approved)\b/i.test(message)) {
+		return providerError("tool_error", `${name} was denied: ${message}`, { retryable: false });
+	}
 	if (/\bnot found\b|\bnot available\b|\bunknown tool\b|\bdisconnected\b|\bfailed to connect\b/i.test(message)) {
 		return unavailable(`${name} is not callable (${message})`);
 	}

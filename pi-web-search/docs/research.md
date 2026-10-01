@@ -24,7 +24,7 @@ Research registration is fixed at extension load. Execution rechecks the current
 
 ## Enable external judgment
 
-Merge these independent switches, and configure a Pi classifier model via a supported Pi provider credential or `/login` (see [Pi classifier models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models)). Parallel retrieval remains anonymous if no Parallel key is set:
+Merge these independent switches, and configure a Pi classifier model via `TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`, or Pi-supported stored/runtime/model auth (see [Pi classifier models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models)). Parallel retrieval remains anonymous if no Parallel key is set:
 
 ```json
 {
@@ -76,7 +76,7 @@ There is no `jev.timeoutMs` config field. The judge has a fixed **8,000 ms reque
 
 ## Pi classifier ownership and model mapping
 
-The package never sends a Jev HTTP request or authenticates Jev itself. Pi’s `ctx.modelRegistry.findOfType("classifier", …)`, `getAvailableOfType()`, and `classify()` select and execute an available classifier with Pi’s own credential resolution. Configure `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (or another Pi-supported credential source such as `/login`); a legacy package-only `JEV_API_KEY` alias is **not** a Pi classifier authentication source. Check Pi’s [model catalog and authentication documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models). No key is needed for anonymous Parallel search without judgment.
+The package never sends a Jev HTTP request or authenticates Jev itself. Pi’s `ctx.modelRegistry.findOfType("classifier", …)`, `getAvailableOfType()`, and `classify()` select and execute an available classifier with Pi’s own credential resolution. Configure `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` (or Pi-supported stored/runtime/model auth); a legacy package-only `JEV_API_KEY` alias is **not** a Pi classifier authentication source. Check Pi’s [model catalog and authentication documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models). No key is needed for anonymous Parallel search without judgment.
 
 The retained default setting `jev-1.13.0` is a legacy direct-API identifier. With `backend: "auto"`, it maps to Pi `typesafe/jev-latest` when available, otherwise `vercel-ai-gateway/typesafe-ai/jev`. Pi’s catalog determines availability and service pricing; the default is not a promise of the old pinned model version. Set `jev.model` to `jev-latest` with `backend: "typesafe"`, or `typesafe-ai/jev` with `backend: "vercel"`, to pin a current Pi catalog ID. A different explicit ID is looked up as-is in the selected provider and is not auto-remapped. Missing model/auth, malformed or nonfinite answers, provider failure, or a classifier deadline leave retrieval unchanged with a warning; caller abort remains fatal. Pi classifier usage (tokens and catalog-priced cost when available) is attached to the tool result; nested MCP usage is counted separately by Pi, not copied twice.
 
