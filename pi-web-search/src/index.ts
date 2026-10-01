@@ -16,7 +16,6 @@ import {
 	resolveCredential,
 } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
-import { prepareSearchArgs } from "./utils.ts";
 import {
 	resolveSettings,
 	resolveSettingsSync,
@@ -62,7 +61,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 			"To read a specific web page, call `web_search` with the URL in `urls`; `read` cannot open URLs.",
 		],
 		parameters: WebSearchSchema,
-		prepareArguments: prepareSearchArgs(["query", "urls"]) as (args: unknown) => WebSearchInput,
 		outputSchema: SearchOutputSchema,
 		namespace: { name: "search", description: "Cited public web and code retrieval." },
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -96,7 +94,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 			"`code_search` understands `repo:<owner/name>` and `language:<name>`; other GitHub-specific qualifiers are provider-dependent and are not translated into grep.app filters.",
 		],
 		parameters: CodeSearchSchema,
-		prepareArguments: prepareSearchArgs(["query"]) as (args: unknown) => CodeSearchInput,
 		outputSchema: SearchOutputSchema,
 		namespace: { name: "search", description: "Cited public web and code retrieval." },
 		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -127,7 +124,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 				"`research_search` takes an explicit `scope`: `web`, `code`, or `both`.",
 			],
 			parameters: ResearchSearchSchema,
-			prepareArguments: prepareSearchArgs(["query", "scope"]) as (args: unknown) => ResearchSearchInput,
 			outputSchema: SearchOutputSchema,
 			namespace: { name: "search", description: "Cited public web and code retrieval." },
 			annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },

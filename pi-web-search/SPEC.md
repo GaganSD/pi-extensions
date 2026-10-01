@@ -37,14 +37,14 @@ Every tool declares the `search` namespace, read-only/open-world annotations,
 and `SearchOutputSchema`. Successful and failed results return schema-matching
 `structuredContent`; scripts receive data, while models receive cited Markdown.
 
-Each tool sets `prepareArguments`, which drops parameters the schema does not
-declare and records them; the result carries a warning naming what was ignored.
-The host validates arguments before `execute`, so this is the only place an
-undeclared key can be handled, and it is deliberately not an error: weak models
-hallucinate provider-specific keys, and failing the call costs a round trip
-without improving the answer. The schemas therefore stay open
-(no `additionalProperties: false`), which would otherwise make the host reject
-the call with an opaque message.
+The host validates arguments before `execute` and leaves undeclared keys in the
+argument object, so `executeSearch` compares the arguments each tool received
+against that tool's declared names and adds a warning naming anything ignored.
+This is deliberately not an error: weak models hallucinate provider-specific
+keys such as `top_n` or `limit`, and failing the call costs a round trip
+without improving the answer. The schemas therefore stay open (no
+`additionalProperties: false`), which would otherwise make the host reject the
+call with an opaque `schema is false` instead.
 
 `scope: "code"` ignores `urls` with a warning.
 

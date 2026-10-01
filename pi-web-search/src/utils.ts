@@ -5,35 +5,18 @@ import { isProviderError } from "./providers/types.ts";
 export type SearchToolName = "web_search" | "code_search" | "research_search";
 
 /**
- * Extra keys the model sent, keyed by the cleaned object `prepareSearchArgs`
- * returned. WeakMap rather than a module variable because the host can prepare
- * several tool calls before executing any of them.
+ * Names parameters the tool does not declare. The host validates arguments
+ * before `execute` but leaves undeclared keys in place, so they arrive here and
+ * can be reported. A model that sends `top_n` and has it silently dropped
+ * believes a filter ran that never did; ignoring the key keeps the search,
+ * and saying so keeps the model honest.
  */
-const droppedParams = new WeakMap<object, readonly string[]>();
-
-/**
- * Drops parameters the tool does not declare instead of letting the host fail
- * the call on them. A model that sends `top_n` and has it ignored believes a
- * filter ran that never did; ignoring the key keeps the search but reporting it
- * keeps the model honest. Cheaper for a weak model than an error round trip.
- */
-export function prepareSearchArgs(accepted: readonly string[]): (args: unknown) => object {
-	return (args) => {
-		if (typeof args !== "object" || args === null || Array.isArray(args)) {
-			return args as object;
-		}
-		const source = { ...(args as Record<string, unknown>) };
-		const dropped = Object.keys(source).filter((key) => !accepted.includes(key));
-		for (const key of dropped) delete source[key];
-		if (dropped.length > 0) droppedParams.set(source, dropped);
-		return source;
-	};
-}
-
-/** The ignored-parameter note for a prepared call, or undefined when none. */
-export function droppedParamsWarning(params: object): string | undefined {
-	const dropped = droppedParams.get(params);
-	if (!dropped || dropped.length === 0) return undefined;
+export function droppedParamsWarning(
+	params: object,
+	accepted: readonly string[],
+): string | undefined {
+	const dropped = Object.keys(params).filter((key) => !accepted.includes(key));
+	if (dropped.length === 0) return undefined;
 	const keys = dropped.map((key) => `\`${key}\``).join(", ");
 	return `Ignored unknown parameter${dropped.length === 1 ? "" : "s"} ${keys}. This tool accepts only the parameters in its schema.`;
 }

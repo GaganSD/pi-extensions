@@ -302,7 +302,7 @@ async function keylessSearch(
 			// and the family would never fall back to parallel. Only trust it
 			// when there is nothing to show: a real result page routinely
 			// contains the words "rate limit" or "429".
-			if (isRateLimitRefusal(searchOutcome.value, parsed.length)) {
+			if (isRateLimitRefusal(searchOutcome.value, parsed)) {
 				await fetchPromise;
 				throw providerError(
 					"rate_limited",
@@ -332,7 +332,7 @@ async function keylessSearch(
 			}
 			// A throttled fetch never invalidates the search that succeeded
 			// alongside it, so this warns and returns the results we have.
-			if (isRateLimitRefusal(fetchOutcome.value, 0)) {
+			if (isRateLimitRefusal(fetchOutcome.value, [])) {
 				warnings.push("Exa URL fetch was rate-limited by the keyless endpoint; search results are unaffected.");
 				return base;
 			}
@@ -537,20 +537,15 @@ function describeError(prefix: string, error: unknown): string {
 
 /** Keyless Exa MCP answers a quota refusal in-band, with HTTP success. */
 const RATE_LIMIT_RE =
-	/rate limit|rate-limited|too many requests|\b429\b|quota/i;
-/** Anchors only a real result page carries; a refusal has none. */
-const PAGE_ANCHOR_RE = /^(Title|URL|Highlights?):/m;
+	/rate limit|rate-limited|too many requests|\b429\b|quota|temporarily unavailable/i;
 
 /**
- * A refusal is a short, anchor-free, rate-limit-shaped reply that yielded no
- * results. Every clause matters: searching for "429" or "rate limit" is normal
- * work, and that content must survive.
+ * A refusal is rate-limit wording attached to a reply that yielded no usable
+ * text. Content is the discriminator, not wording: searching for "429" or "rate
+ * limit" is normal work and must survive, while a refusal carries nothing worth
+ * showing whatever its length or formatting.
  */
-function isRateLimitRefusal(reply: string, parsedCount: number): boolean {
-	return (
-		parsedCount === 0 &&
-		reply.length < 400 &&
-		!PAGE_ANCHOR_RE.test(reply) &&
-		RATE_LIMIT_RE.test(reply)
-	);
+function isRateLimitRefusal(reply: string, parsed: SearchResultDetail[]): boolean {
+	const hasContent = parsed.some((r) => (r.citedText ?? "").trim().length > 0);
+	return !hasContent && RATE_LIMIT_RE.test(reply);
 }

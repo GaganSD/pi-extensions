@@ -43,7 +43,8 @@ export async function webSearch(
 			parallel: false,
 			judge: false,
 			tool: "web_search",
-			preparedParams: params,
+			rawParams: params,
+			acceptedParams: ["query", "urls"],
 			progress:
 				urlCount > 0
 					? `Searching and analyzing ${urlCount} URL(s)...`

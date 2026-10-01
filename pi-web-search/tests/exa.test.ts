@@ -785,3 +785,32 @@ test("a rate-limited fetch warns and keeps the search results", async () => {
 	assert.ok((result.searchResults?.length ?? 0) >= 1, "search results must not be discarded");
 	assert.match(result.warnings?.join(" ") ?? "", /URL fetch was rate-limited/);
 });
+
+test("a padded or anchor-bearing refusal is still recognised", async () => {
+	// The earlier shape test (length cap + anchor check) let both of these
+	// through as fake results, which is the defect being fixed.
+	const padded = "rate limit ".repeat(60);
+	const withAnchor = "Too many requests.\nURL: https://exa.ai/pricing\nPlease upgrade your plan.";
+
+	for (const reply of [padded, withAnchor]) {
+		const { fetchImpl } = mcpFetch([reply]);
+		await assert.rejects(
+			withoutKey(() => exaSearch(request(), { fetchImpl })),
+			(error: { code?: string }) => {
+				assert.equal(error.code, "rate_limited");
+				return true;
+			},
+		);
+	}
+});
+
+test("a real result page keeps its content even when every hit is thin", async () => {
+	const { fetchImpl } = mcpFetch([
+		"Title: 429 handling\nURL: https://a.test/429\nHighlights:\nRespect the rate limit header.\n",
+	]);
+
+	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
+
+	assert.ok((result.searchResults?.length ?? 0) >= 1);
+	assert.notEqual(result.searchResults?.[0].type, "unparsed");
+});

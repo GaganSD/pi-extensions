@@ -36,10 +36,12 @@ export interface ExecuteSearchParams {
 	/** The registered tool this run belongs to; used in every failure message. */
 	tool: SearchToolName;
 	/**
-	 * The exact object the host passed to `execute` (the one `prepareArguments`
-	 * returned), used to report any parameters it dropped.
+	 * The argument object the host passed to the tool. Undeclared keys survive
+	 * host validation, so it is where hallucinated parameters are observed.
 	 */
-	preparedParams: object;
+	rawParams: object;
+	/** The parameter names this tool declares; anything else is reported, not used. */
+	acceptedParams: readonly string[];
 	/** `research_search` requires an explicit opt-in in the resolved settings. */
 	requireResearch?: boolean;
 }
@@ -183,7 +185,7 @@ export async function executeSearch(
 				throw abortedError(composed.signal.reason);
 			}
 
-			const dropped = droppedParamsWarning(params.preparedParams);
+			const dropped = droppedParamsWarning(params.rawParams, params.acceptedParams);
 			const withNotes: StreamResult = {
 				...raw,
 				scope: params.scope,
@@ -233,11 +235,6 @@ export async function executeSearch(
 	}
 }
 
-/**
- * Fails loudly on hallucinated parameters. A model that sends `top_n` or
- * `path` and has it silently dropped believes a filter ran that never did;
- * a typed error naming the real parameters lets it self-correct immediately.
- */
 function skippedSources(
 	scope: SearchScope,
 	availability: Partial<Record<ProviderKind, boolean>>,

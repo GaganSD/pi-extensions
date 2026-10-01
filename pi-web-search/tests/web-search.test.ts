@@ -19,7 +19,7 @@ import { type StreamResult, providerError } from "../src/providers/types.ts";
 import { CodeSearchSchema, codeSearch } from "../src/code_search.ts";
 import { MCP_PROTOCOL_VERSION } from "../src/providers/mcp.ts";
 import type { FetchLike } from "../src/providers/http.ts";
-import { droppedParamsWarning, prepareSearchArgs } from "../src/utils.ts";
+import { droppedParamsWarning } from "../src/utils.ts";
 import { exaObjective } from "../src/providers/exa.ts";
 import { ResearchSearchSchema, researchSearch } from "../src/research_search.ts";
 import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
@@ -315,34 +315,32 @@ test("research_search fans out in the requested scope", async () => {
 	);
 });
 
-test("an unknown parameter is dropped and reported, not silently ignored", async () => {
+test("an unknown parameter is ignored, reported, and the search still runs", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
-		// The host calls prepareArguments before execute; the search still runs.
-		const cleaned = prepareSearchArgs(["query"])({ query: "parseArgs", top_n: 20, path: "/" });
-		assert.deepEqual(cleaned, { query: "parseArgs" });
-		assert.equal(droppedParamsWarning(cleaned), "Ignored unknown parameters `top_n`, `path`. This tool accepts only the parameters in its schema.");
-
+		// The host leaves undeclared keys in the argument object, so the tool
+		// sees `top_n` here exactly as it does in production.
 		const result = await codeSearch(
 			"call_1",
-			cleaned as { query: string },
+			{ query: "parseArgs", top_n: 20, path: "/" } as unknown as { query: string },
 			undefined,
 			undefined,
 			ctx,
 			{ transports: { grep: async () => SEARCH_RESULT } },
 		);
+
 		assert.equal(result.isError, false, "an extra parameter must not fail the call");
 		assert.match(textOf(result), /Ignored unknown parameters `top_n`, `path`/);
+		assert.equal(result.details.resultCount, SEARCH_RESULT.searchResults?.length);
 	});
 });
 
-test("a declared parameter is never reported as dropped", async () => {
-	const cleaned = prepareSearchArgs(["query", "urls"])({ query: "pi", urls: ["https://a.test/"] });
-	assert.deepEqual(cleaned, { query: "pi", urls: ["https://a.test/"] });
-	assert.equal(droppedParamsWarning(cleaned), undefined);
-});
-
-test("prepareSearchArgs passes non-objects through untouched", () => {
-	assert.equal(prepareSearchArgs(["query"])("not an object"), "not an object");
+test("declared parameters are never reported as dropped", () => {
+	assert.equal(droppedParamsWarning({ query: "pi" }, ["query"]), undefined);
+	assert.equal(droppedParamsWarning({ query: "pi", urls: [] }, ["query", "urls"]), undefined);
+	assert.equal(
+		droppedParamsWarning({ query: "pi", limit: 5 }, ["query"]),
+		"Ignored unknown parameter `limit`. This tool accepts only the parameters in its schema.",
+	);
 });
 
 /** Drives the real grep provider: the no-match warning lives there, not in the transport stub. */
