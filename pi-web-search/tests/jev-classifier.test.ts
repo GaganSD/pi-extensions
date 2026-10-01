@@ -79,6 +79,59 @@ test("missing or malformed classifier answers never become a policy verdict", as
 	}
 });
 
+test("pre-aborted judging never starts catalog or classifier work", async () => {
+	const controller = new AbortController();
+	controller.abort(new Error("cancelled before judging"));
+	let calls = 0;
+	const modelRegistry = {
+		...registry([typesafe]),
+		findOfType: () => { calls++; return typesafe; },
+		getAvailableOfType: async () => { calls++; return [typesafe]; },
+		classify: async () => { calls++; throw new Error("must not classify"); },
+	} as unknown as Registry;
+	await assert.rejects(systemOne(state, questions, { modelRegistry, signal: controller.signal }), /cancelled before judging/);
+	assert.equal(calls, 0);
+});
+
+test("synchronous cancellation during catalog lookup observes its late rejection", async () => {
+	const controller = new AbortController();
+	let classifyCalls = 0;
+	const failures: unknown[] = [];
+	const onUnhandled = (failure: unknown) => failures.push(failure);
+	process.on("unhandledRejection", onUnhandled);
+	try {
+		const modelRegistry = {
+			...registry([typesafe]),
+			getAvailableOfType: () => {
+				controller.abort(new Error("cancelled during availability"));
+				return Promise.reject(new Error("late availability rejection"));
+			},
+			classify: () => { classifyCalls++; throw new Error("must not classify"); },
+		} as unknown as Registry;
+		await assert.rejects(systemOne(state, questions, { modelRegistry, signal: controller.signal }), /cancelled during availability/);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		assert.equal(classifyCalls, 0);
+		assert.deepEqual(failures, []);
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+	}
+});
+
+test("late catalog resolution after deadline cannot launch a classifier", async () => {
+	let resolveAvailability!: (value: typeof typesafe[]) => void;
+	const available = new Promise<typeof typesafe[]>((resolve) => { resolveAvailability = resolve; });
+	let classifyCalls = 0;
+	const modelRegistry = {
+		...registry([typesafe]),
+		getAvailableOfType: () => available,
+		classify: () => { classifyCalls++; throw new Error("must not classify"); },
+	} as unknown as Registry;
+	await assert.rejects(systemOne(state, questions, { modelRegistry, timeoutMs: 25 }), /deadline/);
+	resolveAvailability([typesafe]);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(classifyCalls, 0);
+});
+
 test("uncooperative native classifier is bounded, and caller abort is observed", async () => {
 	const modelRegistry = registry([typesafe], async () => new Promise(() => {}));
 	const started = Date.now();

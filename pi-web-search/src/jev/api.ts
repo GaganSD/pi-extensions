@@ -1,5 +1,6 @@
 import type { ClassifierAnswer, ClassifierQuestion, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { awaitWithSignal } from "../providers/http.ts";
 import { JEV_LEGACY_MODEL, jevUnavailableMessage, selectJevModel, type JevModelOptions } from "./model.ts";
 import type { Candidate } from "./judge.ts";
 
@@ -48,6 +49,8 @@ export async function systemOne(
 	questions: Record<string, JevQuestion>,
 	options: JevOptions,
 ): Promise<JevResponse> {
+	// Do not start catalog or classifier work for an already cancelled search.
+	if (options.signal?.aborted) throw options.signal.reason;
 	const registry = options.modelRegistry;
 	if (!registry) throw new Error("Pi modelRegistry is unavailable");
 	const controller = new AbortController();
@@ -59,6 +62,9 @@ export async function systemOne(
 	try {
 		return await awaitWithSignal((async () => {
 			const model = await selectJevModel(registry, options, controller.signal);
+			// Availability may have resolved after the deadline and after this
+			// outer promise returned; it must never launch a classifier then.
+			controller.signal.throwIfAborted();
 			if (!model) throw new Error(jevUnavailableMessage(options));
 			const nativeQuestions: Record<string, ClassifierQuestion> = {};
 			for (const [id, question] of Object.entries(questions)) {
@@ -86,6 +92,11 @@ export async function systemOne(
 			}
 			return { answers, ...(validUsage(result.usage) ? { usage: result.usage } : {}) };
 		})(), controller.signal);
+	} catch (error) {
+		// The shared awaitWithSignal normalizes abort reasons for HTTP calls;
+		// preserve this optional classifier's original caller/deadline reason.
+		if (controller.signal.aborted) throw controller.signal.reason;
+		throw error;
 	} finally {
 		clearTimeout(timeout);
 		options.signal?.removeEventListener("abort", parentAbort);
@@ -108,22 +119,6 @@ function validUsage(value: Usage | undefined): value is Usage {
 		[value.input, value.output, value.cacheRead, value.cacheWrite, value.totalTokens,
 			value.cost.input, value.cost.output, value.cost.cacheRead, value.cost.cacheWrite,
 			value.cost.total].every((number) => Number.isFinite(number) && number >= 0);
-}
-
-/** Bounds even a registry stub that ignores abort signals (Pi receives the signal too). */
-function awaitWithSignal<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
-	if (signal.aborted) return Promise.reject(signal.reason);
-	return new Promise<T>((resolve, reject) => {
-		const onAbort = () => {
-			signal.removeEventListener("abort", onAbort);
-			reject(signal.reason);
-		};
-		signal.addEventListener("abort", onAbort, { once: true });
-		operation.then(
-			(value) => { signal.removeEventListener("abort", onAbort); resolve(value); },
-			(error) => { signal.removeEventListener("abort", onAbort); reject(error); },
-		);
-	});
 }
 
 export function readNoul(answers: Record<string, JevAnswer>, id: string): number {
