@@ -1,5 +1,37 @@
 # Pi extensions
 
+<div align="center">
+
+```text
+                 .--------------------------.
+                /                          /|
+               +--------------------------+ |
+               | .----------------------. | |
+               | | /> π_                | | |
+               | |                      | | |
+               | |                      | | |
+               | |                      | | |
+               | '----------------------' | |
+               |       [====]  (o)  (*)   |/
+               +--------------------------+
+                          |____|
+                     _____|____|_____
+                    /________________\
+          .----------------------------------------.
+         /                                        /|
+        /  [] [] [] []   [] [] [] []   [] [] []  / |
+       /                                        /  |
+      /  [Q][W][E][R][T][Y][U][I][O][P] [<-]   /   |
+     /   [A][S][D][F][G][H][J][K][L] [ret]    /    /
+    /  [shift][Z][X][C][V][B][N][M] [shift]  /    /
+   /  [ctrl] [alt] [___________] [alt] []   /    /
+  +----------------------------------------+    /
+  |                                        |   /
+  '----------------------------------------'--'
+```
+
+</div>
+
 Three extensions for developers using the [Pi coding agent](https://pi.dev): **Slate** for the terminal workspace, **Ask** for structured decisions, and **Web Search** for public web and code evidence. Choose the package that fits your workflow and follow its setup guide; each can be installed separately.
 
 ## Choose an extension
