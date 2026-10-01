@@ -1,571 +1,190 @@
 import assert from "node:assert/strict";
-import { after, afterEach, beforeEach, test } from "node:test";
-
+import { test } from "node:test";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { applyConfig } from "../src/providers/config.ts";
-import { type FetchLike, type ResponseLike } from "../src/providers/http.ts";
 import type { SearchRequest } from "../src/providers/index.ts";
-import { parallelSearch } from "../src/providers/parallel.ts";
+import { parallelSearch, PARALLEL_MCP_SERVER } from "../src/providers/parallel.ts";
+import { providerError } from "../src/providers/types.ts";
 
-const API_KEY = "test-parallel-key";
-const QUERY = "who won the 2024 physics nobel";
-
-const originalKey = process.env.PARALLEL_API_KEY;
-const originalFetch = globalThis.fetch;
-
-beforeEach(() => {
-	process.env.PARALLEL_API_KEY = API_KEY;
-});
-
-afterEach(() => {
-	restoreKey();
-	globalThis.fetch = originalFetch;
-});
-
-after(() => {
-	restoreKey();
-	globalThis.fetch = originalFetch;
-});
-
-function restoreKey(): void {
-	if (originalKey === undefined) {
-		delete process.env.PARALLEL_API_KEY;
-	} else {
-		process.env.PARALLEL_API_KEY = originalKey;
-	}
-}
-
-interface RecordedCall {
-	url: string;
-	init: Parameters<FetchLike>[1];
-}
-
-function jsonResponse(body: unknown, status = 200): ResponseLike {
-	return {
-		ok: status >= 200 && status < 300,
-		status,
-		headers: { get: () => "application/json" },
-		text: () => Promise.resolve(JSON.stringify(body)),
-	};
-}
-
-function errorResponse(status: number, body: unknown): ResponseLike {
-	return jsonResponse(body, status);
-}
-
-interface ErrorShape {
-	code?: string;
-	status?: number;
-	retryable?: boolean;
-	message?: string;
-}
-
-/** Answers `/v1/search` from `search` and `/v1/extract` from `extract`. */
-function stubFetch(
-	search: () => ResponseLike,
-	extract?: () => ResponseLike,
-): { fetchImpl: FetchLike; calls: RecordedCall[] } {
-	const calls: RecordedCall[] = [];
-	const fetchImpl: FetchLike = (url, init) => {
-		calls.push({ url, init });
-		const respond = url.includes("/v1/extract") ? extract : search;
-		return Promise.resolve(
-			respond ? respond() : jsonResponse({ results: [], errors: [] }),
-		);
-	};
-	return { fetchImpl, calls };
-}
-
-function makeRequest(overrides: Partial<SearchRequest> = {}): SearchRequest {
-	return {
-		query: QUERY,
-		settings: applyConfig("/tmp/web-search.json", {
-			web: { provider: "parallel", fallback: [] },
-		}),
-		...overrides,
-	};
-}
-
-function bodyOf(call: RecordedCall): Record<string, unknown> {
-	return JSON.parse(String(call.init.body)) as Record<string, unknown>;
-}
-
-function searchFixture(overrides: Record<string, unknown> = {}): unknown {
-	return {
-		search_id: "search-123",
-		session_id: "session-abc",
-		results: [
-			{
-				url: "https://example.com/a",
-				title: "Result A",
-				publish_date: "2024-10-03",
-				excerpts: ["first excerpt", "second excerpt"],
-			},
-			{
-				url: "https://example.com/b",
-				title: "Result B",
-				publish_date: "2024-10-05",
-				excerpts: ["b excerpt"],
-			},
-		],
-		warnings: [],
-		usage: [{ name: "search", count: 1 }],
-		...overrides,
-	};
-}
-
-test("a missing PARALLEL_API_KEY fails as missing_credentials with no fetch", async () => {
-	delete process.env.PARALLEL_API_KEY;
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "missing_credentials");
-			assert.equal(error.retryable, false);
-			assert.match(String(error.message), /PARALLEL_API_KEY/);
-			return true;
+const query = "history of MCP native search";
+const searchResult = {
+	search_id: "search-123",
+	results: [
+		{ url: "https://example.test/one", title: "One", publish_date: null, excerpts: ["one excerpt"] },
+		{ url: "https://example.test/two", title: "Two", publish_date: "2026-01-02", excerpts: ["two excerpt"] },
+	],
+	usage: [{ name: "search", count: 1 }],
+};
+type NativeCall = { name: string; args: Record<string, unknown>; signal?: AbortSignal };
+function fixture(
+	handler: (call: NativeCall) => unknown | Promise<unknown> = () => searchResult,
+	sessionId = "conversation-one",
+	modelId?: string,
+) {
+	const calls: NativeCall[] = [];
+	const ctx = {
+		sessionManager: { getSessionId: () => sessionId },
+		model: modelId ? { id: modelId } : undefined,
+		async executeTool(name: string, args: Record<string, unknown>, options?: { signal?: AbortSignal }) {
+			const call = { name, args, signal: options?.signal };
+			calls.push(call);
+			const response = await handler(call);
+			if (response && typeof response === "object" && "isError" in response) return response;
+			return {
+				isError: false,
+				result: {
+					content: [], details: {},
+					structuredContent: { content: [{ type: "text", text: JSON.stringify(response) }] },
+				},
+			};
 		},
-	);
-	assert.equal(stub.calls.length, 0);
-});
+	} as unknown as ExtensionToolContext;
+	return { ctx, calls };
+}
+function request(ctx?: ExtensionToolContext, extra: Partial<SearchRequest> = {}): SearchRequest {
+	return {
+		query,
+		settings: applyConfig("/tmp/web-search.json", { web: { provider: "parallel", fallback: [] } }),
+		...(ctx ? { runtime: ctx } : {}),
+		...extra,
+	};
+}
 
-test("a blank PARALLEL_API_KEY counts as missing", async () => {
-	process.env.PARALLEL_API_KEY = "   ";
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "missing_credentials");
-			return true;
-		},
-	);
-	assert.equal(stub.calls.length, 0);
-});
-
-test("the key is read at call time and trimmed", async () => {
-	process.env.PARALLEL_API_KEY = "  padded-key  ";
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-
-	await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	assert.equal(stub.calls[0].init.headers?.["x-api-key"], "padded-key");
-});
-
-test("posts the GA schema to /v1/search with the documented headers", async () => {
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-
-	await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	assert.equal(stub.calls.length, 1);
-	const call = stub.calls[0];
-	assert.equal(call.url, "https://api.parallel.ai/v1/search");
-	assert.ok(!call.url.includes("/v1beta/"));
-	assert.equal(call.init.method, "POST");
-
-	const headers = call.init.headers ?? {};
-	assert.equal(headers["Content-Type"], "application/json");
-	assert.equal(headers["x-api-key"], API_KEY);
-	assert.equal(headers["Authorization"], undefined);
-	assert.equal(headers["parallel-beta"], undefined);
-
-	assert.deepEqual(bodyOf(call), {
-		objective: QUERY,
-		search_queries: [QUERY],
-		mode: "fast",
-		max_chars_total: 20000,
-		advanced_settings: {
-			max_results: 8,
-			excerpt_settings: { max_chars_per_result: 2500 },
-		},
-	});
-});
-
-test("maps search results into details and sources", async () => {
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-
-	const result = await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
+// Outcome.result.structuredContent is the MCP CallToolResult, not the payload itself.
+test("anonymous native search uses the Pi nested permission pipeline without a key", async () => {
+	const { ctx, calls } = fixture();
+	const result = await parallelSearch(request(ctx));
+	assert.equal(calls[0].name, `mcp__${PARALLEL_MCP_SERVER}__web_search`);
+	assert.deepEqual(Object.keys(calls[0].args).sort(), ["objective", "search_queries", "session_id"]);
+	assert.equal(calls[0].args.objective, query);
+	assert.deepEqual(calls[0].args.search_queries, [query]);
 	assert.equal(result.providerKind, "parallel");
 	assert.equal(result.requestId, "search-123");
-	assert.equal(result.text, "");
-	assert.equal(result.searchResults?.length, 2);
-	assert.equal(result.sources?.length, 2);
+	assert.equal(result.searchResults?.[0].citedText, "one excerpt");
+	assert.deepEqual(result.sources?.[0], { url: "https://example.test/one", title: "One" });
+	assert.deepEqual(result.usage, [{ name: "search", count: 1 }]);
+});
 
-	// Asserted before the deepEqual below because `assert.deepEqual` narrows
-	// its first argument to the literal type of the second.
-	// Search results carry no `type`; only extracted pages do.
-	assert.equal(result.searchResults?.[0].type, undefined);
-	assert.equal(result.searchResults?.[1].type, undefined);
-
-	assert.deepEqual(result.searchResults?.[0], {
-		title: "Result A",
-		url: "https://example.com/a",
-		source: "parallel",
-		pageAge: "2024-10-03",
-		citedText: "first excerpt\nsecond excerpt",
+test("native absence gives actionable failure; never uses a private fallback", async () => {
+	await assert.rejects(parallelSearch(request()), (error: { code: string; message: string }) => {
+		assert.equal(error.code, "tool_error");
+		assert.match(error.message, /built-in MCP.*\/mcp.*\/reload/);
+		return true;
 	});
-	assert.deepEqual(result.sources?.[0], {
-		title: "Result A",
-		url: "https://example.com/a",
-	});
-	assert.deepEqual(result.sources?.[1], {
-		title: "Result B",
-		url: "https://example.com/b",
-	});
+	const { ctx } = fixture(() => ({ isError: true, result: { content: [{ type: "text", text: "Tool not found" }] } }));
+	await assert.rejects(parallelSearch(request(ctx)), /not callable.*\/mcp/);
 });
 
-test("a missing search_id leaves requestId unset", async () => {
-	const stub = stubFetch(() => jsonResponse(searchFixture({ search_id: undefined })));
-
-	const result = await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	assert.equal(result.requestId, undefined);
-	assert.equal(result.searchResults?.length, 2);
+test("stable conversation hash survives separate calls and reload; new conversation changes it", async () => {
+	const a = fixture();
+	const b = fixture();
+	const c = fixture(undefined, "conversation-two", "gpt-5.6-sol");
+	await parallelSearch(request(a.ctx));
+	await parallelSearch(request(a.ctx));
+	await parallelSearch(request(b.ctx));
+	await parallelSearch(request(c.ctx));
+	const id = a.calls[0].args.session_id as string;
+	assert.match(id, /^[a-f0-9]{64}$/);
+	assert.equal(a.calls[1].args.session_id, id);
+	assert.equal(b.calls[0].args.session_id, id);
+	assert.notEqual(c.calls[0].args.session_id, id);
+	assert.equal(c.calls[0].args.model_name, "gpt-5.6-sol");
+	const oversized = fixture(undefined, "conversation-one", "x".repeat(101));
+	await parallelSearch(request(oversized.ctx));
+	assert.equal(oversized.calls[0].args.model_name, undefined);
 });
 
-test("nullable title and publish_date fall back instead of crashing", async () => {
-	const stub = stubFetch(() =>
-		jsonResponse(
-			searchFixture({
-				results: [
-					{
-						url: "https://example.com/null",
-						title: null,
-						publish_date: null,
-						excerpts: [],
-					},
-				],
-			}),
-		),
-	);
-
-	const result = await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	const detail = result.searchResults?.[0];
-	assert.equal(detail?.title, undefined);
-	assert.equal(detail?.pageAge, null);
-	assert.equal(detail?.citedText, "");
-	assert.equal(detail?.url, "https://example.com/null");
-	assert.deepEqual(result.sources?.[0], {
-		title: "https://example.com/null",
-		url: "https://example.com/null",
-	});
-});
-
-test("malformed result entries are skipped rather than throwing", async () => {
-	const stub = stubFetch(() =>
-		jsonResponse(
-			searchFixture({
-				results: [
-					null,
-					"nonsense",
-					{ title: "no url" },
-					{ url: "https://example.com/ok", excerpts: "not-an-array" },
-				],
-			}),
-		),
-	);
-
-	const result = await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	assert.equal(result.searchResults?.length, 1);
-	assert.equal(result.searchResults?.[0].url, "https://example.com/ok");
-	assert.equal(result.searchResults?.[0].citedText, "");
-});
-
-test("passes warnings and usage through", async () => {
-	const stub = stubFetch(() =>
-		jsonResponse(
-			searchFixture({
-				warnings: [
-					{ type: "partial", message: "some sources were skipped" },
-					{ type: "info", message: "truncated to max_results" },
-				],
-				usage: [
-					{ name: "search", count: 1 },
-					{ name: "tokens", count: 4096 },
-				],
-			}),
-		),
-	);
-
-	const result = await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	assert.deepEqual(result.warnings, [
-		"some sources were skipped",
-		"truncated to max_results",
-	]);
-	assert.deepEqual(result.usage, [
-		{ name: "search", count: 1 },
-		{ name: "tokens", count: 4096 },
-	]);
-});
-
-test("an empty search result set still returns a well-formed result", async () => {
-	const stub = stubFetch(() =>
-		jsonResponse(searchFixture({ results: [], warnings: [], usage: [] })),
-	);
-
-	const result = await parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl });
-
-	assert.deepEqual(result.searchResults, []);
-	assert.deepEqual(result.sources, []);
-	assert.equal(result.warnings, undefined);
-	assert.equal(result.usage, undefined);
-	assert.equal(result.requestId, "search-123");
-});
-
-test("urls trigger a second /v1/extract call whose results are appended", async () => {
-	const stub = stubFetch(
-		() => jsonResponse(searchFixture()),
-		() =>
-			jsonResponse({
-				extract_id: "extract-1",
-				results: [
-					{
-						url: "https://example.com/page",
-						title: "Fetched page",
-						publish_date: "2024-01-01",
-						excerpts: ["page excerpt"],
-						full_content: "full page body",
-					},
-				],
-				errors: [
-					{
-						url: "https://example.com/gone",
-						error_type: "not_found",
-						http_status_code: 404,
-						content: "missing",
-					},
-				],
-			}),
-	);
-
-	const result = await parallelSearch(
-		makeRequest({
-			urls: ["https://example.com/page", "https://example.com/gone"],
-		}),
-		{ fetchImpl: stub.fetchImpl },
-	);
-
-	assert.equal(stub.calls.length, 2);
-	assert.equal(stub.calls[1].url, "https://api.parallel.ai/v1/extract");
-	assert.deepEqual(bodyOf(stub.calls[1]), {
-		urls: ["https://example.com/page", "https://example.com/gone"],
-		objective: QUERY,
-		max_chars_total: 20000,
-		advanced_settings: {
-			excerpt_settings: { max_chars_per_result: 2500 },
-		},
-	});
-	// `full_content` is never requested: full-page markdown for up to 20 URLs is a
-	// token bomb, and the objective-aligned excerpt is the signal the model wants.
-	assert.equal(
-		(bodyOf(stub.calls[1]).advanced_settings as Record<string, unknown>).full_content,
-		undefined,
-	);
-
-	assert.equal(result.searchResults?.length, 3);
-	assert.deepEqual(result.searchResults?.[2], {
-		title: "Fetched page",
-		url: "https://example.com/page",
-		source: "parallel",
-		pageAge: "2024-01-01",
-		citedText: "page excerpt",
-		type: "extract",
-	});
-	assert.equal(result.sources?.length, 3);
-	assert.deepEqual(result.sources?.[2], {
-		title: "Fetched page",
-		url: "https://example.com/page",
-	});
-	assert.ok(result.warnings?.includes("https://example.com/gone"));
-});
-
-test("the extract call sends the same api key header", async () => {
-	const stub = stubFetch(
-		() => jsonResponse(searchFixture()),
-		() => jsonResponse({ results: [], errors: [] }),
-	);
-
-	await parallelSearch(
-		makeRequest({ urls: ["https://example.com/page"] }),
-		{ fetchImpl: stub.fetchImpl },
-	);
-
-	assert.equal(stub.calls[1].init.headers?.["x-api-key"], API_KEY);
-	assert.equal(stub.calls[1].init.headers?.["Content-Type"], "application/json");
-});
-
-test("a rejecting extract still returns the search results", async () => {
-	const stub = stubFetch(
-		() => jsonResponse(searchFixture()),
-		() => errorResponse(500, { message: "extract exploded" }),
-	);
-
-	const result = await parallelSearch(
-		makeRequest({ urls: ["https://example.com/page"] }),
-		{ fetchImpl: stub.fetchImpl },
-	);
-
-	assert.equal(stub.calls.length, 2);
-	assert.equal(result.searchResults?.length, 2);
-	assert.equal(result.sources?.length, 2);
-	assert.equal(result.providerKind, "parallel");
-	assert.equal(result.requestId, "search-123");
-	assert.ok(
-		result.warnings?.some((warning) =>
-			warning.startsWith("parallel extract failed:")
-		),
-		`expected an extract failure warning, got ${JSON.stringify(result.warnings)}`,
-	);
-});
-
-test("a rejected extract network call is also reported as a warning", async () => {
-	const calls: RecordedCall[] = [];
-	const fetchImpl: FetchLike = (url, init) => {
-		calls.push({ url, init });
-		if (url.includes("/v1/extract")) {
-			return Promise.reject(new Error("socket hang up"));
-		}
-		return Promise.resolve(jsonResponse(searchFixture()));
-	};
-
-	const result = await parallelSearch(
-		makeRequest({ urls: ["https://example.com/page"] }),
-		{ fetchImpl },
-	);
-
+test("fetch reuses search queries, session and model, clips objective and URL count, preserves requested evidence", async () => {
+	const fetched = { results: [{ url: "https://example.test/page", title: "Page", excerpts: ["page excerpt"], full_content: "do not use" }, { url: "https://example.test/redirected", excerpts: ["redirected"] }], errors: [{ url: "https://example.test/gone" }] };
+	const { ctx, calls } = fixture(({ name }) => name.endsWith("web_fetch") ? fetched : searchResult, "conversation-one", "gpt-5.6-sol");
+	const urls = ["https://example.test/page", "https://example.test/gone", ...Array.from({ length: 20 }, (_, i) => `https://example.test/${i}`)];
+	const output = await parallelSearch(request(ctx, { query: "x".repeat(300), urls }));
 	assert.equal(calls.length, 2);
+	assert.equal(calls[1].name, `mcp__${PARALLEL_MCP_SERVER}__web_fetch`);
+	assert.equal((calls[1].args.urls as string[]).length, 20);
+	assert.equal((calls[1].args.objective as string).length, 200);
+	assert.deepEqual(calls[1].args.search_queries, calls[0].args.search_queries);
+	assert.equal(calls[1].args.session_id, calls[0].args.session_id);
+	assert.equal(calls[1].args.model_name, calls[0].args.model_name);
+	assert.equal(calls[1].args.full_content, false);
+	assert.equal(output.searchResults?.[2].type, "extract");
+	assert.equal(output.searchResults?.[2].citedText, "page excerpt");
+	assert.ok(output.warnings?.includes("https://example.test/gone"));
+	// Preserve the provider's structured extract evidence, including canonical redirects.
+	assert.equal(output.searchResults?.at(-1)?.url, "https://example.test/redirected");
+});
+
+test("confirmed anonymous JSON-in-text search and fetch envelopes normalize without using full_content", async () => {
+	// Reduced from the successful protocol-shape probe in /tmp/pi-parallel-live-envelope.json.
+	const liveSearch = JSON.stringify({ search_id: "search_29a6a2ef56337a3e5dfe89c8248acf21", results: [
+		{ url: "https://nodejs.org/api/globals.html", title: "Global objects | Node.js", publish_date: null, excerpts: ["AbortSignal.timeout(delay)"] },
+	], warnings: null, metadata: null, session_id: "probe-conversation" });
+	const liveFetch = JSON.stringify({ extract_id: "extract_0bc59fb78273baa902cd554a5fde8eb1", results: [
+		{ url: "https://nodejs.org/api/globals.html", title: "Global objects | Node.js", publish_date: "2026-09-21", excerpts: ["Static method: AbortSignal.timeout(delay)"], full_content: null },
+	], errors: [], warnings: null, metadata: null, session_id: "probe-conversation" });
+	const { ctx } = fixture(({ name }) => ({ isError: false, result: { content: [], details: {}, structuredContent: {
+		content: [{ type: "text", text: name.endsWith("web_fetch") ? liveFetch : liveSearch }],
+	} } }));
+	const result = await parallelSearch(request(ctx, { urls: ["https://nodejs.org/api/globals.html"] }));
+	assert.equal(result.requestId, "search_29a6a2ef56337a3e5dfe89c8248acf21");
+	assert.deepEqual(result.searchResults?.map((hit) => hit.citedText), ["AbortSignal.timeout(delay)", "Static method: AbortSignal.timeout(delay)"]);
+	assert.equal(result.searchResults?.[1].pageAge, "2026-09-21");
+	assert.equal(result.warnings, undefined);
+});
+
+test("structured-only MCP results work and maxResults limits search presentation", async () => {
+	const { ctx } = fixture(() => ({ isError: false, result: {
+		content: [], details: {}, structuredContent: { content: [], structuredContent: searchResult },
+	} }));
+	const settings = applyConfig("/tmp/web-search.json", { maxResults: 1 });
+	const result = await parallelSearch(request(ctx, { settings }));
+	assert.equal(result.searchResults?.length, 1);
+});
+
+test("a nonempty array of malformed results is a provider failure, not an empty success", async () => {
+	const { ctx } = fixture(() => ({ results: [{ title: "uncited" }] }));
+	await assert.rejects(parallelSearch(request(ctx)), (e: { code: string }) => e.code === "parse_error");
+});
+
+test("malformed prose cannot invent citations or count as success", async () => {
+	const { ctx } = fixture(() => ({ isError: false, result: { content: [], details: {}, structuredContent: { content: [{ type: "text", text: "Title: Invented URL: https://fake.test" }] } } }));
+	await assert.rejects(parallelSearch(request(ctx)), (e: { code: string }) => e.code === "parse_error");
+});
+
+test("outer permission denial, inner 429 and auth errors remain failures", async () => {
+	for (const [text, code, retryable] of [
+		["Tool execution was blocked: permission denied", "tool_error", false],
+		["HTTP 429 too many requests", "rate_limited", true],
+		["HTTP 401 unauthorized", "http_error", false],
+		["HTTP 422 invalid objective", "http_error", false],
+	] as const) {
+		const { ctx } = fixture(() => ({ isError: true, result: { content: [{ type: "text", text }], details: {}, structuredContent: { content: [{ type: "text", text }], isError: true } } }));
+		await assert.rejects(parallelSearch(request(ctx)), (e: { code: string; retryable: boolean }) => e.code === code && e.retryable === retryable);
+	}
+});
+
+test("inner MCP isError without outer isError is still an actionable failure", async () => {
+	const { ctx } = fixture(() => ({ isError: false, result: { content: [], details: {}, structuredContent: {
+		content: [{ type: "text", text: "HTTP 429 too many requests" }], isError: true,
+	} } }));
+	await assert.rejects(parallelSearch(request(ctx)), (e: { code: string; status: number }) => e.code === "rate_limited" && e.status === 429);
+});
+
+test("failed fetch keeps search citations but caller abort is fatal", async () => {
+	const { ctx } = fixture(({ name }) => name.endsWith("web_fetch") ? { isError: true, result: { content: [{ type: "text", text: "connection dropped" }] } } : searchResult);
+	const result = await parallelSearch(request(ctx, { urls: ["https://example.test/page"] }));
 	assert.equal(result.searchResults?.length, 2);
-	assert.ok(
-		result.warnings?.some((warning) => warning.includes("socket hang up")),
-		`expected the network failure in warnings, got ${JSON.stringify(result.warnings)}`,
-	);
-});
-
-test("no urls means no extract call", async () => {
-	const stub = stubFetch(
-		() => jsonResponse(searchFixture()),
-		() => jsonResponse({ results: [] }),
-	);
-
-	await parallelSearch(
-		makeRequest({ urls: [] }),
-		{ fetchImpl: stub.fetchImpl },
-	);
-
-	assert.equal(stub.calls.length, 1);
-});
-
-test("401 becomes http_error with the status preserved", async () => {
-	const stub = stubFetch(() => errorResponse(401, { message: "invalid api key" }));
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "http_error");
-			assert.equal(error.status, 401);
-			assert.equal(error.retryable, false);
-			return true;
-		},
-	);
-});
-
-test("429 becomes rate_limited and is retryable", async () => {
-	const stub = stubFetch(() => errorResponse(429, { message: "slow down" }));
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "rate_limited");
-			assert.equal(error.status, 429);
-			assert.equal(error.retryable, true);
-			return true;
-		},
-	);
-});
-
-test("422 surfaces the API message so the model can correct itself", async () => {
-	const stub = stubFetch(() =>
-		errorResponse(422, {
-			type: "invalid_request_error",
-			message: "max_results must be between 1 and 20",
-		}),
-	);
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "http_error");
-			assert.equal(error.status, 422);
-			assert.equal(error.retryable, false);
-			assert.match(
-				String(error.message),
-				/max_results must be between 1 and 20/,
-			);
-			return true;
-		},
-	);
-});
-
-test("req.settings.maxResults flows into advanced_settings.max_results", async () => {
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-	const request = makeRequest({
-		settings: applyConfig("/tmp/web-search.json", {
-			web: { provider: "parallel", fallback: [] },
-			maxResults: 3,
-		}),
-	});
-
-	await parallelSearch(request, { fetchImpl: stub.fetchImpl });
-
-	assert.deepEqual(bodyOf(stub.calls[0]).advanced_settings, {
-		max_results: 3,
-		excerpt_settings: { max_chars_per_result: 2500 },
-	});
-});
-
-test("without an injected fetchImpl the default globalThis.fetch is used", async () => {
-	// Exercises http.ts's `options.fetchImpl ?? globalThis.fetch` default
-	// without a network call: the global itself is replaced by a stub.
-	const seen: string[] = [];
-	globalThis.fetch = ((url: string) => {
-		seen.push(url);
-		return Promise.resolve(jsonResponse(searchFixture()));
-	}) as unknown as typeof globalThis.fetch;
-
-	const result = await parallelSearch(makeRequest());
-
-	assert.deepEqual(seen, ["https://api.parallel.ai/v1/search"]);
-	assert.equal(result.providerKind, "parallel");
-	assert.equal(result.searchResults?.length, 2);
-});
-
-test("with no fetch available at all the failure is a retryable network_error", async () => {
-	// No network call happens here: http.ts throws before reaching out.
-	(globalThis as { fetch?: unknown }).fetch = undefined;
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest()),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "network_error");
-			assert.equal(error.retryable, true);
-			assert.match(String(error.message), /No fetch implementation/);
-			return true;
-		},
-	);
-});
-
-test("an abort signal is forwarded to fetch", async () => {
+	assert.match(result.warnings?.join(" ") ?? "", /parallel fetch failed/);
 	const controller = new AbortController();
-	const stub = stubFetch(() => jsonResponse(searchFixture()));
-
-	await parallelSearch(
-		makeRequest({ signal: controller.signal }),
-		{ fetchImpl: stub.fetchImpl },
-	);
-
-	assert.equal(stub.calls[0].init.signal?.aborted, false);
+	const stuck = fixture(() => new Promise(() => {}));
+	const pending = parallelSearch(request(stuck.ctx, { signal: controller.signal }));
+	assert.equal(stuck.calls[0]?.signal, controller.signal);
+	controller.abort(providerError("timeout", "deadline passed"));
+	await assert.rejects(pending, (e: { code: string }) => e.code === "timeout");
+	const fetchAbort = new AbortController();
+	const halfStuck = fixture(({ name }) => name.endsWith("web_fetch") ? new Promise(() => {}) : searchResult);
+	const fetchPending = parallelSearch(request(halfStuck.ctx, { urls: ["https://example.test/one"], signal: fetchAbort.signal }));
+	while (halfStuck.calls.length < 2) await new Promise((resolve) => setImmediate(resolve));
+	fetchAbort.abort();
+	await assert.rejects(fetchPending, (e: { code: string }) => e.code === "aborted");
 });

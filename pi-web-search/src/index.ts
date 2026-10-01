@@ -4,6 +4,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { VERSION } from "@earendil-works/pi-coding-agent";
+import { parallelApiKey } from "./env.ts";
+import { PARALLEL_MCP_SERVER, PARALLEL_MCP_URL } from "./providers/parallel.ts";
 import {
 	type CodeSearchInput,
 	CodeSearchSchema,
@@ -109,8 +111,20 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		renderResult,
 	});
 
-	// Tool exposure and execution use the same research.enabled switch.
+	// Pi gives an explicit same-name mcp.json entry precedence over this registration.
+	// Register at load time only when the configured web/research policy can use it.
 	const registered = resolveSettingsSync();
+	if (!("error" in registered) &&
+		(registered.web.provider === "parallel" || registered.web.fallback.includes("parallel") || registered.researchEnabled)) {
+		const key = parallelApiKey();
+		pi.registerMcpServer(PARALLEL_MCP_SERVER, {
+			url: PARALLEL_MCP_URL,
+			exposure: "codemode-deferred",
+			...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}),
+		});
+	}
+
+	// Tool exposure and execution use the same research.enabled switch.
 	if (!("error" in registered) && registered.researchEnabled) {
 		pi.registerTool<typeof ResearchSearchSchema, WebSearchDetails>({
 			name: "research_search",
@@ -239,7 +253,9 @@ async function buildSettingsReport(): Promise<string> {
 		lines.push(
 			found
 				? `- ${id}: present via ${found.source === "env" ? found.name : "auth.json"}`
-				: `- ${id}: missing — set ${aliases}, or add "${id}" to auth.json`,
+				: id === "parallel"
+					? `- parallel: anonymous MCP needs no key; ${aliases} or auth.json is optional for higher limits`
+					: `- ${id}: missing — set ${aliases}, or add "${id}" to auth.json`,
 		);
 	}
 	lines.push(
@@ -247,7 +263,8 @@ async function buildSettingsReport(): Promise<string> {
 		"Setup:",
 		"- Secrets live in Pi's <agent-dir>/auth.json (or the env aliases above; env always overrides).",
 		"- Nonsecret settings live in web-search.json; see the repo README for the full example.",
-		"- Run /reload after changing tool exposure (research_search); credentials refresh automatically.",
+		"- Parallel native MCP is keyless by default; check /mcp for connection status or a same-name mcp.json override.",
+		"- Run /reload after changing research_search exposure or a Parallel credential (its MCP header is captured at registration).",
 		"- Install from a repository checkout: pi install ./pi-web-search",
 		"- After an npm release is available: pi install npm:@gagansd/pi-web-search",
 	);

@@ -337,11 +337,10 @@ test("a whitespace-only key is not a credential", () => {
 	process.env.PARALLEL_API_KEY = "   ";
 	process.env.GH_TOKEN = "\t\n";
 	try {
-		// Otherwise the transport throws missing_credentials non-retryably,
-		// which suppresses the fallback the key was meant to enable.
+		// A blank key is not an authenticated connection, but anonymous MCP stays available.
 		assert.equal(hasParallelKey(), false);
 		assert.equal(hasGitHubToken(), false);
-		assert.equal(providerAvailability().parallel, false);
+		assert.equal(providerAvailability().parallel, true);
 		assert.equal(providerAvailability().github, false);
 	} finally {
 		restore();

@@ -2,6 +2,7 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ExtensionContext,
+	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { augmentResults } from "./jev/augment.ts";
@@ -124,7 +125,7 @@ export async function executeSearch(
 	params: ExecuteSearchParams,
 	signal: AbortSignal | undefined,
 	onUpdate: AgentToolUpdateCallback<WebSearchDetails> | undefined,
-	_ctx: ExtensionContext,
+	ctx: ExtensionContext,
 	options: RunSearchOptions = {},
 ): Promise<AgentToolResult<WebSearchDetails>> {
 	const progress = createProgressObserver(onUpdate, signal);
@@ -170,6 +171,8 @@ export async function executeSearch(
 					progress.emit(text);
 				},
 				settings: resolved,
+				...(typeof (ctx as Partial<ExtensionToolContext>).executeTool === "function"
+					? { runtime: ctx as ExtensionToolContext } : {}),
 			};
 
 			const availability = options.availability ?? providerAvailability();

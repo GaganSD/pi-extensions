@@ -14,6 +14,7 @@ import { CREDENTIAL_ENV_ALIASES, disableStoredCredentials, enableStoredCredentia
 import type { WebSearchDetails } from "../src/format.ts";
 import webSearchExtension, { assertSupportedPiVersion } from "../src/index.ts";
 import { CONFIG_PATH_ENV_VAR } from "../src/providers/config.ts";
+import { PARALLEL_MCP_SERVER, PARALLEL_MCP_URL } from "../src/providers/parallel.ts";
 
 test("host version gate rejects older and malformed versions, without fallback", () => {
 	for (const version of ["0.85.1", "0.98.99", "0.99.0-preview", "v0.98.0", "unknown", "", "0.99", "00.99.0"]) {
@@ -67,6 +68,7 @@ interface Registration {
 	tools: RegisteredTool[];
 	commands: RegisteredCommand[];
 	messages: Array<{ customType: string; content: string; display: boolean }>;
+	servers: Array<{ name: string; config: { url: string; exposure: string; headers?: Record<string, string> } }>;
 }
 
 /**
@@ -76,18 +78,24 @@ interface Registration {
 async function loadExtension(
 	config: string | undefined,
 	run: (registration: Registration, dir: string) => Promise<void> | void,
+	storedAuth?: unknown,
 ): Promise<void> {
 	const dir = await mkdtemp(join(tmpdir(), "pi-web-search-register-"));
 	const configPath = join(dir, "web-search.json");
 	if (config !== undefined) {
 		await writeFile(configPath, config, "utf-8");
 	}
+	if (storedAuth !== undefined) await writeFile(join(dir, "auth.json"), JSON.stringify(storedAuth));
 	const previous = process.env[CONFIG_PATH_ENV_VAR];
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	process.env[CONFIG_PATH_ENV_VAR] = configPath;
+	process.env.PI_CODING_AGENT_DIR = dir;
 	const tools: RegisteredTool[] = [];
 	const commands: RegisteredCommand[] = [];
 	const messages: Registration["messages"] = [];
+	const servers: Registration["servers"] = [];
 	const pi = {
+		registerMcpServer: (name: string, config: Registration["servers"][number]["config"]) => servers.push({ name, config }),
 		sendMessage: (message: Registration["messages"][number]) => messages.push(message),
 		registerTool: (tool: RegisteredTool) => {
 			tools.push(tool);
@@ -98,7 +106,7 @@ async function loadExtension(
 	};
 	try {
 		webSearchExtension(pi as never);
-		await run({ tools, commands, messages }, dir);
+		await run({ tools, commands, messages, servers }, dir);
 	} finally {
 		disableStoredCredentials();
 		if (previous === undefined) {
@@ -106,6 +114,8 @@ async function loadExtension(
 		} else {
 			process.env[CONFIG_PATH_ENV_VAR] = previous;
 		}
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
 		await rm(dir, { recursive: true, force: true });
 	}
 }
@@ -117,7 +127,8 @@ function names(registration: Pick<Registration, "tools" | "commands">): string[]
 const ctx = {} as unknown as ExtensionContext;
 
 test("a missing config registers web_search and code_search, not research_search", async () => {
-	await loadExtension(undefined, ({ tools, commands }) => {
+	await loadExtension(undefined, ({ tools, commands, servers }) => {
+		assert.equal(servers[0]?.name, PARALLEL_MCP_SERVER);
 		assert.deepEqual(names({ tools, commands }), ["web_search", "code_search"]);
 		assert.ok(commands.some((command) => command.name === "web-search-settings"));
 		for (const tool of tools) {
@@ -158,6 +169,53 @@ test("research.enabled=true registers research_search", async () => {
 			]);
 		},
 	);
+});
+
+test("Parallel registration is anonymous by default, or Bearer when a key already exists", async () => {
+	const oldKey = process.env.PARALLEL_API_KEY;
+	try {
+		delete process.env.PARALLEL_API_KEY;
+		await loadExtension("{}", async ({ servers, commands }) => {
+			assert.deepEqual(servers, [{ name: PARALLEL_MCP_SERVER, config: { url: PARALLEL_MCP_URL, exposure: "codemode-deferred" } }]);
+			let report = "";
+			await commands[0].handler("", { hasUI: true, ui: { notify: (text) => { report = text; } } });
+			assert.match(report, /parallel: anonymous MCP needs no key/);
+			assert.match(report, /\/reload after changing.*Parallel credential/);
+		});
+		process.env.PARALLEL_API_KEY = "  configured-key  ";
+		await loadExtension("{}", ({ servers }) => {
+			assert.deepEqual(servers[0]?.config.headers, { Authorization: "Bearer configured-key" });
+		});
+		delete process.env.PARALLEL_API_KEY;
+		await loadExtension("{}", ({ servers }) => {
+			assert.deepEqual(servers[0]?.config.headers, { Authorization: "Bearer stored-key" });
+		}, { parallel: { type: "api_key", key: "stored-key" } });
+		await loadExtension(JSON.stringify({ web: { provider: "exa", fallback: [] } }), ({ servers }) => {
+			assert.deepEqual(servers, []);
+		});
+	} finally {
+		if (oldKey === undefined) delete process.env.PARALLEL_API_KEY;
+		else process.env.PARALLEL_API_KEY = oldKey;
+	}
+});
+
+test("registered web_search forwards the live tool context through the native pipeline", async () => {
+	await loadExtension(JSON.stringify({ web: { provider: "parallel", fallback: [] } }), async ({ tools }) => {
+		const seen: string[] = [];
+		const runtime = {
+			sessionManager: { getSessionId: () => "session-registration" },
+			executeTool: async (name: string) => {
+				seen.push(name);
+				return { isError: false, result: { content: [], details: {}, structuredContent: {
+					content: [{ type: "text", text: JSON.stringify({ results: [{ url: "https://example.test", title: "Evidence", excerpts: ["citation"] }] }) }],
+				} } };
+			},
+		} as unknown as ExtensionContext;
+		const result = await tools[0].execute("call-1", { query: "native path" }, undefined, undefined, runtime);
+		assert.deepEqual(seen, [`mcp__${PARALLEL_MCP_SERVER}__web_search`]);
+		assert.equal(result.isError, false);
+		assert.equal(result.details.searchResults?.[0].citedText, "citation");
+	});
 });
 
 test("research.enabled=false does not register research_search", async () => {

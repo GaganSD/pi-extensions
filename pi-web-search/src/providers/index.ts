@@ -1,4 +1,4 @@
-import type { AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
+import type { AgentToolUpdateCallback, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
 import { awaitWithSignal } from "./http.ts";
@@ -20,6 +20,8 @@ export interface SearchRequest {
 	signal?: AbortSignal;
 	onUpdate?: AgentToolUpdateCallback;
 	settings: ResolvedSettings;
+	/** Present only for registered Pi tools; forwarded per operation, never cached. */
+	runtime?: ExtensionToolContext;
 }
 
 /** What a transport gets; identical to SearchRequest so transports stay thin. */
@@ -39,13 +41,13 @@ export interface RunSearchOptions {
 }
 
 /**
- * Credential knowledge at the registry level. Exa and grep.app are keyless
- * (hosted MCP). Parallel and GitHub always need an API key.
+ * Capability knowledge at the registry level. Parallel's native MCP server
+ * is anonymous by default; connection errors surface from the host call.
  */
 export function providerAvailability(): Record<ProviderKind, boolean> {
 	return {
 		exa: true,
-		parallel: hasParallelKey(),
+		parallel: true,
 		grep: true,
 		github: hasGitHubToken(),
 	};
@@ -334,13 +336,15 @@ export async function runParallelSearch(
 function describeNoCredentials(target: ProviderFamily = "web"): string {
 	const hint = target === "code"
 		? "Set GITHUB_TOKEN to enable the GitHub code-search fallback."
-		: "Set PARALLEL_API_KEY for the Parallel web fallback, or EXA_API_KEY for keyed Exa.";
-	return `No ${target} provider has credentials. ${hint}`;
+		: "Enable Parallel's native MCP server in Pi (/mcp), or configure Exa.";
+	return target === "web"
+		? `No web provider is available. ${hint}`
+		: `No code provider has credentials. ${hint}`;
 }
 
 /**
  * Real transports are loaded lazily so the registry stays usable with injected
- * fakes and never forces the MCP/REST modules to load in offline tests. A
+ * fakes and never forces the provider modules to load in offline tests. A
  * transport that is missing or throws on import is simply left out of the map,
  * so the chain skips that provider instead of failing the whole search.
  */

@@ -33,7 +33,7 @@ function result(kind: ProviderKind, marker: string): StreamResult {
 	return { text: marker, providerKind: kind, sources: [] };
 }
 
-/** The chain only includes Parallel when a key exists, so pin availability. */
+/** Explicit availability overrides isolate routing tests from native host state. */
 const bothAvailable = { exa: true, parallel: true };
 
 function fakeResponse(
@@ -56,7 +56,7 @@ test("chain order is [provider, ...fallback]", () => {
 	}), ["parallel", "exa"]);
 });
 
-test("a missing PARALLEL_API_KEY leaves the chain as [exa]", () => {
+test("a missing PARALLEL_API_KEY retains the keyless native Parallel fallback", () => {
 	// Snapshot the whole credential alias set this assertion depends on, so an
 	// operator's populated environment cannot change the result.
 	const previousParallel = process.env.PARALLEL_API_KEY;
@@ -68,13 +68,13 @@ test("a missing PARALLEL_API_KEY leaves the chain as [exa]", () => {
 	try {
 		assert.deepEqual(providerAvailability(), {
 			exa: true,
-			parallel: false,
+			parallel: true,
 			// grep.app is keyless; GitHub needs a token that is absent here.
 			grep: true,
 			github: false,
 		});
 		// Code sources are keyless/available but must never join a web chain.
-		assert.deepEqual(resolveProviderChain(settings), ["exa"]);
+		assert.deepEqual(resolveProviderChain(settings), ["exa", "parallel"]);
 	} finally {
 		restoreEnv("PARALLEL_API_KEY", previousParallel);
 		restoreEnv("GITHUB_TOKEN", previousGitHub);
