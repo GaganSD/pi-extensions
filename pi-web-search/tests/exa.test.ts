@@ -776,7 +776,10 @@ test("results that merely mention 429 or rate limits are kept", async () => {
 });
 
 test("a rate-limited fetch warns and keeps the search results", async () => {
-	const { fetchImpl } = mcpFetch([MCP_SEARCH_TEXT, "HTTP 429 too many requests"]);
+	const { fetchImpl } = mcpFetch([
+		MCP_SEARCH_TEXT,
+		"You've hit Exa's free MCP rate limit (HTTP 429). Create your own Exa API key.",
+	]);
 
 	const result = await withoutKey(() =>
 		exaSearch({ ...request(), urls: ["https://example.com/a"] }, { fetchImpl }),
@@ -789,8 +792,8 @@ test("a rate-limited fetch warns and keeps the search results", async () => {
 test("a padded or anchor-bearing refusal is still recognised", async () => {
 	// The earlier shape test (length cap + anchor check) let both of these
 	// through as fake results, which is the defect being fixed.
-	const padded = "rate limit ".repeat(60);
-	const withAnchor = "Too many requests.\nURL: https://exa.ai/pricing\nPlease upgrade your plan.";
+	const padded = `${"You have hit a limit. ".repeat(20)}Exa rate limit reached; create your own Exa API key.`;
+	const withAnchor = "Too many requests.\nURL: https://exa.ai/pricing\nUpgrade: create an Exa API key.";
 
 	for (const reply of [padded, withAnchor]) {
 		const { fetchImpl } = mcpFetch([reply]);
@@ -813,4 +816,61 @@ test("a real result page keeps its content even when every hit is thin", async (
 
 	assert.ok((result.searchResults?.length ?? 0) >= 1);
 	assert.notEqual(result.searchResults?.[0].type, "unparsed");
+});
+
+test("a fetched page about rate limits is kept, not read as a refusal", async () => {
+	// Regression: the fetch path passed no parsed content to the check, so any
+	// page mentioning 429 was dropped and the caller silently lost the body.
+	const { fetchImpl } = mcpFetch([
+		MCP_SEARCH_TEXT,
+		"# Rate limits\nURL: https://example.com/a\nThis page explains the 429 status and the rate limit header.\n",
+	]);
+
+	const result = await withoutKey(() =>
+		exaSearch({ ...request(), urls: ["https://example.com/a"] }, { fetchImpl }),
+	);
+
+	const fetched = result.searchResults?.filter((r) => r.url === "https://example.com/a") ?? [];
+	assert.ok(fetched.length > 0, "the requested page must survive");
+	assert.notEqual(fetched[0].type, "unparsed");
+	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /was rate-limited/);
+});
+
+test("a long page mentioning quota is kept", async () => {
+	const { fetchImpl } = mcpFetch([
+		MCP_SEARCH_TEXT,
+		`URL: https://example.com/quota\n${"This page documents quota behaviour in detail. ".repeat(20)}\n`,
+	]);
+
+	const result = await withoutKey(() =>
+		exaSearch({ ...request(), urls: ["https://example.com/quota"] }, { fetchImpl }),
+	);
+
+	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /was rate-limited/);
+});
+
+test("results whose wording matches but which name no service are kept", async () => {
+	const { fetchImpl } = mcpFetch([
+		"Title: Handling 429 responses\nURL: https://a.test/429\n\nTitle: Retry later\nURL: https://b.test/retry\n",
+	]);
+
+	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
+
+	assert.equal(result.providerKind, "exa");
+	assert.equal(result.searchResults?.length, 2);
+});
+
+test("the service marker does not match inside ordinary words", async () => {
+	// "example.com" and "exact" contain the letters of the service name; only a
+	// standalone token identifies a refusal.
+	const { fetchImpl } = mcpFetch([
+		MCP_SEARCH_TEXT,
+		"URL: https://example.com/quota\nThe exact quota numbers for every plan are listed here.\n",
+	]);
+
+	const result = await withoutKey(() =>
+		exaSearch({ ...request(), urls: ["https://example.com/quota"] }, { fetchImpl }),
+	);
+
+	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /was rate-limited/);
 });

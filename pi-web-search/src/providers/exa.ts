@@ -302,7 +302,10 @@ async function keylessSearch(
 			// and the family would never fall back to parallel. Only trust it
 			// when there is nothing to show: a real result page routinely
 			// contains the words "rate limit" or "429".
-			if (isRateLimitRefusal(searchOutcome.value, parsed)) {
+			const hasSearchContent = parsed.some(
+				(result) => (result.citedText ?? "").trim().length > 0,
+			);
+			if (isRateLimitRefusal(searchOutcome.value, hasSearchContent)) {
 				await fetchPromise;
 				throw providerError(
 					"rate_limited",
@@ -331,12 +334,16 @@ async function keylessSearch(
 				return base;
 			}
 			// A throttled fetch never invalidates the search that succeeded
-			// alongside it, so this warns and returns the results we have.
-			if (isRateLimitRefusal(fetchOutcome.value, [])) {
+			// alongside it, so this warns and returns the results we have. The
+			// parsed pages are the content signal: a real page is never a refusal.
+			const pages = parseExaFetchText(fetchOutcome.value);
+			const hasPageContent = pages.results.some(
+				(page) => (page.citedText ?? "").trim().length > 0,
+			);
+			if (isRateLimitRefusal(fetchOutcome.value, hasPageContent)) {
 				warnings.push("Exa URL fetch was rate-limited by the keyless endpoint; search results are unaffected.");
 				return base;
 			}
-			const pages = parseExaFetchText(fetchOutcome.value);
 			warnings.push(...pages.warnings);
 			const requested = requestedContents(pages.results, fetched.urls, warnings);
 			for (const url of fetched.urls) {
@@ -535,17 +542,18 @@ function describeError(prefix: string, error: unknown): string {
 	return `${prefix} failed: ${message}`;
 }
 
-/** Keyless Exa MCP answers a quota refusal in-band, with HTTP success. */
-const RATE_LIMIT_RE =
-	/rate limit|rate-limited|too many requests|\b429\b|quota|temporarily unavailable/i;
-
 /**
- * A refusal is rate-limit wording attached to a reply that yielded no usable
- * text. Content is the discriminator, not wording: searching for "429" or "rate
- * limit" is normal work and must survive, while a refusal carries nothing worth
- * showing whatever its length or formatting.
+ * A keyless refusal arrives in-band with HTTP success, so it would be rendered
+ * as a result unless recognised. The signature is deliberately narrow: the
+ * reply must name the service as well as the symptom, and carry no usable
+ * content. Pages *about* rate limits are ordinary results — and silently
+ * dropping a fetched page is worse than showing an unparsed message, so the
+ * error is biased toward saying nothing.
  */
-function isRateLimitRefusal(reply: string, parsed: SearchResultDetail[]): boolean {
-	const hasContent = parsed.some((r) => (r.citedText ?? "").trim().length > 0);
-	return !hasContent && RATE_LIMIT_RE.test(reply);
+const SERVICE_RE = /\bexa\b/i;
+const REFUSAL_RE =
+	/rate limit|too many requests|\b429\b|quota|temporarily unavailable|api key|upgrade/i;
+
+function isRateLimitRefusal(reply: string, hasContent: boolean): boolean {
+	return !hasContent && SERVICE_RE.test(reply) && REFUSAL_RE.test(reply);
 }
