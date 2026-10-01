@@ -146,8 +146,9 @@ export interface ComposedSignal {
 }
 
 /**
- * Composes the caller's signal with a timeout timer so the timer is always
- * cleared and no listener is left behind.
+ * Keeps pending work alive until its deadline, even if the transport has no
+ * event-loop handles. Callers must dispose on completion to release the timer
+ * and detach the caller's abort listener.
  */
 export function withTimeout(
 	signal: AbortSignal | undefined,
@@ -174,7 +175,6 @@ export function withTimeout(
 					abort(timeoutError(timeoutMs));
 				}, timeoutMs)
 			: undefined;
-	timer?.unref?.();
 
 	return {
 		signal: controller.signal,

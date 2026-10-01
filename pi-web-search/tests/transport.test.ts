@@ -99,13 +99,6 @@ function openSseResponse(chunks: string[], onCancel: () => void | Promise<void>)
 	}), { headers: { "Content-Type": "text/event-stream" } });
 }
 
-async function withTestKeepAlive<T>(run: () => Promise<T>): Promise<T> {
-	// Production deadline timers are unref'ed; keep this intentionally open
-	// fake stream alive until the request's timeout has fired if it regresses.
-	const timer = setInterval(() => {}, 1000);
-	try { return await run(); } finally { clearInterval(timer); }
-}
-
 test("postSseJson completes a framed correlated reply without waiting for SSE EOF", async () => {
 	let cancelled = false;
 	const expected = { jsonrpc: "2.0", id: 7, result: { text: "café" } };
@@ -119,26 +112,26 @@ test("postSseJson completes a framed correlated reply without waiting for SSE EO
 		},
 		cancel() { cancelled = true; },
 	});
-	const result = await withTestKeepAlive(() => postSseJson("https://mcp.test", {
+	const result = await postSseJson("https://mcp.test", {
 		body: {},
 		timeoutMs: 500,
 		selectMessage: (value) => (value as { id?: number })?.id === 7,
 		fetchImpl: async () => new Response(stream, { headers: { "Content-Type": "text/event-stream" } }),
-	}));
+	});
 	assert.deepEqual(result, expected);
 	assert.equal(cancelled, true, "unused SSE tail must be cancelled");
 });
 
 test("postSseJson waits for a full frame rather than accepting partial SSE data", async () => {
 	let cancelled = false;
-	await assert.rejects(withTestKeepAlive(() => postSseJson("https://mcp.test", {
+	await assert.rejects(postSseJson("https://mcp.test", {
 		body: {},
 		timeoutMs: 20,
 		selectMessage: (value) => (value as { id?: number })?.id === 7,
 		fetchImpl: async () => openSseResponse([
 			`data: ${JSON.stringify({ jsonrpc: "2.0", id: 7, result: {} })}\n`,
 		], () => { cancelled = true; }),
-	})), (error: unknown) => {
+	}), (error: unknown) => {
 		assert.equal((error as { code: string }).code, "timeout");
 		return true;
 	});
@@ -150,14 +143,14 @@ test("postSseJson handles comments, malformed frames and multiline or bare JSON 
 		'event: message\ndata: {"id":7,\ndata: "result":{}}\n\n',
 		'event: message\n{"id":7,"result":{}}\n\n',
 	]) {
-		const result = await withTestKeepAlive(() => postSseJson("https://mcp.test", {
+		const result = await postSseJson("https://mcp.test", {
 			body: {},
 			timeoutMs: 500,
 			selectMessage: (value) => (value as { id?: number })?.id === 7,
 			fetchImpl: async () => openSseResponse([
 				": keepalive\n\n", "data: broken JSON\n\n", reply,
 			], () => {}),
-		}));
+		});
 		assert.deepEqual(result, { id: 7, result: {} });
 	}
 });
@@ -208,7 +201,7 @@ test("postSseJson without a selector retains last-frame-at-EOF behavior", async 
 
 test("postSseJson retains the byte cap while seeking a correlated SSE reply", async () => {
 	let cancelled = false;
-	await assert.rejects(withTestKeepAlive(() => postSseJson("https://mcp.test", {
+	await assert.rejects(postSseJson("https://mcp.test", {
 		body: {},
 		timeoutMs: 80,
 		maxResponseBytes: 64,
@@ -217,7 +210,7 @@ test("postSseJson retains the byte cap while seeking a correlated SSE reply", as
 			frame({ jsonrpc: "2.0", method: "notifications/progress", params: { text: "x".repeat(100) } }),
 			frame({ jsonrpc: "2.0", id: 7, result: {} }),
 		], () => { cancelled = true; }),
-	})), (error: unknown) => {
+	}), (error: unknown) => {
 		assert.equal((error as { code: string }).code, "parse_error");
 		assert.match((error as Error).message, /byte response cap/);
 		return true;
@@ -306,17 +299,15 @@ test("mcp preserves tool replies and RPC errors on open SSE streams", async () =
 		});
 		await client.initialize();
 		try {
-			await withTestKeepAlive(async () => {
-				if ("error" in reply) {
-					await assert.rejects(client.callTool("t", {}), (error: unknown) => {
-						assert.equal((error as { code: string }).code, "rpc_error");
-						assert.equal((error as { rpcCode: number }).rpcCode, -32603);
-						return true;
-					});
-				} else {
-					assert.equal(await client.callTool("t", {}), "the answer");
-				}
-			});
+			if ("error" in reply) {
+				await assert.rejects(client.callTool("t", {}), (error: unknown) => {
+					assert.equal((error as { code: string }).code, "rpc_error");
+					assert.equal((error as { rpcCode: number }).rpcCode, -32603);
+					return true;
+				});
+			} else {
+				assert.equal(await client.callTool("t", {}), "the answer");
+			}
 			assert.equal(cancelled, true);
 		} finally { await client.close(); }
 	}
