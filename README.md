@@ -1,27 +1,32 @@
-# pi-extensions
+# Pi extensions
 
-Monorepo of extensions I've built for the Pi Coding Agent Harness
+Extensions for the [Pi coding agent](https://pi.dev).
 
 | Package | Description | Install |
-| --- |---| --- |
-| [pi-slate](./pi-slate) | Minimal vertical-first TUI with graphics, observability, and context controls | `pi install npm:pi-slate` |
-| [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
-| [pi-web-search](./pi-web-search) | Web + public code search for Pi, cited results, keyless by default | `pi install npm:@gagansd/pi-web-search` |
+| --- | --- | --- |
+| [pi-slate](./pi-slate) | Terminal UI with Kitty graphics, context controls, and observability | `pi install npm:pi-slate` |
+| [pi-ask](./pi-ask) | Interactive questions for the human operator | `pi install npm:@gagansd/pi-ask` |
+| [pi-web-search](./pi-web-search) | Cited web and public-code search, with keyless defaults and opt-in research | `pi install npm:@gagansd/pi-web-search` |
 
-| Folder | Status |
-| --- | --- |
-| [pi-jev-tool-output-compact] | beta-testing |
-| [pi-subagents](./pi-subagents) | beta-testing|
-| [pi-canvas-mode](./pi-canvas-mode) | TODO |
+See each package's README for requirements, configuration, and development commands. Packages live directly in this repository; each has its own manifest and tests. The root manifest loads all three extensions when this repository is installed as a Pi package.
 
-## External
+`pi-subagents/` and `pi-canvas-mode/` are placeholders, not installable packages.
 
-Few third-party sources
+## Development
 
-| Package | Install |
-| --- | --- |
-| pi-context-view | `npm:pi-context-view` | (TODO: Merge this with pi-slate)
-| pi-subagents | `npm:pi-subagents` |
-| pi-web-search | `npm:pi-web-search` | (Replaced by [pi-web-search](./pi-web-search) in this repo: same tool, Exa + Parallel only, no key needed)
-| @narumitw/pi-plan-mode | `npm:@narumitw/pi-plan-mode` | (TODO: replace with canvas mode with tldraw support)
-| ponytail | `git:github.com/DietrichGebert/ponytail` | (TODO: Move to /prompts)
+Install development dependencies in each package with `npm ci --prefix <package>`, then run:
+
+```bash
+npm test
+npm run typecheck
+```
+
+## Recommended third-party tools
+
+- [pi-context-view](https://www.npmjs.com/package/pi-context-view): context usage inspection.
+- [pi-subagents](https://www.npmjs.com/package/pi-subagents): delegated agent workflows.
+- [pi-plan-mode](https://www.npmjs.com/package/@narumitw/pi-plan-mode): implementation planning.
+
+## License
+
+MIT — [Gagan Devagiri](https://github.com/GaganSD).

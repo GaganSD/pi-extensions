@@ -1,6 +1,6 @@
 {
   "name": "pi-slate",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Quiet Pi TUI: header, footer, sidebar, and a muted dark theme.",
   "type": "module",
   "license": "MIT",
@@ -16,7 +16,12 @@
     "sidebar",
     "theme"
   ],
-  "homepage": "https://www.npmjs.com/package/pi-slate",
+  "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-slate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GaganSD/pi-extensions.git",
+    "directory": "pi-slate"
+  },
   "files": [
     "assets",
     "extensions",
@@ -53,6 +58,6 @@
     "themes": [
       "./themes/*.json"
     ],
-    "image": "https://cdn.jsdelivr.net/npm/pi-slate@0.1.6/assets/slate-overview.png"
+    "image": "https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-overview.png"
   }
 }
