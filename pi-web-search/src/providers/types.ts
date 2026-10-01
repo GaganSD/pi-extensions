@@ -78,7 +78,6 @@ export interface StreamResult {
 const CODES = [
 	"missing_credentials",
 	"invalid_config",
-	"invalid_arguments",
 	"http_error",
 	"rate_limited",
 	"network_error",

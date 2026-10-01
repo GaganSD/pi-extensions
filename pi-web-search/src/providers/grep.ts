@@ -51,32 +51,32 @@ export async function grepSearch(
 	);
 
 	const results = parseGrepSearchText(text, req.settings.maxResults);
-	// Zero hits are a real answer, not a result to render. Wrapping grep.app's
-	// "No results found" text as a hit made an empty search look like one
-	// result and told the model nothing about why. Warnings carry the
-	// explanation instead; the raw upstream text is kept only when it is
-	// something other than the plain no-match message (an upstream error).
-	const usable = results;
-	const noMatch = results.length === 0;
+	// Zero hits are a real answer, not a result to render: wrapping
+	// grep.app's "No results found" text as a hit made an empty search look
+	// like one result and said nothing about why. An empty parse is not
+	// always a no-match though, so the warning distinguishes the cases rather
+	// than asserting a negative the tool cannot know.
 	const upstream = text.trim();
-	const noMatchWarnings = noMatch
-		? [
-			parsed.repo !== undefined
-				? `grep.app found no matches in repo:${parsed.repo}. That repository may not be indexed; retry without the repo: qualifier or with web_search.`
-				: "grep.app found no matches. Retry with a shorter literal identifier (not a sentence), or drop repo:/language: qualifiers.",
-			...(upstream.length > 0 && upstream !== NO_MATCH_TEXT
-				? [`grep.app returned: ${upstream.slice(0, 200)}`]
-				: []),
-		]
-		: [];
+	const noMatchWarnings =
+		results.length > 0
+			? []
+			: upstream.length === 0
+				? ["grep.app returned an empty reply."]
+				: /no results found/i.test(upstream)
+					? [
+						parsed.repo !== undefined
+							? `grep.app found no matches in repo:${parsed.repo}. That repository may not be indexed; retry without the repo: qualifier, or with a shorter literal identifier.`
+							: "grep.app found no matches. Retry with a shorter literal identifier (not a sentence), or drop repo:/language: qualifiers.",
+					]
+					: [`grep.app replied with content this tool could not parse: ${excerpt(upstream)}`];
 
 	const allWarnings = [...warnings, ...noMatchWarnings];
 
 	return {
 		text: "",
 		providerKind: "grep",
-		sources: sourcesFromResults(usable),
-		searchResults: usable,
+		sources: sourcesFromResults(results),
+		searchResults: results,
 		requestId: "mcp",
 		...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
 	};
@@ -275,5 +275,10 @@ function unquote(value: string): string {
 const LANGUAGE_FILTER_WARNING =
 	"grep.app's language filter is unreliable and may have returned no matches; treat zero results with a language filter as inconclusive.";
 
-/** grep.app's plain zero-hit reply; not worth echoing back to the model. */
-const NO_MATCH_TEXT = "No results found for your query.";
+/** One bounded single-line excerpt: upstream errors carry newlines and control bytes. */
+function excerpt(text: string, max = 200): string {
+	const flat = Array.from(
+		text.replace(/[\u0000-\u001f\u007f]/gu, " ").replace(/\s+/gu, " ").trim(),
+	);
+	return flat.length > max ? `${flat.slice(0, max).join("")}\u2026` : flat.join("");
+}

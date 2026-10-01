@@ -1,76 +1,94 @@
 # pi-web-search
 
-Search tools for the [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent). They call search APIs directly, so they work with any model and return cited documents.
+**Search the web and public code from Pi, with citations.** One extension,
+three tools, keyless by default.
 
-## Tools
+`pi-web-search` gives your agent real search: documentation lookups, current
+events, and literal code in public repositories. Every result comes back
+cited, so the model can show its work instead of guessing.
 
-| Tool | Registered | What it does |
-| --- | --- | --- |
-| `web_search` | always | Documentation, prose, and current events on the public web. Optionally retrieves supplied `urls`. |
-| `code_search` | always | Literal identifiers and snippets in public source code. |
-| `research_search` | only when `research.enabled` | Cross-source retrieval in an explicit `scope` (`web`, `code`, or `both`). Optional Jev ranking. |
+- **Works immediately.** No API key needed for web search or code search.
+- **No vendor lock-in.** Providers, fallbacks, and ranking stay internal. The
+  model never picks a vendor, and a dead provider falls back on its own.
+- **Works with any model.** Plain tool calls, no vendor-specific parameters.
+- **Zero runtime dependencies.** Providers are reached with the built-in
+  `fetch`.
 
-The agent never picks a vendor. Providers, keys, fallback, and Jev stay internal.
-
-## Requirements
-
-- **Pi `>= 0.99.0`**. Older versions are unsupported and rejected at extension load.
-- **Node `>= 22.19.0`**, matching Pi 0.99.0.
-- **Zero runtime dependencies.** Providers are reached with the built-in `fetch`.
-
-## Install, update, remove
+## Install
 
 ```bash
-pi install npm:@gagansd/pi-web-search         # install
-pi install npm:@gagansd/pi-web-search@latest  # update
-pi remove npm:@gagansd/pi-web-search          # remove
+pi install npm:@gagansd/pi-web-search
 ```
 
-Local development (no registry publish needed):
+Requires Pi `>= 0.99.0` and Node `>= 22.19.0`. That is the whole setup — ask
+your agent a question and it will search.
 
-```bash
-cd pi-web-search
-npm install
-npm test          # node:test, offline, hermetic
-npm run typecheck
-npm run pack:check
-pi install .      # install the local package
+Check what resolved at any time:
+
+```
+/web-search-settings
 ```
 
-## Keys and credentials
+This prints the config path, which credentials are present (never their
+values), and whether optional features are on. It makes no network calls.
 
-There is **one secrets location**: Pi's `<agent-dir>/auth.json` (usually `~/.pi/agent/auth.json`). Environment variables are an override and always win over the file. Only *presence* and *source* are ever reported; a key value is never printed.
+## What your agent gets
 
-Consolidated `auth.json` example covering every provider id:
-
-```json
-{
-  "exa": { "type": "api_key", "key": "exa-..." },
-  "parallel": { "type": "api_key", "key": "par_..." },
-  "github": { "type": "api_key", "key": "ghp_..." },
-  "typesafe": { "type": "api_key", "key": "ts_..." },
-  "vercel-ai-gateway": { "type": "api_key", "key": "vck_..." }
-}
-```
-
-Only add the entries you need. The matching environment aliases, highest precedence first:
-
-| Credential id | Env aliases | Unlocks |
+| Tool | When it shows up | What it does |
 | --- | --- | --- |
-| `exa` | `EXA_API_KEY` | Keyed Exa REST. Keyless Exa MCP works without it. |
-| `parallel` | `PARALLEL_API_KEY` | Parallel web search and URL extraction. |
-| `github` | `GITHUB_TOKEN`, `GH_TOKEN` | GitHub code search (public repositories only). |
-| `typesafe` | `TYPESAFE_API_KEY`, `JEV_API_KEY` | Native Jev. |
-| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Jev via the Vercel AI Gateway. |
+| `web_search` | always | Documentation, prose, and current events. Can also fetch specific pages you name. |
+| `code_search` | always | Literal identifiers and code snippets in public repositories. |
+| `research_search` | opt-in | Cross-checks a query across web and/or code with extra ranking. Slower; enable when you want it. |
 
-- Every nonblank env alias beats the stored value. Values are read at call time, so **rotating or removing** a key in `auth.json` takes effect on the next search (no reload needed for keys).
-- Whitespace-only values count as absent.
-- GitHub uses its REST code-search API so repository visibility is checked before any snippets reach the model or Jev. Private or unverifiable hits are withheld; a valid GitHub API token is required.
-- **Exa and grep.app are keyless.** `web_search` and `code_search` work out of the box; keys only add higher-rate/paid paths. Parallel and GitHub need a key.
+All three return cited results, a coverage line naming which providers
+answered, and any warnings.
+
+### Examples
+
+Ask your agent things like:
+
+- "What's the current stable version of Node and when did it ship?"
+- "Find how `useSyncExternalStore` is used in the React repo."
+- "Read https://nodejs.org/api/timers.html and explain `setImmediate`."
+- "Is `Array.prototype.toSorted` safe for production browsers yet?"
+
+The model picks the right tool. When you want to see the raw call, tools
+look like this:
+
+```jsonc
+// web_search — search, optionally fetching pages you already know
+{ "query": "Node.js AbortSignal timeout", "urls": ["https://nodejs.org/api/globals.html"] }
+
+// code_search — a literal pattern; repo:/language: narrow it
+{ "query": "useState( repo:facebook/react language:javascript" }
+
+// research_search — cross-source check (when enabled)
+{ "query": "AbortSignal.timeout", "scope": "both" }
+```
+
+## Keys
+
+Web search and code search work with **no key at all**. Keys only raise rate
+limits or unlock extra providers.
+
+| Credential | Env var | Unlocks |
+| --- | --- | --- |
+| `exa` | `EXA_API_KEY` | Keyed Exa. Keyless Exa works without it. |
+| `parallel` | `PARALLEL_API_KEY` | Parallel web search and page extraction. |
+| `github` | `GITHUB_TOKEN` / `GH_TOKEN` | GitHub code search (public repos). |
+| `typesafe` | `TYPESAFE_API_KEY` | Ranking (Jev) via Typesafe. |
+| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Ranking (Jev) via the Vercel AI Gateway. |
+
+Secrets live in Pi's `auth.json` (usually `~/.pi/agent/auth.json`); environment
+variables override it. Only the *presence* of a key is ever reported — a value
+is never printed. Rotating or removing a key takes effect on the next search,
+with no reload.
 
 ## Configuration
 
-Nonsecret settings live in `<agent-dir>/web-search.json` (override the path with `PI_WEB_SEARCH_CONFIG`). Plain JSON only — no comments. Configure providers inside `web` and `code`; only `research.enabled` enables research. Removed top-level settings (`provider`, `fallback`, `family`, `mode`) are rejected, not migrated.
+Settings live in `web-search.json` in your agent directory (override the path
+with `PI_WEB_SEARCH_CONFIG`). Everything is optional; the defaults are chosen
+to work.
 
 ```json
 {
@@ -78,51 +96,61 @@ Nonsecret settings live in `<agent-dir>/web-search.json` (override the path with
   "code": { "provider": "grep", "fallback": ["github"] },
   "research": { "enabled": false },
   "timeoutMs": 20000,
-  "maxResults": 8,
-  "jev": { "enabled": false, "backend": "auto", "model": "jev-1.13.0" }
+  "maxResults": 8
 }
 ```
 
-- `timeoutMs` is one **end-to-end** budget: retrieval plus optional Jev judgment. It is not renewed per request. If only judging exhausts it, the retrieved results return with a warning. User cancellation still fails the call.
-- `research.enabled: true` is the only way to register `research_search`; omitted or false means disabled.
-- Ordinary `web_search` never fans out and never calls Jev.
-- Unsupported top-level keys or malformed settings fail with `invalid_config` and the file path. Unknown `jev` keys or ranking-weight names also fail, so typos cannot silently change safety policy. There are no compatibility or config-migration paths.
-
-### Reloading
-
-Tool exposure is fixed when the extension loads. After changing whether `research_search` is registered, run `/reload` (Pi reloads extensions). Changing keys in `auth.json` does not need a reload; changing `timeoutMs`/`maxResults` applies to the next call.
+- `research.enabled: true` is the only way to turn on `research_search`. After
+  changing it, run `/reload` — tool exposure is fixed at load time. Changing
+  keys never needs a reload.
+- `timeoutMs` is one end-to-end budget for the whole call, not per request.
+- Unknown or misspelled settings fail loudly instead of being ignored, so a
+  typo cannot quietly change behavior.
 
 ### Code search qualifiers
 
-`code_search` takes one `query` string. It understands `repo:<owner/name>` and `language:<name>` (quote a value that contains spaces). The default grep.app provider receives the qualifiers as filters, not as part of the literal pattern. Only `repo:` and `language:` are portable filters. Other GitHub-specific syntax is provider-dependent and is not translated into grep.app filters. Queries are capped at 4000 characters.
+`code_search` takes one `query`. It understands:
 
-## Troubleshooting
+- `repo:<owner/name>` — restrict to a repository
+- `language:<name>` — restrict to a language (quote values with spaces)
 
-- **`... failed (missing_credentials)`** — the family has no usable key. Set the credential shown in the message and re-run; no reload is needed.
-- **`... failed (invalid_config)`** — the message names the file and why. Fix the JSON, then re-run.
-- **`research_search` is missing** — it only registers when `research.enabled` resolves to true. Set it and run `/reload`.
-- **A provider timed out** — raise `timeoutMs`. The whole call shares that budget.
-- **Status view** — run `/web-search-settings` for the resolved config path, credential presence/source (never keys), research/Jev state, and setup guidance. It performs no network calls and is safe headless.
+These are real filters. Everything else (`path:`, `filename:`, `site:`) is
+treated as part of the search text and will not filter. A zero-result search
+says why: an unindexed repository or an over-long pattern.
 
-## Conflicting `web_search` extensions
+## When something goes wrong
 
-If another extension also registers `web_search`/`code_search`, disable or remove it so the model sees one definition. Pi reports the source of each registered tool; remove the conflicting package and run `/reload`.
+- **`... failed (missing_credentials)`** — that provider family needs a key.
+  The message names the variable to set; no reload needed.
+- **`... failed (invalid_config)`** — names the settings file and the problem.
+- **`research_search` is missing** — it only appears when `research.enabled` is
+  true. Set it and run `/reload`.
+- **A search timed out** — raise `timeoutMs`.
+- **Another extension also provides `web_search`/`code_search`** — remove it so
+  the model sees one definition, then `/reload`.
 
-## Tool examples
+## Design notes
 
-```json
-{ "query": "Node.js AbortSignal timeout", "urls": ["https://nodejs.org/api/globals.html"] }
-```
+The extension is deliberately small, and that is a maintained property:
 
-Call `web_search` with the object above. For `code_search`, use
-`{ "query": "useState( repo:facebook/react" }`. When enabled, `research_search`
-accepts `{ "query": "AbortSignal.timeout", "scope": "both" }`.
+- Three tools, one parameter each (plus `urls`/`scope` where they earn their
+  place). An undeclared parameter is ignored and named in the result warnings,
+  so a model never believes a filter ran that did not — and a stray key costs
+  no failed call.
+- Providers, credentials, fallback, and optional ranking are internal. The
+  agent never selects a vendor.
+- Results are cited Markdown for models, and the same data as structured
+  fields for scripts. Failures return structured errors instead of throwing
+  away partial results.
+- No compatibility shims, no config migrations: unsupported settings fail
+  loudly by design.
 
 ## Observability
 
-All tools belong to the `search` namespace, declare read-only/open-world annotations, and expose `outputSchema`. Codemode callers receive `structuredContent` containing `status`, `text`, citation arrays, coverage, warnings, and usage rather than having to parse Markdown.
-
-Failures return `isError: true` with a structured `error` (`code`, `message`, and relevant status/config fields). Pi marks them as failed calls while preserving their data for scripts and renderers. Successful calls expose the same citation metadata in `details`.
+All tools live in the `search` namespace, declare read-only/open-world
+annotations, and expose an output schema. Codemode callers get structured
+results — status, citations, coverage, warnings — instead of parsing prose.
+Failures set `isError` and still return their data.
 
 ## License
 

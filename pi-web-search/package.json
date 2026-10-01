@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-web-search",
   "version": "0.1.0",
-  "description": "web_search and code_search for Pi, plus opt-in research_search with optional Jev ranking.",
+  "description": "Search the web and public code from Pi, with citations. web_search, code_search, and opt-in research_search — keyless by default, no vendor lock-in.",
   "type": "module",
   "engines": { "node": ">=22.19.0" },
   "license": "MIT",

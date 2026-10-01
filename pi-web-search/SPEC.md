@@ -37,6 +37,15 @@ Every tool declares the `search` namespace, read-only/open-world annotations,
 and `SearchOutputSchema`. Successful and failed results return schema-matching
 `structuredContent`; scripts receive data, while models receive cited Markdown.
 
+Each tool sets `prepareArguments`, which drops parameters the schema does not
+declare and records them; the result carries a warning naming what was ignored.
+The host validates arguments before `execute`, so this is the only place an
+undeclared key can be handled, and it is deliberately not an error: weak models
+hallucinate provider-specific keys, and failing the call costs a round trip
+without improving the answer. The schemas therefore stay open
+(no `additionalProperties: false`), which would otherwise make the host reject
+the call with an opaque message.
+
 `scope: "code"` ignores `urls` with a warning.
 
 ## Registration and reload
@@ -139,6 +148,13 @@ Non-public or unverifiable hits are withheld and reported; unfiltered raw code
 payloads are never used as fallback results. Exa URL-content responses retain
 only requested URL identities; unrequested/unidentified documents are withheld
 with a count warning, on both keyed REST and keyless MCP paths.
+
+A keyless Exa quota refusal is returned in-band with HTTP success, so it would
+otherwise be rendered as a fake result and never trigger fallback. It is
+promoted to `rate_limited` only when the reply parsed to no results, is short,
+carries no page anchors, and matches the refusal wording: a result page that
+merely discusses "429" or "rate limit" is normal work and must survive. A
+refused *fetch* is only a warning, because the search alongside it succeeded.
 
 ## Jev (optional judgment)
 

@@ -762,22 +762,26 @@ test("a keyless rate-limit refusal raises rate_limited so the family can fall ba
 	);
 });
 
-test("a 429 phrased fetch refusal also raises rate_limited", async () => {
+test("results that merely mention 429 or rate limits are kept", async () => {
+	// Regression: matching the refusal wording anywhere in the reply threw away
+	// on-topic results. Searching for "429 handling" is normal work.
 	const { fetchImpl } = mcpFetch([
-		MCP_SEARCH_TEXT,
-		"HTTP 429 too many requests",
+		`Title: Handling 429 responses\nURL: https://a.test/429\nHighlights:\nA 429 means too many requests; respect the rate limit.\n\nTitle: Retry\nURL: https://b.test/retry\nHighlights:\nBack off and retry.\n`,
 	]);
 
-	await assert.rejects(
-		withoutKey(() =>
-			exaSearch(
-				{ ...request(), urls: ["https://example.com/a"] },
-				{ fetchImpl },
-			),
-		),
-		(error: { code?: string }) => {
-			assert.equal(error.code, "rate_limited");
-			return true;
-		},
+	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
+
+	assert.ok((result.searchResults?.length ?? 0) >= 1, "on-topic results must survive");
+	assert.equal(result.providerKind, "exa");
+});
+
+test("a rate-limited fetch warns and keeps the search results", async () => {
+	const { fetchImpl } = mcpFetch([MCP_SEARCH_TEXT, "HTTP 429 too many requests"]);
+
+	const result = await withoutKey(() =>
+		exaSearch({ ...request(), urls: ["https://example.com/a"] }, { fetchImpl }),
 	);
+
+	assert.ok((result.searchResults?.length ?? 0) >= 1, "search results must not be discarded");
+	assert.match(result.warnings?.join(" ") ?? "", /URL fetch was rate-limited/);
 });

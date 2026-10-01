@@ -18,7 +18,7 @@ export const ResearchSearchSchema = Type.Object({
 	scope: StringEnum(["web", "code", "both"] as const, {
 		description: "Sources to consult; both explicitly requests mixed web and code results",
 	}),
-}, { additionalProperties: false });
+});
 
 export type ResearchSearchInput = Static<typeof ResearchSearchSchema>;
 
@@ -41,8 +41,7 @@ export async function researchSearch(
 			parallel: true,
 			judge: true,
 			tool: "research_search",
-			acceptedParams: ["query", "scope"],
-			rawParams: params as unknown as Record<string, unknown>,
+			preparedParams: params,
 			requireResearch: true,
 			progress: `Researching "${params.query}" (${params.scope})...`,
 		},

@@ -299,8 +299,16 @@ async function keylessSearch(
 			const parsed = parseExaSearchText(searchOutcome.value);
 			// A keyless quota refusal arrives as ordinary tool text, not an
 			// error, so it would otherwise be returned as a fake search result
-			// and the family would never fall back to parallel.
-			throwIfRateLimited(searchOutcome.value);
+			// and the family would never fall back to parallel. Only trust it
+			// when there is nothing to show: a real result page routinely
+			// contains the words "rate limit" or "429".
+			if (isRateLimitRefusal(searchOutcome.value, parsed.length)) {
+				await fetchPromise;
+				throw providerError(
+					"rate_limited",
+					"Exa's keyless MCP endpoint refused this request (rate limit). Set EXA_API_KEY for a keyed quota; otherwise the next provider in the chain answers.",
+				);
+			}
 			// The model still needs the content the server did return.
 			const base = parsed.length > 0
 				? parsed
@@ -322,7 +330,12 @@ async function keylessSearch(
 				warnings.push(describeError("URL fetch", fetchOutcome.error));
 				return base;
 			}
-			throwIfRateLimited(fetchOutcome.value);
+			// A throttled fetch never invalidates the search that succeeded
+			// alongside it, so this warns and returns the results we have.
+			if (isRateLimitRefusal(fetchOutcome.value, 0)) {
+				warnings.push("Exa URL fetch was rate-limited by the keyless endpoint; search results are unaffected.");
+				return base;
+			}
 			const pages = parseExaFetchText(fetchOutcome.value);
 			warnings.push(...pages.warnings);
 			const requested = requestedContents(pages.results, fetched.urls, warnings);
@@ -524,12 +537,20 @@ function describeError(prefix: string, error: unknown): string {
 
 /** Keyless Exa MCP answers a quota refusal in-band, with HTTP success. */
 const RATE_LIMIT_RE =
-	/rate limit|rate-limited|too many requests|\b429\b|quota exceeded/i;
+	/rate limit|rate-limited|too many requests|\b429\b|quota/i;
+/** Anchors only a real result page carries; a refusal has none. */
+const PAGE_ANCHOR_RE = /^(Title|URL|Highlights?):/m;
 
-function throwIfRateLimited(text: string): void {
-	if (!RATE_LIMIT_RE.test(text)) return;
-	throw providerError(
-		"rate_limited",
-		"Exa's keyless MCP endpoint refused this request (rate limit). Set EXA_API_KEY for a keyed quota; otherwise the next provider in the chain answers.",
+/**
+ * A refusal is a short, anchor-free, rate-limit-shaped reply that yielded no
+ * results. Every clause matters: searching for "429" or "rate limit" is normal
+ * work, and that content must survive.
+ */
+function isRateLimitRefusal(reply: string, parsedCount: number): boolean {
+	return (
+		parsedCount === 0 &&
+		reply.length < 400 &&
+		!PAGE_ANCHOR_RE.test(reply) &&
+		RATE_LIMIT_RE.test(reply)
 	);
 }

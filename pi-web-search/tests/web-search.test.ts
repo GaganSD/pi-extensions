@@ -19,6 +19,7 @@ import { type StreamResult, providerError } from "../src/providers/types.ts";
 import { CodeSearchSchema, codeSearch } from "../src/code_search.ts";
 import { MCP_PROTOCOL_VERSION } from "../src/providers/mcp.ts";
 import type { FetchLike } from "../src/providers/http.ts";
+import { droppedParamsWarning, prepareSearchArgs } from "../src/utils.ts";
 import { exaObjective } from "../src/providers/exa.ts";
 import { ResearchSearchSchema, researchSearch } from "../src/research_search.ts";
 import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
@@ -314,46 +315,34 @@ test("research_search fans out in the requested scope", async () => {
 	);
 });
 
-test("a hallucinated parameter is rejected by name instead of silently dropped", async () => {
+test("an unknown parameter is dropped and reported, not silently ignored", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
-		let called = false;
-		await assertToolError(
-			codeSearch(
-				"call_1",
-				{ query: "parseArgs", top_n: 20, path: "/" } as unknown as { query: string },
-				undefined,
-				undefined,
-				ctx,
-				{ transports: { grep: async () => { called = true; return SEARCH_RESULT; } } },
-			),
-			(error) => error.code === "invalid_arguments",
-		);
-		assert.equal(called, false, "must not reach the network");
+		// The host calls prepareArguments before execute; the search still runs.
+		const cleaned = prepareSearchArgs(["query"])({ query: "parseArgs", top_n: 20, path: "/" });
+		assert.deepEqual(cleaned, { query: "parseArgs" });
+		assert.equal(droppedParamsWarning(cleaned), "Ignored unknown parameters `top_n`, `path`. This tool accepts only the parameters in its schema.");
+
 		const result = await codeSearch(
-			"call_2",
-			{ query: "parseArgs", top_n: 20 } as unknown as { query: string },
+			"call_1",
+			cleaned as { query: string },
 			undefined,
 			undefined,
 			ctx,
 			{ transports: { grep: async () => SEARCH_RESULT } },
 		);
-		assert.match(textOf(result), /code_search received unknown parameter `top_n`.*accepts only: `query`/s);
+		assert.equal(result.isError, false, "an extra parameter must not fail the call");
+		assert.match(textOf(result), /Ignored unknown parameters `top_n`, `path`/);
 	});
 });
 
-test("web_search names its own parameters when one is unknown", async () => {
-	await withConfigFile(VALID_CONFIG, async () => {
-		const result = await webSearch(
-			"call_1",
-			{ query: "pi", limit: 5 } as unknown as WebSearchInput,
-			undefined,
-			undefined,
-			ctx,
-			{ transports: { exa: async () => SEARCH_RESULT } },
-		);
-		assert.equal(result.details.error?.code, "invalid_arguments");
-		assert.match(textOf(result), /web_search received unknown parameter `limit`.*`query`, `urls`/s);
-	});
+test("a declared parameter is never reported as dropped", async () => {
+	const cleaned = prepareSearchArgs(["query", "urls"])({ query: "pi", urls: ["https://a.test/"] });
+	assert.deepEqual(cleaned, { query: "pi", urls: ["https://a.test/"] });
+	assert.equal(droppedParamsWarning(cleaned), undefined);
+});
+
+test("prepareSearchArgs passes non-objects through untouched", () => {
+	assert.equal(prepareSearchArgs(["query"])("not an object"), "not an object");
 });
 
 /** Drives the real grep provider: the no-match warning lives there, not in the transport stub. */
@@ -407,7 +396,7 @@ test("zero code hits without a repo qualifier suggest a shorter pattern", async 
 	assert.match(result.warnings?.join(" ") ?? "", /shorter literal identifier/);
 });
 
-test("an upstream grep error is preserved instead of being read as a no-match", async () => {
+test("an unparseable upstream reply is not misreported as a no-match", async () => {
 	const result = await runGrepProvider("parseArgs", "500: Internal Server Error");
-	assert.match(result.warnings?.join(" ") ?? "", /grep\.app returned: 500: Internal Server Error/);
+	assert.match(result.warnings?.join(" ") ?? "", /could not parse: 500: Internal Server Error/);
 });

@@ -14,9 +14,9 @@ export const CodeSearchSchema = Type.Object({
 		minLength: 1,
 		maxLength: MAX_QUERY_CHARS,
 		description:
-			"Literal code pattern or identifier (not a prose question). Use the shortest pattern that identifies the code (e.g. an identifier), not a sentence. Supports repo:<owner/name> and language:<name> qualifiers, quoted when they contain spaces; path:, filename: and extension: are not filters.",
+			"Literal code pattern or identifier (not a prose question or a full sentence). Supports repo:<owner/name> and language:<name> qualifiers, quoted when they contain spaces; path:, filename: and extension: are not filters.",
 	}),
-}, { additionalProperties: false });
+});
 
 export type CodeSearchInput = Static<typeof CodeSearchSchema>;
 
@@ -36,8 +36,7 @@ export async function codeSearch(
 			parallel: false,
 			judge: false,
 			tool: "code_search",
-			acceptedParams: ["query"],
-			rawParams: params as unknown as Record<string, unknown>,
+			preparedParams: params,
 			progress: `Searching code for "${params.query}"...`,
 		},
 		signal,

@@ -17,12 +17,11 @@ export const WebSearchSchema = Type.Object({
 	}),
 	urls: Type.Optional(
 		Type.Array(Type.String(), {
-			description:
-				"Web page URLs to fetch and read. To read a specific page, pass its URL here — the read tool only opens local files.",
+			description: "Web page URLs to fetch and read.",
 			maxItems: 20,
 		}),
 	),
-}, { additionalProperties: false });
+});
 
 export type WebSearchInput = Static<typeof WebSearchSchema>;
 
@@ -44,8 +43,7 @@ export async function webSearch(
 			parallel: false,
 			judge: false,
 			tool: "web_search",
-			acceptedParams: ["query", "urls"],
-			rawParams: params as unknown as Record<string, unknown>,
+			preparedParams: params,
 			progress:
 				urlCount > 0
 					? `Searching and analyzing ${urlCount} URL(s)...`
