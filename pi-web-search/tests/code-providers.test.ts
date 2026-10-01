@@ -304,4 +304,3 @@ test("sse comments and multi-line data still join", () => {
 	const joined = extractSseData("data: one\ndata: two\n\n");
 	assert.deepEqual(joined, ["one\ntwo"]);
 });
-

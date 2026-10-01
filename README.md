@@ -6,7 +6,7 @@ Extensions for the [Pi coding agent](https://pi.dev).
 | --- | --- | --- |
 | [pi-slate](./pi-slate) | Terminal UI with Kitty graphics, context controls, and observability | `pi install npm:pi-slate` |
 | [pi-ask](./pi-ask) | Interactive questions for the human operator | `pi install npm:@gagansd/pi-ask` |
-| [pi-web-search](./pi-web-search) | Cited web and public-code search, with keyless defaults and opt-in research | `pi install npm:@gagansd/pi-web-search` |
+| [pi-web-search](./pi-web-search) | Cited web and public-code search, with keyless defaults and opt-in research | `pi install ./pi-web-search` from a checkout (not yet published) |
 
 See each package's README for requirements, configuration, and development commands. Packages live directly in this repository; each has its own manifest and tests. The root manifest loads all three extensions when this repository is installed as a Pi package.
 
