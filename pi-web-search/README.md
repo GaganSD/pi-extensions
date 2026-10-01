@@ -1,88 +1,32 @@
 # pi-web-search
 
-pi-web-search is a [Pi](https://github.com/earendil-works/pi) extension for developers who need public documentation and code evidence in their coding session. Look up an API with `web_search` or find a literal implementation pattern with `code_search`, then inspect source links, excerpts, and coverage warnings before using the results.
+**An optimized web search tool for the Pi Coding Harness that introduces three tools: web_search, code_search, and research_search.**
 
-**Start with keyless search:** Exa handles web retrieval, Parallel is the native Pi MCP web fallback, and grep.app handles public code by default. No search-provider key is needed to try them; Pi still needs its own model setup and authentication. Public endpoint availability, quotas, and indexing are best effort—not a guarantee of complete or verified answers. Research and Pi-hosted Jev classifier judgment are separate opt-ins, both off by default. Parallel anonymous retrieval does not require Jev authentication.
+- Connects with Parallel, Exa, and Grep (works without an API key).
+- All connectors are encapsulated for the agent and designed to be human-configured through settings to minimize bloat during coding sessions.
+- Classifier API (Jev and OpenAI's Decisions API) helps with ranking, filtering, and prompt injection prevention. Can be disabled in settings.
 
-[Try a first search](#install-and-first-search) · [Choose a tool](#tools-and-examples) · [Configure providers](#configuration) · [Understand data handling](#data-handling)
+## Installation
 
-## Install and first search
+1. Install with: ``pi install npm:gagansd/pi-web-search``
+2. (Optional) Add API keys for Exa, Parallel, and Jev using /pi-web-search.
 
-Requires **Pi >=0.99.0** and **Node >=22.19.0**. Pi loads the TypeScript entrypoint directly; no compilation step or additional runtime dependencies beyond Pi are needed.
+## Tools and Examples
 
-The package is **not yet published to npm**. Use a checkout containing `pi-web-search`; the [manifest](package.json) declares `@gagansd/pi-web-search` version `0.1.0`, not an available registry release.
+1. Use web_search for explanations and documentation
+2. code_search for literal public-code patterns
+3. opt-in research_search when you need retrieval from multiple sources.
 
-### 1. Load search for one session
+> The tool definitions register two tools by default and activate research_search only when enabled.
 
-From the repository root, load the search subfolder without adding it to settings:
+|Tool | Inputs | Use|
+| web_search	| Required query; optional urls	| Public documentation, prose, current information; retrieve known-page excerpts alongside a search. |
+| code_search	| Required query |	Literal identifiers or code snippets in public repositories. |
+| research_search |	Required query and scope (web, code, or both)	| Opt-in concurrent retrieval across available sources; optional judgment is configured separately |
 
-```bash
-pi -e ./pi-web-search
-```
+You can narrow searches to specific codebases using prompts like "check Meta's repos only", which your LLM translates to GitHub org/user-level filters:
 
-This adds search, not the collection's Slate or Ask packages; it does not disable your other configured extensions.
-
-### 2. Check setup and look up a documentation page
-
-Run this command in Pi:
-
-```text
-/web-search-settings
-```
-
-The offline diagnostic reports the config path, configured feature flags, and credential presence/source—not resolved key values. It does not test provider reachability, credential validity, Pi classifier availability, or whether a newly enabled research tool has been reloaded. Inspect `/mcp` for the native Parallel connection and any same-name override. Missing optional keys are expected.
-
-Ask: **“Use web_search to look up Node.js setImmediate with https://nodejs.org/api/timers.html in urls. Cite the page if retrieved and report coverage warnings.”** The tool arguments are:
-
-```json
-{
-  "query": "Node.js setImmediate timers",
-  "urls": ["https://nodejs.org/api/timers.html"]
-}
-```
-
-This sends the query and URL to external retrieval services. Use public information, not secrets or private-document links; see [data handling](#data-handling).
-
-### 3. Inspect the result before using it
-
-Expand the tool result in Pi. A successful lookup can include linked results and short excerpts, with coverage and any warnings. Check these parts rather than relying only on the answer:
-
-| Inspect | What to check |
-| --- | --- |
-| **Results / Sources**, when present | Is the requested Node.js page identified, and does its excerpt support the claim? Sources already linked in Results are not listed twice. |
-| **Coverage** | Which provider was consulted? Ordinary search leaves Jev disabled; coverage is not proof of exhaustive retrieval. |
-| **Warnings**, when present | Was URL extraction unavailable, evidence unparsed, or output clipped? Search can succeed without retrieving the requested page. |
-
-Follow the citation for the full context; an excerpt is not the whole document, and a link is not verification. An empty result is inconclusive: shorten the query or remove qualifiers. For partial evidence, use only what was returned and disclose its warnings. For a failed call, see [timeouts, fallback, and errors](#timeouts-fallback-and-errors).
-
-### Keep search installed
-
-For a persistent personal installation, from the same repository root:
-
-```bash
-pi install ./pi-web-search
-pi
-```
-
-Local packages load in place, without copying; keep the checkout available. `pi install` writes a personal package setting; `--local` instead writes a project setting, which requires project trust. Restart Pi or run `/reload` after adding the package to an existing session. Installing the **repository root** as a git package uses its full manifest, which also declares Slate and Ask; it is not equivalent to installing this subfolder. See [Pi's package guide](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md) for installation scope.
-
-## Tools and examples
-
-Use `web_search` for explanations and documentation, `code_search` for literal public-code patterns, and opt-in `research_search` when you need retrieval from multiple sources. The [tool definitions](src/index.ts) register two tools by default and research only when enabled.
-
-| Tool | Inputs | Use |
-| --- | --- | --- |
-| `web_search` | Required `query`; optional `urls` | Public documentation, prose, current information; retrieve known-page excerpts alongside a search. |
-| `code_search` | Required `query` | Literal identifiers or code snippets in public repositories. |
-| `research_search` | Required `query` and `scope`: `web`, `code`, or `both` | Opt-in concurrent retrieval across available sources; optional judgment is configured separately. |
-
-**Public literal code** — ask Pi to find uses of `useSyncExternalStore` and cite the matching code. Start broadly with `code_search`:
-
-```json
-{ "query": "useSyncExternalStore" }
-```
-
-To narrow to a repository, use `{ "query": "useSyncExternalStore repo:facebook/react" }`. If the filtered search is empty, remove the qualifier before concluding anything about the repository's contents.
+{ "query": "useSyncExternalStore repo:facebook/react" }
 
 **Cross-source check**, after [enabling research](#optional-research-and-jev) — `research_search` arguments:
 
