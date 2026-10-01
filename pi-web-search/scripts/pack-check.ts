@@ -3,10 +3,9 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, sy
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isAllowedPackagePath, validatePackageContent, type PackageManifest } from "./package-content.ts";
-import { isolatedEnvironment, runCommand, withTemporaryDirectory } from "./validation.ts";
+import { isolatedEnvironment, runCommand, runNpmCommand, withTemporaryDirectory } from "./validation.ts";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function sourcePaths(directory: string, prefix = "src"): string[] {
 	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => entry.isDirectory()
@@ -14,9 +13,9 @@ function sourcePaths(directory: string, prefix = "src"): string[] {
 		: [`${prefix}/${entry.name}`]).sort();
 }
 
-withTemporaryDirectory("pi-web-search-pack-", (root) => {
+withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	const env = isolatedEnvironment(root);
-	const output = JSON.parse(runCommand(npm,
+	const output = JSON.parse(runNpmCommand(
 		["pack", "--json", "--ignore-scripts", "--offline", "--pack-destination", root], packageRoot, env));
 	// npm 10/11 return an array; npm 12 keys the same metadata by package name.
 	const packed = Array.isArray(output) ? output : Object.values(output);
@@ -25,7 +24,7 @@ withTemporaryDirectory("pi-web-search-pack-", (root) => {
 	assert.ok(metadata.size <= 5 * 1024 * 1024 && metadata.unpackedSize <= 5 * 1024 * 1024, "Package exceeds the 5 MiB validation bound");
 	assert.equal(metadata.filename, `${metadata.name.replace(/^@/, "").replaceAll("/", "-")}-${metadata.version}.tgz`);
 	const archive = join(root, metadata.filename);
-	const listed = runCommand("tar", ["-tzf", archive], packageRoot, env).trim().split("\n");
+	const listed = runCommand("tar", ["-tzf", archive], packageRoot, env).trim().split(/\r?\n/);
 	assert.ok(listed.length <= 512, "Package exceeds the 512-file validation bound");
 	const paths = listed.map((path) => {
 		assert.ok(path.startsWith("package/") && isAllowedPackagePath(path.slice(8)), `Unexpected archive member: ${path}`);
@@ -57,7 +56,7 @@ withTemporaryDirectory("pi-web-search-pack-", (root) => {
 	const consumer = join(root, "consumer");
 	mkdirSync(consumer);
 	writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "pack-check-consumer", private: true }));
-	runCommand(npm, ["install", archive, "--omit=dev", "--legacy-peer-deps", "--ignore-scripts", "--offline", "--package-lock=false"], consumer, env);
+	runNpmCommand(["install", archive, "--omit=dev", "--legacy-peer-deps", "--ignore-scripts", "--offline", "--package-lock=false"], consumer, env);
 	assert.deepEqual(readdirSync(join(consumer, "node_modules")).filter((path) => !path.startsWith(".")), ["@gagansd"], "Installing the tarball must not install host peers");
 	const installed = join(consumer, "node_modules", manifest.name);
 	process.stdout.write(runCommand(process.execPath, ["--experimental-strip-types", join(packageRoot, "scripts/artifact-smoke.ts"), installed], packageRoot, env));

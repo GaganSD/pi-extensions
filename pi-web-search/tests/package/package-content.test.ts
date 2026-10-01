@@ -90,6 +90,10 @@ test("validation isolates Pi/npm configuration and excludes inherited credential
 		assert.equal(env.HOME, join(root, "home"));
 		assert.equal(env.PI_CODING_AGENT_DIR, join(root, "agent"));
 		assert.equal(env.PI_WEB_SEARCH_CONFIG, join(root, "agent/web-search.json"));
+		for (const name of ["TMPDIR", "TEMP", "TMP"]) {
+			assert.equal(env[name], join(root, "tmp"));
+			assert.ok(existsSync(env[name]!));
+		}
 		assert.ok(existsSync(env.npm_config_userconfig!));
 		assert.equal(env.npm_config_offline, "true");
 		for (const name of ["EXA_API_KEY", "PARALLEL_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "TYPESAFE_API_KEY", "JEV_API_KEY", "AI_GATEWAY_API_KEY", "NODE_OPTIONS", "NPM_TOKEN"]) {
