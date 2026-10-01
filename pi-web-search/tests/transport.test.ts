@@ -122,6 +122,75 @@ test("postSseJson completes a framed correlated reply without waiting for SSE EO
 	assert.equal(cancelled, true, "unused SSE tail must be cancelled");
 });
 
+function fragmentedSseResponse(body: string, chunkSize: number, onCancel: () => void = () => {}): ResponseLike {
+	const bytes = new TextEncoder().encode(body);
+	let offset = 0;
+	return new Response(new ReadableStream<Uint8Array>({
+		pull(controller) {
+			if (offset >= bytes.length) { controller.close(); return; }
+			controller.enqueue(bytes.subarray(offset, offset += chunkSize));
+		},
+		cancel: onCancel,
+	}), { headers: { "Content-Type": "text/event-stream" } });
+}
+
+test("postSseJson preserves a representative fragmented UTF-8/CRLF response", async () => {
+	const expected = { id: 7, result: { text: "café".repeat(256 * 1024) } };
+	const body = (frame({ id: 99, result: {} }) + "data: malformed\n\n" + frame(expected) + ": unused tail\n".repeat(10)).replaceAll("\n", "\r\n");
+	let cancelled = false;
+	const result = await postSseJson("https://mcp.test", {
+		body: {},
+		selectMessage: (value) => (value as { id?: number })?.id === 7,
+		fetchImpl: async () => fragmentedSseResponse(body, 32, () => { cancelled = true; }),
+	});
+	assert.deepEqual(result, expected);
+	assert.equal(cancelled, true);
+});
+
+test("postSseJson retains full fragmented EOF fallback for an unterminated frame", async () => {
+	const expected = { id: 7, result: { text: "café".repeat(256 * 1024) } };
+	const result = await postSseJson("https://mcp.test", {
+		body: {},
+		selectMessage: (value) => (value as { id?: number })?.id === 7,
+		fetchImpl: async () => fragmentedSseResponse(`data: ${JSON.stringify(expected)}\r\n`, 32),
+	});
+	assert.deepEqual(result, expected);
+});
+
+test("postSseJson immediately-ready chunks yield to request deadlines with and without selection", async () => {
+	for (const select of [false, true]) {
+		let cancelled = false;
+		await assert.rejects(postSseJson("https://mcp.test", {
+			body: {}, timeoutMs: 1,
+			...(select ? { selectMessage: (value: unknown) => (value as { id?: number })?.id === 7 } : {}),
+			fetchImpl: async () => fragmentedSseResponse(frame({ id: 7, result: { text: "x".repeat(64 * 1024) } }), 16,
+				() => { cancelled = true; }),
+		}), (error: unknown) => {
+			assert.equal((error as { code: string }).code, "timeout");
+			return true;
+		});
+		assert.equal(cancelled, true);
+	}
+});
+
+test("postSseJson immediately-ready chunks yield to caller aborts with and without selection", async () => {
+	for (const select of [false, true]) {
+		const caller = new AbortController();
+		const reason = providerError("timeout", "operation deadline", { retryable: true });
+		let cancelled = false;
+		const timer = setTimeout(() => caller.abort(reason), 0);
+		try {
+			await assert.rejects(postSseJson("https://mcp.test", {
+				body: {}, signal: caller.signal,
+				...(select ? { selectMessage: (value: unknown) => (value as { id?: number })?.id === 7 } : {}),
+				fetchImpl: async () => fragmentedSseResponse(frame({ id: 7, result: { text: "x".repeat(64 * 1024) } }), 16,
+					() => { cancelled = true; }),
+			}), (error: unknown) => { assert.equal(error, reason); return true; });
+			assert.equal(cancelled, true);
+		} finally { clearTimeout(timer); }
+	}
+});
+
 test("postSseJson waits for a full frame rather than accepting partial SSE data", async () => {
 	let cancelled = false;
 	await assert.rejects(postSseJson("https://mcp.test", {

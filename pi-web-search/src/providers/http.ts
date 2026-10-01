@@ -1,3 +1,4 @@
+import { setImmediate } from "node:timers/promises";
 import { type ProviderError, providerError } from "./types.ts";
 
 export type FetchLike = (
@@ -41,6 +42,10 @@ export const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
 
 /** Bounds the network/memory cost of one response before it is decoded. */
 export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+
+/** Bound ready-reader microtask bursts so abort/deadline timers can run. */
+const BODY_READ_YIELD_CHUNKS = 256;
+const BODY_READ_YIELD_BYTES = 64 * 1024;
 
 /** POST JSON, parse a JSON body, throw `ProviderError` on any failure. */
 export async function postJson<T>(
@@ -340,10 +345,12 @@ async function readBody(
 	if (signal.aborted) cancel();
 	const decoder = new TextDecoder();
 	let total = 0;
-	let text = "";
+	const bodyParts: string[] = [];
+	const frameParts: string[] = [];
 	const boundary = /\r?\n\r?\n/g;
-	let frameStart = 0;
-	let scanOffset = 0;
+	let overlap = "";
+	let chunksSinceYield = 0;
+	let bytesSinceYield = 0;
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
@@ -353,13 +360,21 @@ async function readBody(
 			if (value) {
 				total += value.byteLength;
 				assertBodySize(total, maxBytes, url);
-				text += decoder.decode(value, { stream: true });
+				bytesSinceYield += value.byteLength;
+				const chunk = decoder.decode(value, { stream: true });
+				if (chunk.length > 0) bodyParts.push(chunk);
 				if (selectMessage) {
-					boundary.lastIndex = scanOffset;
+					// Only this chunk plus at most three delimiter characters is
+					// flattened/scanned. Join frame segments once, at its boundary.
+					const scan = overlap + chunk;
+					boundary.lastIndex = 0;
+					let segmentStart = 0;
 					let match: RegExpExecArray | null;
-					while ((match = boundary.exec(text)) !== null) {
-						const frame = text.slice(frameStart, match.index);
-						frameStart = boundary.lastIndex;
+					while ((match = boundary.exec(scan)) !== null) {
+						frameParts.push(scan.slice(segmentStart, match.index));
+						const frame = frameParts.join("");
+						frameParts.length = 0;
+						segmentStart = boundary.lastIndex;
 						for (const payload of extractSseData(frame)) {
 							let message: unknown;
 							try { message = JSON.parse(payload); } catch { continue; }
@@ -369,14 +384,20 @@ async function readBody(
 							}
 						}
 					}
-					// Revisit only the bytes that could begin a split CRLF delimiter,
-					// not the whole buffered response on every small network chunk.
-					scanOffset = Math.max(frameStart, text.length - 3);
+					const committedEnd = Math.max(segmentStart, scan.length - 3);
+					if (committedEnd > segmentStart) frameParts.push(scan.slice(segmentStart, committedEnd));
+					overlap = scan.slice(committedEnd);
 				}
 			}
+			if (++chunksSinceYield >= BODY_READ_YIELD_CHUNKS || bytesSinceYield >= BODY_READ_YIELD_BYTES) {
+				await setImmediate();
+				chunksSinceYield = 0;
+				bytesSinceYield = 0;
+				if (signal.aborted) throw reasonFrom(signal);
+			}
 		}
-		text += decoder.decode();
-		return text;
+		bodyParts.push(decoder.decode());
+		return bodyParts.join("");
 	} catch (error) {
 		void reader.cancel().catch(() => {});
 		throw error;
