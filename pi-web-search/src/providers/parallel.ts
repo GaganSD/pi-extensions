@@ -1,3 +1,4 @@
+import { parallelApiKey } from "../env.ts";
 import { type FetchLike, postJson } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
 import {
@@ -137,8 +138,8 @@ export async function parallelSearch(
 }
 
 function readApiKey(): string {
-	const key = process.env.PARALLEL_API_KEY?.trim() ?? "";
-	if (key.length === 0) {
+	const key = parallelApiKey();
+	if (key === undefined) {
 		throw providerError(
 			"missing_credentials",
 			"PARALLEL_API_KEY is not set; the parallel transport needs a Parallel API key.",

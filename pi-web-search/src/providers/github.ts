@@ -1,5 +1,8 @@
+import { githubToken } from "../env.ts";
+import type { FetchLike } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
-import { createMcpClient, type McpClient } from "./mcp.ts";
+import { withMcpSession } from "./mcp.ts";
+import { sourcesFromResults } from "./results.ts";
 import { type SearchResultDetail, providerError, type StreamResult } from "./types.ts";
 
 export const GITHUB_MCP_URL = "https://api.githubcopilot.com/mcp/";
@@ -19,18 +22,32 @@ export interface GithubSearchOptions {
 	fetchImpl?: FetchLike;
 }
 
-type FetchLike = typeof globalThis.fetch;
-
 export async function githubSearch(
 	req: SearchRequest,
 	options: GithubSearchOptions = {},
 ): Promise<StreamResult> {
-	const raw = await withMcpSession(req, options, (client) =>
-		client.callTool(SEARCH_TOOL, {
-			query: req.query,
-			perPage: Math.min(req.settings.maxResults, MAX_PER_PAGE),
-			fields: CODE_SEARCH_FIELDS,
-		}));
+	const token = githubToken();
+	if (token === undefined) {
+		throw providerError(
+			"missing_credentials",
+			"github: set GITHUB_TOKEN or GH_TOKEN to enable GitHub code search.",
+		);
+	}
+	const raw = await withMcpSession(
+		{
+			url: GITHUB_MCP_URL,
+			fetchImpl: options.fetchImpl,
+			timeoutMs: req.settings.timeoutMs,
+			signal: req.signal,
+			headers: { Authorization: `Bearer ${token}` },
+		},
+		(client) =>
+			client.callTool(SEARCH_TOOL, {
+				query: req.query,
+				perPage: Math.min(req.settings.maxResults, MAX_PER_PAGE),
+				fields: CODE_SEARCH_FIELDS,
+			}),
+	);
 
 	const results = parseSearchCodeText(raw, req.settings.maxResults);
 	const usable = results.length > 0
@@ -40,43 +57,13 @@ export async function githubSearch(
 	return {
 		text: "",
 		providerKind: "github",
-		sources: usable
-			.map((result) => ({ title: result.title ?? "", url: result.url ?? "" }))
-			.filter((source) => source.url.length > 0),
+		sources: sourcesFromResults(usable),
 		searchResults: usable,
 		requestId: "mcp",
 		...(usable.length === 1 && usable[0].citedText === raw
 			? { warnings: ["GitHub code search returned no matches for this query."] }
 			: {}),
 	};
-}
-
-/** GitHub returns a real session id, so this teardown is load-bearing. */
-async function withMcpSession<T>(
-	req: SearchRequest,
-	options: GithubSearchOptions,
-	body: (client: McpClient) => Promise<T>,
-): Promise<T> {
-	const token = githubToken();
-	if (token === undefined) {
-		throw providerError(
-			"missing_credentials",
-			"github: set GITHUB_TOKEN or GH_TOKEN to enable GitHub code search.",
-		);
-	}
-	const client = createMcpClient({
-		url: GITHUB_MCP_URL,
-		fetchImpl: options.fetchImpl,
-		timeoutMs: req.settings.timeoutMs,
-		signal: req.signal,
-		headers: { Authorization: `Bearer ${token}` },
-	});
-	try {
-		await client.initialize();
-		return await body(client);
-	} finally {
-		await client.close().catch(() => {});
-	}
 }
 
 /**
@@ -146,13 +133,6 @@ function readFragments(item: Record<string, unknown>): string[] {
 		}
 	}
 	return fragments;
-}
-
-function githubToken(): string | undefined {
-	const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-	return typeof token === "string" && token.trim().length > 0
-		? token.trim()
-		: undefined;
 }
 
 function readString(item: Record<string, unknown>, key: string): string | undefined {

@@ -1,5 +1,7 @@
+import type { FetchLike } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
-import { createMcpClient, type McpClient } from "./mcp.ts";
+import { withMcpSession } from "./mcp.ts";
+import { sourcesFromResults } from "./results.ts";
 import type { SearchResultDetail, StreamResult } from "./types.ts";
 
 export const GREP_MCP_URL = "https://mcp.grep.app";
@@ -11,8 +13,6 @@ const SNIPPET_MARKER = "--- Snippet";
 export interface GrepSearchOptions {
 	fetchImpl?: FetchLike;
 }
-
-type FetchLike = typeof globalThis.fetch;
 
 export async function grepSearch(
 	req: SearchRequest,
@@ -37,8 +37,15 @@ export async function grepSearch(
 		args.language = [language];
 	}
 
-	const text = await withMcpSession(req, options, (client) =>
-		client.callTool(SEARCH_TOOL, args));
+	const text = await withMcpSession(
+		{
+			url: GREP_MCP_URL,
+			fetchImpl: options.fetchImpl,
+			timeoutMs: req.settings.timeoutMs,
+			signal: req.signal,
+		},
+		(client) => client.callTool(SEARCH_TOOL, args),
+	);
 
 	const results = parseGrepSearchText(text, req.settings.maxResults);
 	const usable = results.length > 0
@@ -55,37 +62,11 @@ export async function grepSearch(
 	return {
 		text: "",
 		providerKind: "grep",
-		sources: usable
-			.map((result) => ({ title: result.title ?? "", url: result.url ?? "" }))
-			.filter((source) => source.url.length > 0),
+		sources: sourcesFromResults(usable),
 		searchResults: usable,
 		requestId: "mcp",
 		...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
 	};
-}
-
-/**
- * Runs `body` against a fresh MCP session and always tears it down. grep.app
- * does not return a session id today, so `close()` is a no-op there; it stays
- * so this stays correct if that changes.
- */
-async function withMcpSession<T>(
-	req: SearchRequest,
-	options: GrepSearchOptions,
-	body: (client: McpClient) => Promise<T>,
-): Promise<T> {
-	const client = createMcpClient({
-		url: GREP_MCP_URL,
-		fetchImpl: options.fetchImpl,
-		timeoutMs: req.settings.timeoutMs,
-		signal: req.signal,
-	});
-	try {
-		await client.initialize();
-		return await body(client);
-	} finally {
-		await client.close().catch(() => {});
-	}
 }
 
 interface GrepHit {

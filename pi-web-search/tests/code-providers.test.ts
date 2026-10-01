@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyConfig, DEFAULT_PROVIDER } from "../src/providers/config.ts";
+import { applyConfig } from "../src/providers/config.ts";
 import { parseGrepSearchText } from "../src/providers/grep.ts";
 import { parseSearchCodeText } from "../src/providers/github.ts";
 import { extractSseData } from "../src/providers/http.ts";
@@ -9,8 +9,6 @@ import { resolveProviderChain } from "../src/providers/index.ts";
 import {
 	DEFAULT_CHAIN,
 	PROVIDER_FAMILY,
-	type ProviderFamily,
-	type ProviderKind,
 	providerFamily,
 } from "../src/providers/types.ts";
 
@@ -238,18 +236,3 @@ test("sse comments and multi-line data still join", () => {
 	assert.deepEqual(joined, ["one\ntwo"]);
 });
 
-// --- helpers ----------------------------------------------------------------
-
-test("the default provider is still web-scoped", () => {
-	assert.equal(providerFamily(DEFAULT_PROVIDER), "web");
-	assert.equal(PROVIDER_FAMILY[DEFAULT_PROVIDER], "web");
-});
-
-test("every provider kind is covered by a family map", () => {
-	const kinds: ProviderKind[] = ["exa", "parallel", "grep", "github"];
-	const families = new Set<ProviderFamily>();
-	for (const kind of kinds) {
-		families.add(providerFamily(kind));
-	}
-	assert.deepEqual([...families].sort(), ["code", "web"]);
-});

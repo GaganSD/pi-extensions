@@ -6,7 +6,8 @@ invent new public exports, rename symbols, or add files outside your assigned se
 ## Goal
 
 A minimal, self-hosted replacement for `npm:pi-web-search` that exposes **only** a
-`web_search` agent tool backed by **Exa** and **Parallel** search APIs.
+`web_search` agent tool. Default path is Exa (+ Parallel fallback). Optional
+`mode: "parallel"` fans out Exa, Parallel, grep.app and GitHub, then Jev judges.
 
 The third-party package required a paid LLM provider with native web search. We
 search through dedicated search APIs instead, so a search costs a fraction of a
@@ -28,14 +29,19 @@ pi-web-search/
     web_search.ts      WebSearchSchema + webSearch() orchestration
     format.ts          StreamResult -> AgentToolResult
     utils.ts           error / missing-credential results
+    env.ts             trimmed credential env reads
+    jev/               decision layer (not a provider)
     providers/
       types.ts         shared result + error types
       config.ts        ~/.pi/agent/web-search.json loading + resolution
       http.ts          fetch wrapper: timeout, abort, error normalization
-      mcp.ts           minimal MCP streamable-HTTP JSON-RPC client
+      mcp.ts           MCP client + shared withMcpSession
+      results.ts       sourcesFromResults + mergeStreamResults
       exa.ts           Exa transport
       parallel.ts      Parallel transport
-      index.ts         provider registry + fallback chain
+      grep.ts          grep.app transport
+      github.ts        GitHub code-search transport
+      index.ts         fallback chain + parallel fan-out
   tests/
     *.test.ts
 ```
@@ -66,6 +72,9 @@ providers. `index.ts` provides `renderCall` and `renderResult` using
 | --- | --- |
 | `EXA_API_KEY` | Optional. When set, Exa uses its REST API. |
 | `PARALLEL_API_KEY` | Optional. Required for the Parallel transport. |
+| `GITHUB_TOKEN` / `GH_TOKEN` | Optional. Required for GitHub code search. |
+| `TYPESAFE_API_KEY` / `JEV_API_KEY` | Optional. Native Jev. |
+| `AI_GATEWAY_API_KEY` | Optional. Jev via Vercel AI Gateway. |
 | `PI_WEB_SEARCH_CONFIG` | Overrides the config file path. |
 
 Config file: `$PI_WEB_SEARCH_CONFIG` else `join(getAgentDir(), "web-search.json")`.
@@ -73,20 +82,29 @@ Config file: `$PI_WEB_SEARCH_CONFIG` else `join(getAgentDir(), "web-search.json"
 
 ```jsonc
 {
-  "provider": "exa" | "parallel",   // optional, default "exa"
-  "fallback": ["parallel"],         // optional, default ["parallel"] — tried in order after provider fails
-  "timeoutMs": 20000,               // optional, default 20000
-  "maxResults": 8                   // optional, default 8, clamp 1..20
+  "mode": "simple" | "parallel",    // optional, default "simple"
+  "provider": "exa" | "parallel" | "grep" | "github",
+  "fallback": ["parallel"],
+  "timeoutMs": 20000,
+  "maxResults": 8,
+  "family": "web" | "code",
+  "jev": { "enabled": false, "backend": "auto" | "typesafe" | "vercel" }
 }
 ```
 
 Rules:
 
 - The file is optional. Missing file is **not** an error.
-- Malformed file (bad JSON, not an object, unknown `provider`, non-numeric
-  `timeoutMs`/`maxResults`) is an error that must be surfaced to the model with
+- Malformed file (bad JSON, not an object, non-numeric `timeoutMs`/`maxResults`)
+  is an error that must be surfaced to the model with
   `details.error === "invalid_config"` and the path. Never throw raw.
 - Unknown keys are ignored, not rejected.
+- Unknown `provider` (including leftover LLM vendor names from the third-party
+  package) is a notice and the default `exa` is used. Do not fail the search.
+- `simple` walks `[provider, ...fallback]` inside one family.
+- `parallel` fans out every available source (or the pinned family). One failure
+  is a warning. User abort fails the whole fan-out. If every source fails, the
+  last error surfaces.
 - Precedence: config file `provider` > default `exa`.
 
 ## Exa transport
@@ -359,13 +377,22 @@ calls are unaffected, but make `extractSseData` tolerate a bare JSON line after
 chain. It judges results the providers already returned. `grep`/`github` are
 real providers; Jev is not.
 
-Gated on **both** config `jev.enabled` and `TYPESAFE_API_KEY`. Absent either, or
+Gated on config `jev.enabled` and a resolvable Jev credential. Absent either, or
 on any error, results pass through byte-identically. A decision layer that is
 down must degrade a search, never fail it. Every failure becomes a warning.
 
-Raw `POST https://api.typesafe.ai/v1/systemone`, Bearer auth, like every other
-transport here. **Do not add `@typesafe-ai/sdk`** — zero runtime deps is a hard
-constraint. **Pin `jev-1.13.0`, never `jev-latest`**; the alias moves.
+Two backends, same request body:
+
+- Native TypeSafe: `POST https://api.typesafe.ai/v1/systemone`, model `jev-1.13.0`.
+  Keys: `TYPESAFE_API_KEY` or `JEV_API_KEY`, then Pi `auth.json` `typesafe`.
+- Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`,
+  model `typesafe-ai/jev`. Keys: `AI_GATEWAY_API_KEY`, then Pi `auth.json`
+  `vercel-ai-gateway`.
+
+`backend: "auto"` prefers native, then Vercel. A pinned native model id is
+remapped on the Vercel catalog and vice versa. **Do not add `@typesafe-ai/sdk`**
+— zero runtime deps is a hard constraint. **Pin `jev-1.13.0` on native, never
+`jev-latest`**; the alias moves.
 
 ### Two calls, in this order
 

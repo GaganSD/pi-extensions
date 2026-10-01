@@ -189,6 +189,39 @@ test("a successful search returns the formatted result and forwards the request"
 	});
 });
 
+test("parallel mode fans out and still formats a single result", async () => {
+	await withConfigFile(
+		JSON.stringify({ mode: "parallel", provider: "exa", fallback: [] }),
+		async () => {
+			const result = await webSearch(
+				"call_1",
+				{ query: "timeout" },
+				undefined,
+				undefined,
+				ctx,
+				{
+					availability: { exa: true, grep: true },
+					transports: {
+						exa: recordingTransport(SEARCH_RESULT, []),
+						grep: async () => ({
+							text: "",
+							providerKind: "grep",
+							searchResults: [
+								{ title: "code", url: "https://grep.example", citedText: "fn" },
+							],
+							sources: [{ title: "code", url: "https://grep.example" }],
+						}),
+					},
+				},
+			);
+			assert.equal(result.details.error, undefined);
+			assert.deepEqual(result.details.providers, ["exa", "grep"]);
+			assert.equal(result.details.resultCount, 2);
+			assert.equal(result.details.grounded, true);
+		},
+	);
+});
+
 test("the progress update names the query when no URLs are given", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		const calls: { query: string; urls?: string[]; maxResults: number }[] = [];

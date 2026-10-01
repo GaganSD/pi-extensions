@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { JevBackendSetting } from "../jev/auth.ts";
 import {
-	DEFAULT_CHAIN,
 	PROVIDER_KINDS,
 	type ProviderError,
 	type ProviderFamily,
@@ -16,6 +16,9 @@ export const DEFAULT_PROVIDER: ProviderKind = "exa";
 export const DEFAULT_FALLBACK: ProviderKind[] = ["parallel"];
 export const DEFAULT_TIMEOUT_MS = 20000;
 export const DEFAULT_MAX_RESULTS = 8;
+export const DEFAULT_MODE: SearchMode = "simple";
+
+export type SearchMode = "simple" | "parallel";
 export const MIN_MAX_RESULTS = 1;
 export const MAX_MAX_RESULTS = 20;
 
@@ -25,6 +28,8 @@ export const CONFIG_PATH_ENV_VAR = "PI_WEB_SEARCH_CONFIG";
 export interface JevSettings {
 	enabled: boolean;
 	model: string;
+	/** `auto` prefers a native TypeSafe key, then Vercel AI Gateway. */
+	backend: JevBackendSetting;
 	/** Weights for the ranking nouls. Policy stays in code, tunable here. */
 	weights: { answers: number; offtopic: number; selfcontained: number };
 	/** Suppress below this safety probability; the mid-band is held, not passed. */
@@ -39,6 +44,8 @@ export interface ResolvedSettings {
 	timeoutMs: number;
 	maxResults: number;
 	configPath: string;
+	/** `simple` is web fallback. `parallel` fans out every available source. */
+	mode: SearchMode;
 	/** Pins the family, skipping Jev routing entirely when set. */
 	family?: ProviderFamily;
 	jev: JevSettings;
@@ -57,10 +64,13 @@ export interface WebSearchConfig {
 	fallback?: ProviderKind[];
 	timeoutMs?: number;
 	maxResults?: number;
+	mode?: SearchMode;
 	family?: ProviderFamily;
 	jev?: Partial<Omit<JevSettings, "weights">> & {
 		weights?: Partial<JevSettings["weights"]>;
 	};
+	/** Non-fatal parse notes, folded into ResolvedSettings.notices. */
+	notices?: string[];
 }
 
 export type WebSearchConfigResult =
@@ -75,6 +85,7 @@ export const DEFAULT_JEV_SETTINGS: JevSettings = {
 	enabled: false,
 	// Pinned: `jev-latest` moves, and reproducibility beats convenience here.
 	model: "jev-1.13.0",
+	backend: "auto",
 	weights: { answers: 0.45, offtopic: -0.3, selfcontained: 0.25 },
 	safetyThreshold: 0.75,
 	maxStateChars: 24000,
@@ -136,20 +147,19 @@ export async function readWebSearchConfig(
 	}
 
 	const config: WebSearchConfig = {};
-	// Unknown keys are ignored, not rejected.
+	const notices: string[] = [];
+	// Unknown keys are ignored, not rejected. An unknown `provider` is also
+	// ignored: the third-party pi-web-search file used LLM vendor names here,
+	// and rejecting the whole file takes search down on install.
 	if ("provider" in parsed) {
 		const provider = parsed.provider;
-		if (typeof provider !== "string" || !PROVIDER_KIND_SET.has(provider)) {
-			return {
-				status: "invalid",
-				path: configPath,
-				error: invalidConfig(
-					configPath,
-					`Unknown provider ${JSON.stringify(provider)}; expected ${quotedList(PROVIDER_KINDS)}.`,
-				),
-			};
+		if (typeof provider === "string" && PROVIDER_KIND_SET.has(provider)) {
+			config.provider = provider as ProviderKind;
+		} else {
+			notices.push(
+				`Ignored provider ${JSON.stringify(provider)}; expected ${quotedList(PROVIDER_KINDS)}. Using "${DEFAULT_PROVIDER}".`,
+			);
 		}
-		config.provider = provider as ProviderKind;
 	}
 
 	if ("fallback" in parsed) {
@@ -185,6 +195,15 @@ export async function readWebSearchConfig(
 		config[key] = value;
 	}
 
+	if ("mode" in parsed) {
+		const mode = parsed.mode;
+		if (mode === "simple" || mode === "parallel") {
+			config.mode = mode;
+		} else {
+			notices.push(`Ignored mode ${JSON.stringify(mode)}; expected "simple" | "parallel".`);
+		}
+	}
+
 	if ("family" in parsed) {
 		const family = parsed.family;
 		if (typeof family !== "string" || !PROVIDER_FAMILIES.has(family)) {
@@ -209,6 +228,10 @@ export async function readWebSearchConfig(
 		config.jev = jev as WebSearchConfig["jev"];
 	}
 
+	if (notices.length > 0) {
+		config.notices = notices;
+	}
+
 	return { status: "ok", path: configPath, config };
 }
 
@@ -228,7 +251,7 @@ export function applyConfig(
 ): ResolvedSettings {
 	const provider = config.provider ?? DEFAULT_PROVIDER;
 	const family = config.family ?? providerFamily(provider);
-	const notices: string[] = [];
+	const notices: string[] = [...(config.notices ?? [])];
 
 	// A fallback may never cross a family boundary. Dropping it silently would
 	// leave the operator believing a fallback exists when none does.
@@ -251,6 +274,7 @@ export function applyConfig(
 		timeoutMs: normalizeTimeoutMs(config.timeoutMs),
 		maxResults: clampMaxResults(config.maxResults ?? DEFAULT_MAX_RESULTS),
 		configPath,
+		mode: config.mode ?? DEFAULT_MODE,
 		...(config.family ? { family } : {}),
 		jev: applyJevConfig(config.jev, notices),
 		notices,
@@ -279,11 +303,24 @@ function applyJevConfig(
 	if (model !== undefined && (typeof model !== "string" || model.length === 0)) {
 		notices.push("Ignored jev.model: expected a non-empty string.");
 	}
+	const backend = jev.backend;
+	if (
+		backend !== undefined &&
+		backend !== "auto" &&
+		backend !== "typesafe" &&
+		backend !== "vercel"
+	) {
+		notices.push(`Ignored jev.backend: expected "auto" | "typesafe" | "vercel".`);
+	}
 	return {
 		enabled: jev.enabled === true,
 		model: typeof model === "string" && model.length > 0
 			? model
 			: DEFAULT_JEV_SETTINGS.model,
+		backend:
+			backend === "auto" || backend === "typesafe" || backend === "vercel"
+				? backend
+				: DEFAULT_JEV_SETTINGS.backend,
 		weights: {
 			answers: numericWeight(jev, "answers", notices),
 			offtopic: numericWeight(jev, "offtopic", notices),

@@ -1,10 +1,11 @@
 # pi-web-search
 
-A `web_search` tool for the [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent) harness, backed by **Exa** and **Parallel** search APIs.
+A `web_search` tool for the [Pi Coding Agent](https://github.com/earendil-works/pi-coding-agent). It calls search APIs directly, so it works with every model and returns documents with citations instead of a model's paraphrase.
 
-This is a self-hosted replacement for the third-party `pi-web-search` package. The original routes search through a chat model that has native web search, so you pay model prices for a lookup and your results depend on which model you happen to be using. This one calls a search API directly: a search costs a fraction of a model call, works with every model, and returns documents with citations instead of a model's paraphrase of them.
+Two modes, one tool:
 
-It is also much smaller. One tool, two providers, no native-search adapters for five LLM vendors.
+- **simple** (default) — Exa, with Parallel as a fallback. No key required. Use this most of the time.
+- **parallel** — Exa, Parallel, grep.app and GitHub run together. Failures become warnings. Optional Jev ranking, safety filter and sufficiency check.
 
 ## Install
 
@@ -12,7 +13,7 @@ It is also much smaller. One tool, two providers, no native-search adapters for 
 pi install npm:@gagansd/pi-web-search
 ```
 
-Or from a checkout, add it to your `settings.json`:
+Or from a checkout, add it to `settings.json`:
 
 ```jsonc
 { "packages": ["../../GitHub/pi-extensions/pi-web-search"] }
@@ -20,37 +21,41 @@ Or from a checkout, add it to your `settings.json`:
 
 ## No key required
 
-**Exa works with no API key.** The extension uses Exa's hosted MCP endpoint at `https://mcp.exa.ai/mcp`, which is open. Install it and search.
-
-Exa's REST API is used automatically instead when `EXA_API_KEY` is set — same results, more control, and no rate limit shared with other MCP clients.
+**Exa works with no API key** via `https://mcp.exa.ai/mcp`. grep.app is also keyless. Parallel needs `PARALLEL_API_KEY`. GitHub needs `GITHUB_TOKEN` or `GH_TOKEN`.
 
 ```bash
-# Optional. Enables the REST path and the Parallel fallback.
-export EXA_API_KEY=...
-export PARALLEL_API_KEY=...
+export EXA_API_KEY=...          # optional; switches Exa to REST
+export PARALLEL_API_KEY=...     # optional; enables Parallel
+export GITHUB_TOKEN=...         # optional; enables GitHub code search
+export TYPESAFE_API_KEY=...     # optional; native Jev
+export AI_GATEWAY_API_KEY=...   # optional; Jev via Vercel AI Gateway
 ```
+
+Jev also reads Pi's `auth.json` (`typesafe` or `vercel-ai-gateway`) when the tool runs inside Pi. Native TypeSafe wins if both keys exist. A pinned native model id is remapped on the Vercel backend.
 
 ## Configuration
 
-Optional, at `~/.pi/agent/web-search.json`. Every key has a default; the file is not required.
+Optional, at `~/.pi/agent/web-search.json`. A leftover third-party file (`provider: "openai"`) is ignored, not fatal.
 
 ```jsonc
 {
-  // "exa" (default) or "parallel"
+  "mode": "simple",            // or "parallel"
   "provider": "exa",
-
-  // Tried in order when the primary provider fails with a retryable error.
-  // Parallel is skipped silently when PARALLEL_API_KEY is unset.
   "fallback": ["parallel"],
-
   "timeoutMs": 20000,
-  "maxResults": 8
+  "maxResults": 8,
+  // "family": "web",          // pin "web" or "code"; skips Jev routing
+  "jev": {
+    "enabled": false,
+    "backend": "auto",         // auto | typesafe | vercel
+    "model": "jev-1.13.0"
+  }
 }
 ```
 
 Set `PI_WEB_SEARCH_CONFIG` to point somewhere else.
 
-Exa is the default because it is the one that works without a key. Parallel is the fallback: when you have a key, a Parallel outage or rate limit does not take search down with it.
+`simple` stays in one family and walks `provider` then `fallback`. `parallel` fans out every available source (or the pinned family) and merges what comes back. Jev never appears in the provider chain — it only judges results.
 
 ## The tool
 
@@ -61,37 +66,28 @@ Exa is the default because it is the one that works without a key. Parallel is t
 }
 ```
 
-`urls` are fetched and returned alongside the search results, using Exa's `/contents` API or its `web_fetch_exa` MCP tool, or Parallel's `/v1/extract`. A failed fetch never discards your search results — it is reported as a warning.
-
-Results are returned as a `## Results` section of titled, linked excerpts, plus a `## Sources` list for attribution. Structured detail lands in the tool result's `details` field, so an agent can inspect `resultCount`, `requestId`, and the raw results without re-parsing the text.
-
-## Why there is no `url_context` tool
-
-The original package also shipped a `url_context` tool, backed by Google Gemini URL Context. It is not here, on purpose:
-
-- Both providers already fetch URLs, so `urls` on `web_search` covers the same ground.
-- A second tool means a second schema in every request, forever, for a capability the first tool already has.
-- The original was Gemini-only and silently disappeared from the tool list on any non-Gemini model. That behavior is not something worth reproducing.
-
-URL fetching stays a separate call from search inside the provider layer, so a dedicated URL-only tool can be added later without reworking the search path.
+`urls` are fetched alongside search results. A failed fetch is a warning, never a lost search.
 
 ## Cost
 
-| Provider | Search | Notes |
+| Source | Search | Notes |
 | --- | --- | --- |
-| Exa (keyless MCP) | Free | Hosted MCP endpoint, no key, no account |
-| Exa (REST, with key) | Exa's published rates | Better rate limits, `highlights` control |
-| Parallel | $1 / 1,000 searches | `fast` mode, ~700ms. `basic` is $5 / 1,000 |
+| Exa (keyless MCP) | Free | No key, no account |
+| Exa (REST) | Exa's published rates | Used when `EXA_API_KEY` is set |
+| Parallel | $1 / 1,000 | `fast` mode |
+| grep.app | Free | Keyless MCP |
+| GitHub | GitHub's code-search limits | Needs a token; 10 req/min |
+| Jev | TypeSafe / Vercel rates | One batched call per search when enabled |
 
 ## Development
 
 ```bash
 npm install
-npm test        # node --test --experimental-strip-types, fully offline
+npm test
 npm run typecheck
 ```
 
-The whole suite is hermetic — every transport is tested through an injected `fetch`, so no test touches the network and none of them need a key. `SPEC.md` is the implementation contract the code was built against.
+The suite is hermetic — every transport is tested through an injected `fetch`. `SPEC.md` is the implementation contract.
 
 ## License
 

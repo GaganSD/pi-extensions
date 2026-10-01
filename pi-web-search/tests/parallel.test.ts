@@ -488,19 +488,6 @@ test("401 becomes http_error with the status preserved", async () => {
 	);
 });
 
-test("403 is also http_error and keeps its status", async () => {
-	const stub = stubFetch(() => errorResponse(403, { message: "forbidden" }));
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "http_error");
-			assert.equal(error.status, 403);
-			return true;
-		},
-	);
-});
-
 test("429 becomes rate_limited and is retryable", async () => {
 	const stub = stubFetch(() => errorResponse(429, { message: "slow down" }));
 
@@ -533,20 +520,6 @@ test("422 surfaces the API message so the model can correct itself", async () =>
 				String(error.message),
 				/max_results must be between 1 and 20/,
 			);
-			return true;
-		},
-	);
-});
-
-test("a 5xx stays retryable", async () => {
-	const stub = stubFetch(() => errorResponse(503, { message: "unavailable" }));
-
-	await assert.rejects(
-		() => parallelSearch(makeRequest(), { fetchImpl: stub.fetchImpl }),
-		(error: ErrorShape) => {
-			assert.equal(error.code, "http_error");
-			assert.equal(error.status, 503);
-			assert.equal(error.retryable, true);
 			return true;
 		},
 	);

@@ -42,6 +42,8 @@ export interface WebSearchDetails {
 	hint?: string;
 	/** Provider that produced the result. */
 	provider?: ProviderKind;
+	/** Every provider that contributed, when more than one ran. */
+	providers?: ProviderKind[];
 	/** Exa requestId or Parallel search_id. */
 	requestId?: string;
 	/** Number of reported results: search results, or sources when there are none. */
@@ -115,6 +117,7 @@ export function formatWebSearchResult(
 
 	return formatResult(sections.join("\n\n"), {
 		provider: result.providerKind,
+		...(result.providers ? { providers: result.providers } : {}),
 		requestId: result.requestId,
 		resultCount: searchResults.length || sources.length,
 		sources,

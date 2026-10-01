@@ -1,13 +1,26 @@
 import { withTimeout } from "../providers/http.ts";
 import { providerError } from "../providers/types.ts";
+import {
+	JEV_NATIVE_MODEL,
+	type ResolveJevAuthOptions,
+	TYPESAFE_API_URL,
+	resolveJevAuth,
+} from "./auth.ts";
 
-export const TYPESAFE_API_URL = "https://api.typesafe.ai/v1/systemone";
+export {
+	JEV_NATIVE_MODEL,
+	JEV_VERCEL_MODEL,
+	TYPESAFE_API_URL,
+	VERCEL_TYPESAFE_API_URL,
+	hasJevAuth,
+	resolveJevAuth,
+} from "./auth.ts";
 
 /**
- * Pinned. `jev-latest` moves, and a decision layer whose behavior shifts
- * underneath you is not debuggable.
+ * Pinned native id. `jev-latest` moves, and a decision layer whose behavior
+ * shifts underneath you is not debuggable. Vercel uses `typesafe-ai/jev`.
  */
-export const JEV_DEFAULT_MODEL = "jev-1.13.0";
+export const JEV_DEFAULT_MODEL = JEV_NATIVE_MODEL;
 
 /**
  * Judging is an optimization, so its deadline is deliberately shorter than a
@@ -55,10 +68,8 @@ export interface JevResponse {
 	usage?: JevUsage;
 }
 
-export interface JevOptions {
+export interface JevOptions extends ResolveJevAuthOptions {
 	fetchImpl?: FetchLike;
-	apiKey?: string;
-	model?: string;
 	/** Caller abort plus a deadline; without one a hung call blocks the tool. */
 	signal?: AbortSignal;
 	timeoutMs?: number;
@@ -68,8 +79,7 @@ type FetchLike = typeof globalThis.fetch;
 
 /** The token is read per call so tests and key rotation are both easy. */
 export function jevApiKey(explicit?: string): string | undefined {
-	const key = explicit ?? process.env.TYPESAFE_API_KEY;
-	return typeof key === "string" && key.length > 0 ? key : undefined;
+	return resolveJevAuth({ apiKey: explicit })?.apiKey;
 }
 
 /**
@@ -82,11 +92,11 @@ export async function systemOne(
 	questions: Record<string, JevQuestion>,
 	options: JevOptions,
 ): Promise<JevResponse> {
-	const key = jevApiKey(options.apiKey);
-	if (key === undefined) {
+	const auth = resolveJevAuth(options);
+	if (auth === undefined) {
 		throw providerError(
 			"missing_credentials",
-			"jev: set TYPESAFE_API_KEY to enable the decision layer.",
+			"jev: set TYPESAFE_API_KEY or AI_GATEWAY_API_KEY, or log in via `pi auth`.",
 		);
 	}
 	const doFetch = options.fetchImpl ??
@@ -100,15 +110,15 @@ export async function systemOne(
 	const timeout = withTimeout(options.signal, options.timeoutMs ?? JEV_TIMEOUT_MS);
 
 	try {
-		const response = await doFetch(TYPESAFE_API_URL, {
+		const response = await doFetch(auth.url, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer ${key}`,
+				Authorization: `Bearer ${auth.apiKey}`,
 			},
 			body: JSON.stringify({
 				state,
-				model: options.model ?? JEV_DEFAULT_MODEL,
+				model: auth.model,
 				questions,
 			}),
 			signal: timeout.signal,

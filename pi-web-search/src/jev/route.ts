@@ -3,7 +3,7 @@ import {
 	type JevOptions,
 	type JevQuestion,
 	type JevResponse,
-	jevApiKey,
+	hasJevAuth,
 	readChoice,
 	systemOne,
 } from "./api.ts";
@@ -64,7 +64,7 @@ export async function resolveRouting(
 	if (pinnedFamily !== undefined) {
 		return { family: pinnedFamily };
 	}
-	if (!enabled || jevApiKey(options.apiKey) === undefined) {
+	if (!enabled || !hasJevAuth(options)) {
 		return { family: undefined };
 	}
 	try {

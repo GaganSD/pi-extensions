@@ -1,9 +1,10 @@
+import { exaApiKey } from "../env.ts";
 import { type FetchLike, postJson } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
-import { type McpClient, createMcpClient } from "./mcp.ts";
+import { withMcpSession } from "./mcp.ts";
+import { sourcesFromResults } from "./results.ts";
 import {
 	type SearchResultDetail,
-	type Source,
 	type StreamResult,
 	isProviderError,
 	providerError,
@@ -49,7 +50,7 @@ export async function exaSearch(
 	options: ExaSearchOptions = {},
 ): Promise<StreamResult> {
 	// Read at call time so the key can be toggled without reloading the module.
-	const apiKey = readApiKey();
+	const apiKey = exaApiKey();
 	return apiKey === undefined
 		? keylessSearch(req, options)
 		: keyedSearch(req, apiKey, options);
@@ -189,7 +190,7 @@ async function keyedSearch(
 	return {
 		text: "",
 		providerKind: "exa",
-		sources: toSources(allResults),
+		sources: sourcesFromResults(allResults),
 		searchResults: allResults,
 		requestId: typeof body.requestId === "string" ? body.requestId : undefined,
 		...(warnings.length > 0 ? { warnings } : {}),
@@ -230,36 +231,18 @@ async function keyedUrlFetch(
 
 // --- path 2: keyless hosted MCP ----------------------------------------------
 
-/**
- * Runs `body` against a freshly initialized MCP session and always closes it.
- * The server hands out a session id per `initialize`; without the `DELETE` on
- * exit every search would strand a session on someone else's server.
- */
-async function withMcpSession<T>(
-	req: SearchRequest,
-	options: ExaSearchOptions,
-	body: (client: McpClient) => Promise<T>,
-): Promise<T> {
-	const client = createMcpClient({
-		url: EXA_MCP_URL,
-		fetchImpl: options.fetchImpl,
-		timeoutMs: req.settings.timeoutMs,
-		signal: req.signal,
-	});
-	try {
-		await client.initialize();
-		return await body(client);
-	} finally {
-		// A failed teardown must not mask the caller's result or its real error.
-		await client.close().catch(() => {});
-	}
-}
-
 async function keylessSearch(
 	req: SearchRequest,
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
-	const results = await withMcpSession(req, options, async (client) => {
+	const results = await withMcpSession(
+		{
+			url: EXA_MCP_URL,
+			fetchImpl: options.fetchImpl,
+			timeoutMs: req.settings.timeoutMs,
+			signal: req.signal,
+		},
+		async (client) => {
 		const text = await client.callTool("web_search_exa", {
 			query: req.query,
 			numResults: req.settings.maxResults,
@@ -282,7 +265,7 @@ async function keylessSearch(
 	return {
 		text: "",
 		providerKind: "exa",
-		sources: toSources(allResults),
+		sources: sourcesFromResults(allResults),
 		searchResults: allResults,
 		requestId: EXA_MCP_REQUEST_ID,
 		...(warnings.length > 0 ? { warnings } : {}),
@@ -296,7 +279,14 @@ async function keylessUrlFetch(
 	warn: (message: string) => void,
 ): Promise<SearchResultDetail[]> {
 	try {
-		return await withMcpSession(req, options, async (client) => {
+		return await withMcpSession(
+			{
+				url: EXA_MCP_URL,
+				fetchImpl: options.fetchImpl,
+				timeoutMs: req.settings.timeoutMs,
+				signal: req.signal,
+			},
+			async (client) => {
 			const text = await client.callTool("web_fetch_exa", {
 				urls,
 				maxCharacters: EXA_FETCH_MAX_CHARACTERS,
@@ -375,20 +365,6 @@ function pushGroup(
 	});
 }
 
-/**
- * `Source.title` is required, so an untitled page falls back to its URL rather
- * than rendering as a bare `[undefined](url)` or the literal `N/A`.
- */
-function toSources(results: SearchResultDetail[]): Source[] {
-	const sources: Source[] = [];
-	for (const result of results) {
-		if (result.url) {
-			sources.push({ title: result.title || result.url, url: result.url });
-		}
-	}
-	return sources;
-}
-
 function toSearchResults(value: unknown): ExaRestResult[] {
 	// An absent or empty `results` array is a successful search with no hits.
 	return toResultList(value) as ExaRestResult[];
@@ -432,13 +408,4 @@ function describeError(prefix: string, error: unknown): string {
 	}
 	const message = error instanceof Error ? error.message : String(error);
 	return `${prefix} failed: ${message}`;
-}
-
-function readApiKey(): string | undefined {
-	const key = process.env.EXA_API_KEY;
-	if (typeof key !== "string") {
-		return undefined;
-	}
-	const trimmed = key.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
 }

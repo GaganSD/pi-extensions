@@ -4,9 +4,14 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
+import { hydrateFromPiAuth } from "./env.ts";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { resolveSettings } from "./providers/config.ts";
-import { type RunSearchOptions, runSearch } from "./providers/index.ts";
+import {
+	type RunSearchOptions,
+	runParallelSearch,
+	runSearch,
+} from "./providers/index.ts";
 import { augmentResults } from "./jev/augment.ts";
 import { resolveRouting } from "./jev/route.ts";
 import { errorResult, invalidConfigResult } from "./utils.ts";
@@ -39,6 +44,7 @@ export async function webSearch(
 	options: RunSearchOptions = {},
 ): Promise<AgentToolResult<WebSearchDetails>> {
 	try {
+		hydrateFromPiAuth();
 		const resolved = await resolveSettings();
 		if ("error" in resolved) {
 			return invalidConfigResult(resolved.error);
@@ -58,38 +64,53 @@ export async function webSearch(
 			details: {},
 		});
 
-		// Routing is optional and never fatal: a failure here just falls back
-		// to the configured provider.
-		const routing = await resolveRouting(
-			params.query,
-			resolved.family,
-			resolved.jev.enabled,
-			{ signal },
-		);
+		const jevOptions = {
+			signal,
+			usePiAuth: true,
+			backend: resolved.jev.backend,
+			model: resolved.jev.model,
+		};
+		const req = {
+			query: params.query,
+			urls: params.urls,
+			signal,
+			onUpdate,
+			settings: resolved,
+		};
 
-		const result = await runSearch(
-			{
-				query: params.query,
-				urls: params.urls,
-				signal,
-				onUpdate,
-				settings: resolved,
-			},
-			{ ...options, family: routing.family },
-		);
+		// `parallel` fans out every available source. `simple` stays a web
+		// (or pinned-family) fallback chain, optionally routed by Jev.
+		let routingNote: string | undefined;
+		const result =
+			resolved.mode === "parallel"
+				? await runParallelSearch(req, {
+						...options,
+						family: resolved.family,
+					})
+				: await (async () => {
+						const routing = await resolveRouting(
+							params.query,
+							resolved.family,
+							resolved.jev.enabled,
+							jevOptions,
+						);
+						routingNote = routing.note;
+						return runSearch(req, { ...options, family: routing.family });
+				})();
 
 		const augmented = await augmentResults(
-			{ query: params.query, signal, settings: resolved },
+			req,
 			{
 				...result,
 				// Config notices were recorded but never shown, so a dropped
 				// cross-family fallback stayed invisible to the operator.
 				warnings: [
 					...resolved.notices,
-					...(routing.note ? [routing.note] : []),
+					...(routingNote ? [routingNote] : []),
 					...(result.warnings ?? []),
 				],
 			},
+			jevOptions,
 		);
 
 		return formatWebSearchResult(augmented);

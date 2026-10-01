@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-web-search",
   "version": "0.1.0",
-  "description": "web_search tool for Pi backed by Exa and Parallel. No native-search LLM required.",
+  "description": "web_search tool for Pi backed by Exa, Parallel, grep.app and GitHub. Optional Jev ranking via TypeSafe or Vercel AI Gateway.",
   "type": "module",
   "license": "MIT",
   "author": "Gagan Devagiri",
@@ -11,7 +11,8 @@
     "pi-extension",
     "web-search",
     "exa",
-    "parallel"
+    "parallel",
+    "jev"
   ],
   "homepage": "https://github.com/GaganSD/pi-extensions/tree/main/pi-web-search",
   "repository": {

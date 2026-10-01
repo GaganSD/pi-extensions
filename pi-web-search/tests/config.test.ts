@@ -95,19 +95,24 @@ test("invalid JSON is reported as invalid_config with the path", async () => {
 	assert.equal(resolved.error.configPath, path);
 });
 
-test("unknown provider is rejected", async () => {
+test("unknown provider is ignored so a leftover LLM-vendor config still works", async () => {
 	const dir = await tempDir();
 	const path = await writeConfig(
 		dir,
-		JSON.stringify({ provider: "tavily" }),
+		JSON.stringify({ provider: "openai", model: "gpt-5.6-luna" }),
 	);
 
 	const read = await readWebSearchConfig(path);
-	assert.equal(read.status, "invalid");
-	if (read.status !== "invalid") {
+	assert.equal(read.status, "ok");
+	if (read.status !== "ok") {
 		return;
 	}
-	assert.match(read.error.message, /Unknown provider "tavily"/);
+	assert.equal(read.config.provider, undefined);
+	const settings = await resolveSettings(path);
+	assert.ok("provider" in settings);
+	assert.equal(settings.provider, "exa");
+	assert.equal(settings.mode, "simple");
+	assert.match(settings.notices.join(" "), /openai/);
 });
 
 test("non-numeric timeoutMs and maxResults are rejected", async () => {
@@ -211,4 +216,6 @@ test("applyConfig fills defaults from a parsed file", () => {
 	assert.deepEqual(settings.fallback, ["parallel"]);
 	assert.equal(settings.timeoutMs, 20000);
 	assert.equal(settings.maxResults, 8);
+	assert.equal(settings.mode, "simple");
+	assert.equal(settings.jev.backend, "auto");
 });

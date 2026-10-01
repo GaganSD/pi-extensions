@@ -348,7 +348,11 @@ test("augment is a no-op when jev is disabled", async () => {
 
 test("augment is a no-op without an api key", async () => {
 	const previous = process.env.TYPESAFE_API_KEY;
+	const previousGateway = process.env.AI_GATEWAY_API_KEY;
+	const previousJev = process.env.JEV_API_KEY;
 	delete process.env.TYPESAFE_API_KEY;
+	delete process.env.AI_GATEWAY_API_KEY;
+	delete process.env.JEV_API_KEY;
 	try {
 		const input = result([{ title: "A", url: "https://a.example", citedText: "alpha" }]);
 		const out = await augmentResults(request(settingsWith()), input, {
@@ -358,6 +362,16 @@ test("augment is a no-op without an api key", async () => {
 	} finally {
 		if (previous !== undefined) {
 			process.env.TYPESAFE_API_KEY = previous;
+		}
+		if (previousGateway === undefined) {
+			delete process.env.AI_GATEWAY_API_KEY;
+		} else {
+			process.env.AI_GATEWAY_API_KEY = previousGateway;
+		}
+		if (previousJev === undefined) {
+			delete process.env.JEV_API_KEY;
+		} else {
+			process.env.JEV_API_KEY = previousJev;
 		}
 	}
 });

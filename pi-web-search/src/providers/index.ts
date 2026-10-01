@@ -1,7 +1,10 @@
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-coding-agent";
+import { githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
+import { mergeStreamResults } from "./results.ts";
 import {
 	DEFAULT_CHAIN,
+	PROVIDER_KINDS,
 	type ProviderError,
 	type ProviderFamily,
 	type ProviderKind,
@@ -53,6 +56,37 @@ export function providerAvailability(): Record<ProviderKind, boolean> {
 }
 
 /**
+ * Providers that will actually run. `family` confines the set; without it
+ * every available source is eligible. Config order wins, then family defaults.
+ */
+export function listRunnableProviders(
+	settings: ResolvedSettings,
+	availability: Partial<Record<ProviderKind, boolean>> = providerAvailability(),
+	family?: ProviderFamily,
+): ProviderKind[] {
+	const target = family ?? settings.family;
+	const preferred = [settings.provider, ...settings.fallback, ...PROVIDER_KINDS];
+	const chain: ProviderKind[] = [];
+	for (const kind of preferred) {
+		if (
+			availability[kind] === true &&
+			!chain.includes(kind) &&
+			(target === undefined || providerFamily(kind) === target)
+		) {
+			chain.push(kind);
+		}
+	}
+	if (chain.length === 0 && target !== undefined) {
+		for (const kind of DEFAULT_CHAIN[target]) {
+			if (availability[kind] === true && !chain.includes(kind)) {
+				chain.push(kind);
+			}
+		}
+	}
+	return chain;
+}
+
+/**
  * The chain is confined to one family. Config order wins when it yields a
  * usable provider in that family; otherwise the family default is used, so
  * routing to `code` still works for an operator who only ever configured `exa`.
@@ -64,8 +98,6 @@ export function resolveProviderChain(
 ): ProviderKind[] {
 	const target = family ?? settings.family ?? providerFamily(settings.provider);
 	const chain: ProviderKind[] = [];
-	// An absent key means "not available", so an injected partial map reads as
-	// "exactly these are available" — which is what tests want to express.
 	const add = (kind: ProviderKind) => {
 		if (
 			providerFamily(kind) === target &&
@@ -163,6 +195,10 @@ function missingCredentials(kind: ProviderKind, message: string): ProviderError 
 	return providerError("missing_credentials", `${kind}: ${message}`);
 }
 
+function isAborted(signal: AbortSignal | undefined): boolean {
+	return signal !== undefined && signal.aborted;
+}
+
 function aborted(reason: unknown): ProviderError {
 	if (isProviderError(reason) && reason.code === "aborted") {
 		return reason;
@@ -184,13 +220,129 @@ function toProviderError(error: unknown): ProviderError {
  * the fallback it was supposed to enable.
  */
 export function hasParallelKey(): boolean {
-	const key = process.env.PARALLEL_API_KEY;
-	return typeof key === "string" && key.trim().length > 0;
+	return parallelApiKey() !== undefined;
 }
 
 export function hasGitHubToken(): boolean {
-	const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-	return typeof token === "string" && token.trim().length > 0;
+	return githubToken() !== undefined;
+}
+
+/**
+ * Runs every available provider at once and merges what comes back.
+ *
+ * Edge cases:
+ * - missing credentials skip that source with a warning
+ * - a missing transport skips that source with a warning
+ * - one provider failing does not fail the search
+ * - empty hits are kept as a warning, not an error
+ * - user abort cancels the whole fan-out and is never treated as partial success
+ * - if every provider fails, the last error surfaces
+ */
+export async function runParallelSearch(
+	req: SearchRequest,
+	options: RunSearchOptions = {},
+): Promise<StreamResult> {
+	const attempt = await tryRunParallelSearch(req, options);
+	if (attempt.ok) {
+		return attempt.result;
+	}
+	throw attempt.error;
+}
+
+export async function tryRunParallelSearch(
+	req: SearchRequest,
+	options: RunSearchOptions = {},
+): Promise<RunSearchResult> {
+	if (isAborted(req.signal)) {
+		return { ok: false, error: aborted(req.signal?.reason) };
+	}
+
+	const kinds = listRunnableProviders(
+		req.settings,
+		options.availability,
+		options.family,
+	);
+	if (kinds.length === 0) {
+		return {
+			ok: false,
+			error: missingCredentials(
+				req.settings.provider,
+				describeNoCredentials(req.settings, options.family),
+			),
+		};
+	}
+
+	const loadTransports = options.loadTransports ?? loadDefaultTransports;
+	const transports =
+		options.transports ??
+		(await loadTransports().catch(() => ({} as ProviderTransportMap)));
+
+	const warnings: string[] = [];
+	const runnable: ProviderKind[] = [];
+	for (const kind of kinds) {
+		if (!transports[kind]) {
+			warnings.push(`No transport is registered for ${kind}.`);
+			continue;
+		}
+		runnable.push(kind);
+	}
+	if (runnable.length === 0) {
+		return {
+			ok: false,
+			error: missingCredentials(
+				kinds[0],
+				`No transport registered for ${kinds.join(", ")}.`,
+			),
+		};
+	}
+
+	const settled = await Promise.allSettled(
+		runnable.map(async (kind) => {
+			const transport = transports[kind];
+			if (!transport) {
+				throw missingCredentials(kind, `No transport is registered for ${kind}.`);
+			}
+			return { kind, result: await transport(req) };
+		}),
+	);
+
+	if (isAborted(req.signal)) {
+		return { ok: false, error: aborted(req.signal?.reason) };
+	}
+
+	const successes: { kind: ProviderKind; result: StreamResult }[] = [];
+	let lastError: ProviderError | undefined;
+	for (let i = 0; i < settled.length; i++) {
+		const kind = runnable[i];
+		const item = settled[i];
+		if (item.status === "fulfilled") {
+			const { result } = item.value;
+			const hits = result.searchResults?.length ?? 0;
+			if (hits === 0) {
+				warnings.push(`${kind} returned no results.`);
+			}
+			successes.push(item.value);
+			continue;
+		}
+		const err = toProviderError(item.reason);
+		if (err.code === "aborted") {
+			return { ok: false, error: err };
+		}
+		lastError = err;
+		warnings.push(`${kind} failed (${err.code}): ${err.message}`);
+	}
+
+	if (successes.length === 0) {
+		return {
+			ok: false,
+			error:
+				lastError ??
+				missingCredentials(runnable[0], "Every parallel provider failed."),
+		};
+	}
+
+	const merged = mergeStreamResults(successes, warnings);
+	return { ok: true, result: merged, provider: successes[0].kind };
 }
 
 /** Names the credential that would actually unlock the family in question. */

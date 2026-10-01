@@ -54,15 +54,15 @@ export interface StreamResult {
 	text: string;
 	sources?: Source[];
 	providerKind: ProviderKind;
+	/** Every provider that contributed, when more than one ran. */
+	providers?: ProviderKind[];
 	searchResults?: SearchResultDetail[];
-	/** Exa requestId or Parallel search_id. */
+	/** Exa requestId or Parallel search_id. Joined when several ran. */
 	requestId?: string;
-	/** Parallel only. */
 	usage?: { name: string; count: number }[];
-	/** Parallel only. */
 	warnings?: string[];
 	/** Decision-layer audit trail; absent whenever jev did not run. */
-jev?: {
+	jev?: {
 		sufficient: boolean;
 		lowConfidence: boolean;
 		/** Count withheld as unsafe. */

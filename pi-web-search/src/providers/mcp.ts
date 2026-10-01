@@ -48,6 +48,19 @@ function withAuth(
 	return sessionId ? { ...headers, "Mcp-Session-Id": sessionId } : headers;
 }
 
+export async function withMcpSession<T>(
+	options: McpClientOptions,
+	body: (client: McpClient) => Promise<T>,
+): Promise<T> {
+	const client = createMcpClient(options);
+	try {
+		await client.initialize();
+		return await body(client);
+	} finally {
+		await client.close().catch(() => {});
+	}
+}
+
 export function createMcpClient(options: McpClientOptions): McpClient {	const { url } = options;
 	let sessionId: string | undefined;
 	let nextId = 1;

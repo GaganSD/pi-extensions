@@ -1,6 +1,6 @@
 import type { SearchRequest } from "../providers/index.ts";
 import type { StreamResult } from "../providers/types.ts";
-import { jevApiKey, JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
+import { hasJevAuth, JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
 import {
 	type Candidate,
 	type JudgeOutcome,
@@ -26,7 +26,12 @@ export async function augmentResults(
 	options: AugmentOptions = {},
 ): Promise<StreamResult> {
 	const settings = req.settings.jev;
-	if (!settings.enabled || jevApiKey(options.apiKey) === undefined) {
+	const authOptions: JevOptions = {
+		...options,
+		backend: options.backend ?? settings.backend,
+		model: options.model ?? settings.model,
+	};
+	if (!settings.enabled || !hasJevAuth(authOptions)) {
 		return result;
 	}
 
@@ -48,8 +53,7 @@ export async function augmentResults(
 			{ query: req.query, candidates },
 			buildJudgeQuestions(candidates),
 			{
-				...options,
-				model: options.model ?? settings.model,
+				...authOptions,
 				// The caller's abort must reach the judge, or a cancelled search
 				// keeps waiting on a judgment nobody will read.
 				signal: req.signal,
