@@ -74,6 +74,8 @@ export async function postSseJson<T>(
 			options.allowEmptyBody === true,
 			options.selectMessage,
 		),
+		"POST",
+		options.selectMessage,
 	);
 }
 
@@ -214,6 +216,7 @@ async function send<T>(
 	options: JsonRequestOptions,
 	decode: (bodyText: string) => T,
 	method: "POST" | "GET" = "POST",
+	selectSseMessage?: (message: unknown) => boolean,
 ): Promise<T> {
 	const doFetch = options.fetchImpl ??
 		(globalThis.fetch as FetchLike | undefined);
@@ -249,6 +252,8 @@ async function send<T>(
 				options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
 				url,
 				composed.signal,
+				response.ok && response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() === "text/event-stream"
+					? selectSseMessage : undefined,
 			), composed.signal);
 		} catch (error) {
 			if (error instanceof Error && isProviderErrorLike(error)) {
@@ -312,12 +317,15 @@ function abortReason(signal: AbortSignal, timeoutMs: number): ProviderError {
  * Reads the response body, capping decoded bytes so a hostile or oversized
  * upstream response cannot buffer without bound before JSON.parse. The
  * composed request signal stays live here, so the body is also deadline-bound.
+ * A fully framed, correlated SSE reply can complete before EOF; cancel its
+ * unused tail rather than letting an idle server delay the result until timeout.
  */
 async function readBody(
 	response: ResponseLike,
 	maxBytes: number,
 	url: string,
 	signal: AbortSignal,
+	selectMessage?: (message: unknown) => boolean,
 ): Promise<string> {
 	const stream = response.body;
 	if (!stream) {
@@ -333,6 +341,9 @@ async function readBody(
 	const decoder = new TextDecoder();
 	let total = 0;
 	let text = "";
+	const boundary = /\r?\n\r?\n/g;
+	let frameStart = 0;
+	let scanOffset = 0;
 	try {
 		while (true) {
 			const { done, value } = await reader.read();
@@ -343,6 +354,25 @@ async function readBody(
 				total += value.byteLength;
 				assertBodySize(total, maxBytes, url);
 				text += decoder.decode(value, { stream: true });
+				if (selectMessage) {
+					boundary.lastIndex = scanOffset;
+					let match: RegExpExecArray | null;
+					while ((match = boundary.exec(text)) !== null) {
+						const frame = text.slice(frameStart, match.index);
+						frameStart = boundary.lastIndex;
+						for (const payload of extractSseData(frame)) {
+							let message: unknown;
+							try { message = JSON.parse(payload); } catch { continue; }
+							if (selectMessage(message)) {
+								cancel();
+								return payload;
+							}
+						}
+					}
+					// Revisit only the bytes that could begin a split CRLF delimiter,
+					// not the whole buffered response on every small network chunk.
+					scanOffset = Math.max(frameStart, text.length - 3);
+				}
 			}
 		}
 		text += decoder.decode();

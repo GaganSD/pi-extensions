@@ -203,11 +203,14 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			}
 			const deadline = withTimeout(undefined, CLOSE_TIMEOUT_MS);
 			try {
-				await awaitWithSignal(doFetch(url, {
+				const response = await awaitWithSignal(doFetch(url, {
 					method: "DELETE",
 					headers,
 					signal: deadline.signal,
 				}), deadline.signal);
+				// DELETE is best-effort cleanup; release its unused body without
+				// waiting for an open stream or an uncooperative cancel callback.
+				void response.body?.cancel().catch(() => {});
 			} catch (error) {
 				throw providerError("network_error", `MCP close failed: ${
 					error instanceof Error ? error.message : String(error)

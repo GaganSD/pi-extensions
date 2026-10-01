@@ -220,11 +220,6 @@ async function keyedSearch(
 			try {
 				const contents = asObject(fetchOutcome.value, EXA_CONTENTS_URL);
 				results.push(...requestedContents(toContentsResults(contents.results).map(contentsDetail), fetched.urls, warnings));
-				for (const url of fetched.urls) {
-					if (!results.some((result) => result.type === FETCH_RESULT_TYPE && result.url === url)) {
-						warnings.push(`Exa URL fetch returned no parsed content for ${url}.`);
-					}
-				}
 			} catch (error) {
 				warnings.push(describeError("URL fetch", error));
 			}
@@ -243,11 +238,42 @@ async function keyedSearch(
 
 /** A URL fetch cannot introduce documents outside the caller's requested set. */
 function requestedContents(results: SearchResultDetail[], urls: string[], warnings: string[]): SearchResultDetail[] {
-	const allowed = new Set(urls);
-	const kept = results.filter((result) => typeof result.url === "string" && allowed.has(result.url));
+	const allowed = new Set(urls.map(contentUrlKey));
+	const returned = new Set<string>();
+	const kept = results.filter((result) => {
+		if (typeof result.url !== "string") return false;
+		const key = contentUrlKey(result.url);
+		if (!allowed.has(key)) return false;
+		returned.add(key);
+		return true;
+	});
 	const dropped = results.length - kept.length;
 	if (dropped > 0) warnings.push(`Exa URL fetch withheld ${dropped} unrequested or unidentified document(s).`);
+	for (const url of urls) {
+		if (!returned.has(contentUrlKey(url))) {
+			warnings.push(`Exa URL fetch returned no parsed content for ${url}.`);
+		}
+	}
 	return kept;
+}
+
+/**
+ * Fragments do not identify a different fetched document. URL serialization
+ * also normalizes host case, default ports and the root slash, but retains
+ * scheme, credentials, query order, path case and non-root trailing slashes.
+ * No redirect destinations or other unrequested URLs are inferred.
+ */
+function contentUrlKey(value: string): string {
+	try {
+		const url = new URL(value);
+		if (url.protocol === "http:" || url.protocol === "https:") {
+			url.hash = "";
+			return url.href;
+		}
+	} catch {
+		// Invalid/non-HTTP values retain the previous exact-match behavior.
+	}
+	return value;
 }
 
 function contentsDetail(result: ExaContentsResult): SearchResultDetail {
@@ -341,11 +367,6 @@ async function keylessSearch(
 			}
 			warnings.push(...pages.warnings);
 			const requested = requestedContents(pages.results, fetched.urls, warnings);
-			for (const url of fetched.urls) {
-				if (!requested.some((page) => page.url === url)) {
-					warnings.push(`Exa URL fetch returned no parsed content for ${url}.`);
-				}
-			}
 			if (pages.results.length === 0 && fetchOutcome.value.trim().length > 0) {
 				warnings.push("Exa URL fetch returned unparsed content; page identity is unverified.");
 				requested.push({ source: PROVIDER_NAME, citedText: fetchOutcome.value, type: "unparsed" });

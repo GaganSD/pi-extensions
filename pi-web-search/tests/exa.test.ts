@@ -589,6 +589,64 @@ test("keyless URL fetches cannot recast unrequested pages as unparsed evidence",
 	assert.doesNotMatch(JSON.stringify(result), /Unexpected document|evil\.example/);
 });
 
+const EQUIVALENT_FETCH_URLS = [
+	["https://example.com/page#section", "https://example.com/page"],
+	["https://example.com/page", "https://example.com/page#section"],
+	["https://example.com:443/page", "https://example.com/page"],
+	["http://example.com:80/page", "http://example.com/page"],
+	["https://EXAMPLE.com", "https://example.com/"],
+	["https://example.com/", "https://example.com"],
+	["https://example.com/page?x=1&y=2#section", "https://example.com/page?x=1&y=2"],
+];
+
+const DISTINCT_FETCH_URLS = [
+	"https://evil.example/page",
+	"http://example.com/page?x=1&y=2",
+	"https://example.com:8443/page?x=1&y=2",
+	"https://example.com/page/?x=1&y=2",
+	"https://example.com/Page?x=1&y=2",
+	"https://example.com/page?y=2&x=1",
+	"https://example.com/page?x=1&y=3",
+	"https://user:secret@example.com/page?x=1&y=2",
+	"https://example.com/other?x=1&y=2",
+	"not a URL",
+];
+
+for (const mode of ["keyed", "keyless"] as const) {
+	test(`${mode} URL fetch accepts only safe URL equivalents without false missing warnings`, async () => {
+		for (const [requestedUrl, returnedUrl] of EQUIVALENT_FETCH_URLS) {
+			const { fetchImpl } = mode === "keyed"
+				? queueFetch([
+					{ body: JSON.stringify({ results: [] }) },
+					{ body: JSON.stringify({ results: [{ url: returnedUrl, text: "Requested evidence" }] }) },
+				])
+				: mcpFetch([MCP_SEARCH_TEXT, `# Requested\nURL: ${returnedUrl}\nRequested evidence`]);
+			const run = () => exaSearch(request({ urls: [requestedUrl] }), { fetchImpl });
+			const result = await (mode === "keyed" ? withKey("dummy-exa", run) : withoutKey(run));
+			const content = result.searchResults?.filter((entry) => entry.type === "content");
+			assert.deepEqual(content?.map((entry) => entry.url), [returnedUrl], requestedUrl);
+			assert.equal(content?.[0].citedText, "Requested evidence");
+			assert.equal(result.warnings, undefined, requestedUrl);
+		}
+	});
+
+	test(`${mode} URL fetch does not equate different origins, paths, queries or credentials`, async () => {
+		const requestedUrl = "https://example.com/page?x=1&y=2";
+		const { fetchImpl } = mode === "keyed"
+			? queueFetch([
+				{ body: JSON.stringify({ results: [] }) },
+				{ body: JSON.stringify({ results: DISTINCT_FETCH_URLS.map((url) => ({ url, text: "Unrequested evidence" })) }) },
+			])
+			: mcpFetch([MCP_SEARCH_TEXT, DISTINCT_FETCH_URLS.map((url) => `# Unexpected\nURL: ${url}\nUnrequested evidence`).join("\n")]);
+		const run = () => exaSearch(request({ urls: [requestedUrl] }), { fetchImpl });
+		const result = await (mode === "keyed" ? withKey("dummy-exa", run) : withoutKey(run));
+		assert.deepEqual(result.searchResults?.filter((entry) => entry.type === "content"), []);
+		assert.match(result.warnings?.join(" ") ?? "", /withheld/);
+		assert.match(result.warnings?.join(" ") ?? "", /no parsed content for https:\/\/example\.com\/page\?x=1&y=2/);
+		assert.doesNotMatch(JSON.stringify(result), /Unrequested evidence/);
+	});
+}
+
 test("keyed urls hit /contents and append content results after the search", async () => {
 	const { fetchImpl, requests } = queueFetch([
 		{ body: JSON.stringify(SEARCH_FIXTURE) },
