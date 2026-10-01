@@ -302,9 +302,7 @@ async function keylessSearch(
 			// and the family would never fall back to parallel. Only trust it
 			// when there is nothing to show: a real result page routinely
 			// contains the words "rate limit" or "429".
-			const hasSearchContent = parsed.some(
-				(result) => (result.citedText ?? "").trim().length > 0,
-			);
+			const hasSearchContent = parsed.length > 0;
 			if (isRateLimitRefusal(searchOutcome.value, hasSearchContent)) {
 				await fetchPromise;
 				throw providerError(
@@ -334,15 +332,12 @@ async function keylessSearch(
 				return base;
 			}
 			// A throttled fetch never invalidates the search that succeeded
-			// alongside it, so this warns and returns the results we have. The
-			// parsed pages are the content signal: a real page is never a refusal.
+			// alongside it, and it never costs the caller their content: a reply
+			// that parsed into pages is never a refusal, and one that did not
+			// still falls through to the unparsed-preservation branch below.
 			const pages = parseExaFetchText(fetchOutcome.value);
-			const hasPageContent = pages.results.some(
-				(page) => (page.citedText ?? "").trim().length > 0,
-			);
-			if (isRateLimitRefusal(fetchOutcome.value, hasPageContent)) {
-				warnings.push("Exa URL fetch was rate-limited by the keyless endpoint; search results are unaffected.");
-				return base;
+			if (pages.results.length === 0 && isRateLimitRefusal(fetchOutcome.value, false)) {
+				warnings.push("Exa URL fetch was rate-limited by the keyless endpoint, so the page may be incomplete.");
 			}
 			warnings.push(...pages.warnings);
 			const requested = requestedContents(pages.results, fetched.urls, warnings);
@@ -552,8 +547,13 @@ function describeError(prefix: string, error: unknown): string {
  */
 const SERVICE_RE = /\bexa\b/i;
 const REFUSAL_RE =
-	/rate limit|too many requests|\b429\b|quota|temporarily unavailable|api key|upgrade/i;
+	/rate-limit(?:ed)?|too many requests|\b429\b|quota|temporarily unavailable|api key|upgrade/i;
 
+/**
+ * `hasContent` is "the parser found results at all", not "the results were
+ * thick": a hit whose highlights came back empty is still a real citation, and
+ * discarding citations is the worse error here.
+ */
 function isRateLimitRefusal(reply: string, hasContent: boolean): boolean {
 	return !hasContent && SERVICE_RE.test(reply) && REFUSAL_RE.test(reply);
 }

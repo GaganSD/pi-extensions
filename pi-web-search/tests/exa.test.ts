@@ -787,24 +787,39 @@ test("a rate-limited fetch warns and keeps the search results", async () => {
 
 	assert.ok((result.searchResults?.length ?? 0) >= 1, "search results must not be discarded");
 	assert.match(result.warnings?.join(" ") ?? "", /URL fetch was rate-limited/);
+	assert.equal(
+		result.searchResults?.some((r) => r.type === "unparsed"),
+		true,
+		"the refused reply is still preserved rather than dropped",
+	);
 });
 
-test("a padded or anchor-bearing refusal is still recognised", async () => {
-	// The earlier shape test (length cap + anchor check) let both of these
-	// through as fake results, which is the defect being fixed.
+test("a padded refusal is still recognised", async () => {
+	// The earlier shape test (length cap + anchor check) let a padded refusal
+	// through as a fake result, which is the defect being fixed.
 	const padded = `${"You have hit a limit. ".repeat(20)}Exa rate limit reached; create your own Exa API key.`;
-	const withAnchor = "Too many requests.\nURL: https://exa.ai/pricing\nUpgrade: create an Exa API key.";
+	const { fetchImpl } = mcpFetch([padded]);
 
-	for (const reply of [padded, withAnchor]) {
-		const { fetchImpl } = mcpFetch([reply]);
-		await assert.rejects(
-			withoutKey(() => exaSearch(request(), { fetchImpl })),
-			(error: { code?: string }) => {
-				assert.equal(error.code, "rate_limited");
-				return true;
-			},
-		);
-	}
+	await assert.rejects(
+		withoutKey(() => exaSearch(request(), { fetchImpl })),
+		(error: { code?: string }) => {
+			assert.equal(error.code, "rate_limited");
+			return true;
+		},
+	);
+});
+
+test("a refusal that parses into a citation is kept, as a deliberate trade-off", async () => {
+	// A refusal containing a "URL:" line parses into a result, and a real
+	// citation is never discarded on suspicion. Accepted cost: this one refusal
+	// shape renders as an unparsed result carrying a warning.
+	const { fetchImpl } = mcpFetch([
+		"Too many requests.\nURL: https://exa.ai/pricing\nUpgrade: create an Exa API key.",
+	]);
+
+	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
+
+	assert.equal(result.providerKind, "exa");
 });
 
 test("a real result page keeps its content even when every hit is thin", async () => {
@@ -836,7 +851,7 @@ test("a fetched page about rate limits is kept, not read as a refusal", async ()
 	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /was rate-limited/);
 });
 
-test("a long page mentioning quota is kept", async () => {
+test("an unstructured fetch reply mentioning quota is kept", async () => {
 	const { fetchImpl } = mcpFetch([
 		MCP_SEARCH_TEXT,
 		`URL: https://example.com/quota\n${"This page documents quota behaviour in detail. ".repeat(20)}\n`,
@@ -860,7 +875,7 @@ test("results whose wording matches but which name no service are kept", async (
 	assert.equal(result.searchResults?.length, 2);
 });
 
-test("the service marker does not match inside ordinary words", async () => {
+test("the service marker does not match inside ordinary words in an unstructured reply", async () => {
 	// "example.com" and "exact" contain the letters of the service name; only a
 	// standalone token identifies a refusal.
 	const { fetchImpl } = mcpFetch([
@@ -873,4 +888,45 @@ test("the service marker does not match inside ordinary words", async () => {
 	);
 
 	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /was rate-limited/);
+});
+
+test("an Exa-named result page with empty highlights is kept", async () => {
+	// A thin citation is still a citation; discarding it is the worse error.
+	const { fetchImpl } = mcpFetch([
+		"Title: Exa rate limits\nURL: https://exa.ai/docs/rate-limits\n\nTitle: Exa pricing\nURL: https://exa.ai/pricing\n",
+	]);
+
+	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
+
+	assert.equal(result.searchResults?.length, 2, "both citations must survive");
+	assert.equal(result.providerKind, "exa");
+});
+
+test("a structured fetched page naming Exa and 429 is kept", async () => {
+	const { fetchImpl } = mcpFetch([
+		MCP_SEARCH_TEXT,
+		"# Exa API reference\nURL: https://example.com/a\nGET https://api.exa.ai/search — pass your Exa API key. Exa enforces a rate limit of 429.\n",
+	]);
+
+	const result = await withoutKey(() =>
+		exaSearch({ ...request(), urls: ["https://example.com/a"] }, { fetchImpl }),
+	);
+
+	assert.ok(
+		result.searchResults?.some((r) => r.url === "https://example.com/a"),
+		"the requested page must survive",
+	);
+	assert.doesNotMatch(result.warnings?.join(" ") ?? "", /was rate-limited/);
+});
+
+test("a rate-limit refusal using the hyphenated spelling is still refused", async () => {
+	const { fetchImpl } = mcpFetch(["Exa: you have been rate-limited. Please try again later."]);
+
+	await assert.rejects(
+		withoutKey(() => exaSearch(request(), { fetchImpl })),
+		(error: { code?: string }) => {
+			assert.equal(error.code, "rate_limited");
+			return true;
+		},
+	);
 });

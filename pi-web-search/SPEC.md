@@ -151,12 +151,13 @@ with a count warning, on both keyed REST and keyless MCP paths.
 
 A keyless Exa quota refusal is returned in-band with HTTP success, so it would
 otherwise be rendered as a fake result and never trigger fallback. It is
-promoted to `rate_limited` only when the reply yielded no usable content, names
-the service as a standalone token, and matches the refusal wording. Pages
-*about* rate limits are ordinary results, and silently dropping a fetched page
-is worse than showing an unparsed message, so the check is deliberately biased
-toward saying nothing. A refused *fetch* is only a warning, because the search
-alongside it succeeded.
+promoted to `rate_limited` only when the parser found no results at all, the
+reply names the service as a standalone token, and it matches the refusal
+wording. Pages *about* rate limits are ordinary results and a citation with thin
+or empty highlights is still a citation, so the check is deliberately biased
+toward saying nothing: the accepted cost is that a refusal which happens to
+parse into a citation renders as an unparsed result carrying a warning. A
+refused *fetch* only adds a warning and never discards content.
 
 ## Jev (optional judgment)
 
