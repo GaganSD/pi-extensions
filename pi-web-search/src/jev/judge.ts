@@ -283,10 +283,9 @@ function readUsage(
 	if (!usage) {
 		return undefined;
 	}
-	// The documented shape reports input and output separately; sum them unless
-	// the server already supplied a total.
-	const total = finite(usage.total_tokens) ??
-		sumFinite(usage.input_tokens, usage.output_tokens);
+	// Pi has already normalized provider token counts. This is display metadata;
+	// the integrator must also copy classifierUsage to AgentToolResult.usage.
+	const total = finite(usage.totalTokens);
 	if (total === undefined) {
 		return undefined;
 	}
@@ -297,18 +296,6 @@ function finite(value: number | undefined): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** Sums whichever of the two counts are present; undefined when neither is. */
-function sumFinite(
-	input: number | undefined,
-	output: number | undefined,
-): number | undefined {
-	const a = finite(input);
-	const b = finite(output);
-	if (a === undefined && b === undefined) {
-		return undefined;
-	}
-	return (a ?? 0) + (b ?? 0);
-}
 
 /** Builds the judge state, capped so an oversized set skips augmentation. */
 export function toCandidates(

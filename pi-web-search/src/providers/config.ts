@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { JevBackendSetting } from "../jev/auth.ts";
+import type { JevBackendSetting } from "../jev/model.ts";
 import {
 	PROVIDER_KINDS,
 	type ProviderError,
@@ -39,7 +39,7 @@ export const CONFIG_PATH_ENV_VAR = "PI_WEB_SEARCH_CONFIG";
 export interface JevSettings {
 	enabled: boolean;
 	model: string;
-	/** `auto` prefers a native TypeSafe key, then Vercel AI Gateway. */
+	/** `auto` prefers an available Pi TypeSafe classifier, then Vercel for the legacy default. */
 	backend: JevBackendSetting;
 	/** Weights for the ranking nouls. Policy stays in code, tunable here. */
 	weights: { answers: number; offtopic: number; selfcontained: number };
@@ -88,7 +88,7 @@ const CONFIG_KEYS = new Set(["web", "code", "research", "jev", "timeoutMs", "max
 
 export const DEFAULT_JEV_SETTINGS: JevSettings = {
 	enabled: false,
-	// Pinned: `jev-latest` moves, and reproducibility beats convenience here.
+	// Legacy setting: mapped explicitly to the catalog's jev-latest or typesafe-ai/jev.
 	model: "jev-1.13.0",
 	backend: "auto",
 	weights: { answers: 0.45, offtopic: -0.3, selfcontained: 0.25 },
@@ -360,6 +360,9 @@ function applyJevConfig(
 		return value;
 	};
 	const model = jev.model;
+	if (jev.enabled === true && (model === undefined || model === "jev-1.13.0")) {
+		notices.push("jev model jev-1.13.0 is a legacy direct-API ID; Pi uses typesafe/jev-latest or vercel-ai-gateway/typesafe-ai/jev instead. Set jev.model to a catalog ID to pin an available classifier.");
+	}
 	if (model !== undefined && (typeof model !== "string" || model.length === 0)) {
 		notices.push("Ignored jev.model: expected a non-empty string.");
 	}

@@ -1,6 +1,7 @@
+import type { Usage } from "@earendil-works/pi-ai";
 import type { SearchRequest } from "../providers/index.ts";
 import { isProviderError, providerError, type StreamResult } from "../providers/types.ts";
-import { hasJevAuth, JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
+import { JEV_TIMEOUT_MS, type JevOptions, systemOne } from "./api.ts";
 import {
 	type Candidate,
 	type JudgeOutcome,
@@ -11,13 +12,15 @@ import {
 } from "./judge.ts";
 
 export type AugmentOptions = JevOptions;
+/** Own classifier usage, never nested tool usage; copy to AgentToolResult.usage after formatting. */
+export type AugmentedStreamResult = StreamResult & { classifierUsage?: Usage };
 
 /**
  * Judges and reorders a result set in place.
  *
- * A decision-layer failure never fails a search: a missing key, a disabled
- * model, an empty result set, an over-budget judged set, or a Jev deadline/
- * network error returns the input unchanged or with a warning. The one fatal
+ * A decision-layer failure never fails a search: an unavailable Pi classifier,
+ * an empty result set, an over-budget judged set, or a Jev deadline/provider
+ * error returns the input unchanged or with a warning. The one fatal
  * case is user cancellation. An operation deadline during optional judging
  * returns already-retrieved results with a warning, rather than discarding them.
  */
@@ -25,7 +28,7 @@ export async function augmentResults(
 	req: SearchRequest,
 	result: StreamResult,
 	options: AugmentOptions = {},
-): Promise<StreamResult> {
+): Promise<AugmentedStreamResult> {
 	if (req.signal?.aborted) {
 		if (isProviderError(req.signal.reason) && req.signal.reason.code === "timeout") {
 			return withWarning(result, "jev judging unavailable: operation timeout");
@@ -33,7 +36,7 @@ export async function augmentResults(
 		throw abortError(req.signal.reason);
 	}
 	const settings = req.settings.jev;
-	const authOptions: JevOptions = {
+	const judgeOptions: JevOptions = {
 		...options,
 		backend: options.backend ?? settings.backend,
 		model: options.model ?? settings.model,
@@ -41,10 +44,6 @@ export async function augmentResults(
 	if (!settings.enabled) {
 		return { ...result, jevStatus: "disabled" };
 	}
-	if (!hasJevAuth(authOptions)) {
-		return withWarning(result, "jev judging unavailable: no credential");
-	}
-
 	const results = result.searchResults ?? [];
 	if (results.length === 0) {
 		return { ...result, jevStatus: "skipped" };
@@ -64,7 +63,7 @@ export async function augmentResults(
 			{ query: req.query, candidates },
 			buildJudgeQuestions(candidates),
 			{
-				...authOptions,
+				...judgeOptions,
 				// The caller's abort must reach the judge, or a cancelled search
 				// keeps waiting on a judgment nobody will read.
 				signal: req.signal,
@@ -72,7 +71,7 @@ export async function augmentResults(
 			},
 		);
 		const outcome = applyPolicy(candidates, response, settings);
-		return merge(result, outcome);
+		return { ...merge(result, outcome), ...(response.usage ? { classifierUsage: response.usage } : {}) };
 	} catch (error) {
 		// User cancellation is fatal; deadlines only skip optional judging.
 		if (req.signal?.aborted) {
