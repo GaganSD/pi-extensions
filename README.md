@@ -12,89 +12,63 @@
                | |                      | | |
                | |                      | | |
                | '----------------------' | |
-               |       [====]  (o)  (*)   |/
+               |      [====]  (o)  (*)    |/
                +--------------------------+
                           |____|
                      _____|____|_____
                     /________________\
-          .----------------------------------------.
-         /                                        /|
-        /  [] [] [] []   [] [] [] []   [] [] []  / |
-       /                                        /  |
-      /  [Q][W][E][R][T][Y][U][I][O][P] [<-]   /   |
-     /   [A][S][D][F][G][H][J][K][L] [ret]    /    /
-    /  [shift][Z][X][C][V][B][N][M] [shift]  /    /
-   /  [ctrl] [alt] [___________] [alt] []   /    /
-  +----------------------------------------+    /
-  |                                        |   /
-  '----------------------------------------'--'
+                     .------------------.
+                    /                  /|
+                   +------------------+ /
+                   '------------------'
 ```
 
 </div>
 
-Three extensions for developers using the [Pi coding agent](https://pi.dev): **Slate** for the terminal workspace, **Ask** for structured decisions, and **Web Search** for public web and code evidence. Choose the package that fits your workflow and follow its setup guide; each can be installed separately.
+Extensions for the [Pi coding agent](https://pi.dev). Install only the package you need.
 
-## Choose an extension
+## Packages
 
-| Package | Use it when you want to… | Install one package |
+| Package | Use it when you want to… | Install |
 | --- | --- | --- |
 | [pi-slate](./pi-slate/README.md) | See files, activity, and context usage in a customizable terminal UI with rich-media previews. | `pi install npm:pi-slate` |
-| [pi-ask](./pi-ask/README.md) | Answer the agent's questions through single-select, multi-select, or text forms instead of a long back-and-forth. | `pi install npm:@gagansd/pi-ask` |
-| [pi-web-search](./pi-web-search/README.md) | Look up documentation or public code and inspect source links, excerpts, and coverage warnings in Pi. | `pi install ./pi-web-search` from a checkout; not yet on npm |
+| [pi-ask](./pi-ask/README.md) | Answer the agent through single-select, multi-select, or text forms. | `pi install npm:@gagansd/pi-ask` |
+| [pi-web-search](./pi-web-search/README.md) | Look up public docs or code and inspect source links, excerpts, and coverage warnings. | `pi install ./pi-web-search` from a checkout; not on npm yet |
 
-Each package has its own requirements, configuration, and tests. Slate replaces Pi's header, footer, and editor; check for conflicts with other UI extensions. Ask's forms require the interactive TUI. `pi-subagents/` and `pi-canvas-mode/` are placeholders, not installable packages.
+Each package has its own requirements and tests. Slate replaces Pi's header, footer, and editor — check for conflicts with other UI extensions. Ask's forms need the interactive TUI. `pi-subagents/` and `pi-canvas-mode/` are placeholders, not installable packages.
+
+Agents: start at [llms.txt](./llms.txt).
 
 ## Try search from a checkout
 
-Start with one documentation lookup. Search requires **Pi >=0.99.0** and **Node >=22.19.0**, with no build step or additional runtime dependencies beyond Pi. From the root of a checkout containing `pi-web-search`, load that package for one invocation without adding it to settings:
+Search needs **Pi >=0.99.0** and **Node >=22.19.0**. It is not published to npm. From a checkout that contains `pi-web-search`:
 
 ```bash
 pi -e ./pi-web-search
 ```
 
-1. Run `/web-search-settings` in Pi. It shows the config path and credential presence, not key values or provider health. Missing optional keys are expected.
-2. Ask: **“Use web_search to look up Node.js setImmediate with https://nodejs.org/api/timers.html in urls. Cite the page if retrieved and report coverage warnings.”**
-3. Expand the tool result. Inspect the returned link and excerpt, then read **Coverage** and any **Warnings** before using the answer. If the requested page was not retrieved, don't treat search success as proof that it was read.
+Run `/web-search-settings`, then ask Pi to look up a public docs page with `web_search`. Expand the tool result and read **Coverage** and **Warnings** before using the answer.
 
-**Do I need search-provider keys?** Not for the default Exa web and grep.app code endpoints. Pi still needs its own model configuration and authentication. Public search availability, quotas, and coverage are best effort; results are not verified answers.
+Default Exa web and grep.app code endpoints need no search-provider key. Pi still needs its own model auth. Queries and URLs go to external services — do not submit secrets. Full setup, tools, and limits: [pi-web-search README](./pi-web-search/README.md).
 
-Queries and URLs go to external retrieval services—do not submit secrets or private-document links. Continue with the [tool examples](./pi-web-search/README.md#tools-and-examples), [data-handling limits](./pi-web-search/README.md#data-handling), or [troubleshooting](./pi-web-search/README.md#timeouts-fallback-and-errors). Research and external Jev judgment are separate opt-ins, both off by default.
-
-## Install packages separately
-
-### Can I install only search?
-
-Yes. From the same repository checkout, persist just the search package with:
-
-```bash
-pi install ./pi-web-search
-pi
-```
-
-For Slate or Ask alone, use the npm command in the package table. Local installs load in place without copying, so keep the checkout available. Restart Pi or run `/reload` after adding a package to an existing session.
-
-### What does installing the repository root select?
-
-The [root manifest](./package.json) declares Slate, Ask, and Web Search, plus Ask's skills and Slate's themes. A repository-root git installation uses that same manifest: **it is not a search-only install**. Use the package-specific setup guides above for requirements and configuration; avoid enabling the collection alongside separate installations of its packages.
-
-`pi install` saves a personal package setting. Add `--local` to save it for the project instead; Pi requires project trust before loading project packages. Extensions run with Pi's operating-system permissions, so review code before installing. See [Pi's package guide](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md) for package scope and resource selection, and each package's README for its own configuration paths.
+To keep search installed: `pi install ./pi-web-search`. Local installs load in place, so keep the checkout. Installing the **repository root** also loads Slate and Ask; it is not search-only.
 
 ## Development
 
-Packages live directly in this repository. Install development dependencies in each with `npm ci --prefix <package>`, then run the collection's checks from the repository root:
+Packages live at the repository root. Install each package's deps with `npm ci --prefix <package>`, then from the root:
 
 ```bash
 npm test
 npm run typecheck
 ```
 
-For search-only tests, typechecking, and an actual source-package check, follow [Web Search development](./pi-web-search/README.md#development-and-package-checks). These checks validate code and packaging, not provider availability or search quality.
+Search-only checks: [Web Search development](./pi-web-search/README.md#development-and-package-checks).
 
 ## Recommended third-party tools
 
-- [pi-context-view](https://www.npmjs.com/package/pi-context-view): context usage inspection.
-- [pi-subagents](https://www.npmjs.com/package/pi-subagents): delegated agent workflows.
-- [pi-plan-mode](https://www.npmjs.com/package/@narumitw/pi-plan-mode): implementation planning.
+- [pi-context-view](https://www.npmjs.com/package/pi-context-view): context usage inspection
+- [pi-subagents](https://www.npmjs.com/package/pi-subagents): delegated agent workflows
+- [pi-plan-mode](https://www.npmjs.com/package/@narumitw/pi-plan-mode): implementation planning
 
 ## License
 

@@ -2,7 +2,7 @@
 
 > Pi tools for best-effort public web and public code retrieval with source links when available. Research and external Jev judgment are separate opt-ins, off by default.
 
-This file is a navigation index for agents, not an API specification or a retrieval/performance feature. Paths are relative to this package.
+This file is a navigation index for agents, not an API specification or a retrieval/performance feature. Paths are relative to this package. For the monorepo, see [root llms.txt](../llms.txt).
 
 ## Documentation
 

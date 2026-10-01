@@ -25,7 +25,8 @@
     "skills",
     "src",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "llms.txt"
   ],
   "publishConfig": {
     "access": "public"

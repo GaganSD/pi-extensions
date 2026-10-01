@@ -27,7 +27,8 @@
     "extensions",
     "themes",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "llms.txt"
   ],
   "publishConfig": {
     "access": "public"
