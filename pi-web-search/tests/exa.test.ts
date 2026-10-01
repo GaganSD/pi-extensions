@@ -775,7 +775,7 @@ test("results that merely mention 429 or rate limits are kept", async () => {
 	assert.equal(result.providerKind, "exa");
 });
 
-test("a rate-limited fetch warns and keeps the search results", async () => {
+test("a refused fetch warns and keeps both the search results and the reply", async () => {
 	const { fetchImpl } = mcpFetch([
 		MCP_SEARCH_TEXT,
 		"You've hit Exa's free MCP rate limit (HTTP 429). Create your own Exa API key.",
@@ -786,7 +786,7 @@ test("a rate-limited fetch warns and keeps the search results", async () => {
 	);
 
 	assert.ok((result.searchResults?.length ?? 0) >= 1, "search results must not be discarded");
-	assert.match(result.warnings?.join(" ") ?? "", /URL fetch was rate-limited/);
+	assert.match(result.warnings?.join(" ") ?? "", /URL fetch was refused by the keyless endpoint/);
 	assert.equal(
 		result.searchResults?.some((r) => r.type === "unparsed"),
 		true,
@@ -820,6 +820,10 @@ test("a refusal that parses into a citation is kept, as a deliberate trade-off",
 	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
 
 	assert.equal(result.providerKind, "exa");
+	assert.ok(
+		result.searchResults?.some((r) => r.url === "https://exa.ai/pricing"),
+		"the citation must be present, not merely the provider",
+	);
 });
 
 test("a real result page keeps its content even when every hit is thin", async () => {
@@ -929,4 +933,20 @@ test("a rate-limit refusal using the hyphenated spelling is still refused", asyn
 			return true;
 		},
 	);
+});
+
+test("the space-separated refusal wording is still detected", async () => {
+	for (const reply of [
+		"You've hit Exa's free MCP rate limit. Please try again later.",
+		"Exa rate limit exceeded. Try again in 60 seconds.",
+	]) {
+		const { fetchImpl } = mcpFetch([reply]);
+		await assert.rejects(
+			withoutKey(() => exaSearch(request(), { fetchImpl })),
+			(error: { code?: string }) => {
+				assert.equal(error.code, "rate_limited");
+				return true;
+			},
+		);
+	}
 });

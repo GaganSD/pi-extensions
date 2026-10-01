@@ -156,8 +156,8 @@ reply names the service as a standalone token, and it matches the refusal
 wording. Pages *about* rate limits are ordinary results and a citation with thin
 or empty highlights is still a citation, so the check is deliberately biased
 toward saying nothing: the accepted cost is that a refusal which happens to
-parse into a citation renders as an unparsed result carrying a warning. A
-refused *fetch* only adds a warning and never discards content.
+parse into a citation is kept as a citation, with no warning. A refused *fetch*
+only adds a warning and never discards content.
 
 ## Jev (optional judgment)
 

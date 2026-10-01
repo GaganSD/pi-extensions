@@ -337,7 +337,7 @@ async function keylessSearch(
 			// still falls through to the unparsed-preservation branch below.
 			const pages = parseExaFetchText(fetchOutcome.value);
 			if (pages.results.length === 0 && isRateLimitRefusal(fetchOutcome.value, false)) {
-				warnings.push("Exa URL fetch was rate-limited by the keyless endpoint, so the page may be incomplete.");
+				warnings.push("Exa URL fetch was refused by the keyless endpoint (rate limit); no page content was returned.");
 			}
 			warnings.push(...pages.warnings);
 			const requested = requestedContents(pages.results, fetched.urls, warnings);
@@ -547,7 +547,7 @@ function describeError(prefix: string, error: unknown): string {
  */
 const SERVICE_RE = /\bexa\b/i;
 const REFUSAL_RE =
-	/rate-limit(?:ed)?|too many requests|\b429\b|quota|temporarily unavailable|api key|upgrade/i;
+	/rate[ -]?limit(?:ed)?|too many requests|\b429\b|quota|temporarily unavailable|api key|upgrade/i;
 
 /**
  * `hasContent` is "the parser found results at all", not "the results were

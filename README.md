@@ -6,7 +6,7 @@ Monorepo of extensions I've built for the Pi Coding Agent Harness
 | --- |---| --- |
 | [pi-slate](./pi-slate) | Minimal vertical-first TUI with graphics, observability, and context controls | `pi install npm:pi-slate` |
 | [pi-ask](./pi-ask) | Interactive tool to ask user questions | `pi install npm:@gagansd/pi-ask` |
-| [pi-web-search](./pi-web-search) | `web_search` + `code_search`; opt-in `research_search` | `pi install npm:@gagansd/pi-web-search` |
+| [pi-web-search](./pi-web-search) | Web + public code search for Pi, cited results, keyless by default | `pi install npm:@gagansd/pi-web-search` |
 
 | Folder | Status |
 | --- | --- |
