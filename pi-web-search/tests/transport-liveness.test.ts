@@ -5,6 +5,12 @@ import test from "node:test";
 const httpUrl = new URL("../src/providers/http.ts", import.meta.url).href;
 const augmentUrl = new URL("../src/jev/augment.ts", import.meta.url).href;
 
+// Allow slow child startup under CPU contention. Fixture deadlines must outlive
+// the guard, so a leaked timer still fails rather than expiring before exit.
+const ISOLATED_PROCESS_GUARD_MS = 30_000;
+const CLEANUP_FIXTURE_DEADLINE_MS = 120_000;
+assert.ok(CLEANUP_FIXTURE_DEADLINE_MS > ISOLATED_PROCESS_GUARD_MS, "cleanup fixture deadline must exceed the subprocess guard");
+
 /** No test-runner handles or artificial keepalive may sustain the child's deadline. */
 function runIsolated(source: string): void {
 	const child = spawnSync(process.execPath, [
@@ -16,7 +22,7 @@ function runIsolated(source: string): void {
 			${source}
 			console.log("completed");
 		`,
-	], { encoding: "utf8", timeout: 5000 });
+	], { encoding: "utf8", timeout: ISOLATED_PROCESS_GUARD_MS });
 	assert.ifError(child.error);
 	assert.equal(child.status, 0, child.stderr);
 	assert.equal(child.stdout.trim(), "completed", child.stderr);
@@ -45,7 +51,7 @@ test("postJson deadline keeps an otherwise idle pending body reader alive", () =
 test("withTimeout disposal releases its timer and caller abort listener", () => {
 	runIsolated(`
 		const caller = new AbortController();
-		const deadline = withTimeout(caller.signal, 20000);
+		const deadline = withTimeout(caller.signal, ${CLEANUP_FIXTURE_DEADLINE_MS});
 		assert.equal(getEventListeners(caller.signal, "abort").length, 1);
 		deadline.dispose();
 		deadline.dispose();
@@ -59,7 +65,7 @@ test("postJson success releases its deadline and caller abort listener", () => {
 	runIsolated(`
 		const caller = new AbortController();
 		const result = await postJson("https://offline.test", {
-			body: {}, signal: caller.signal, timeoutMs: 20000,
+			body: {}, signal: caller.signal, timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
 			fetchImpl: async () => new Response('{"ok":true}'),
 		});
 		assert.deepEqual(result, { ok: true });
@@ -71,7 +77,7 @@ test("postJson caller cancellation releases its deadline and abort listener", ()
 	runIsolated(`
 		const caller = new AbortController();
 		await assert.rejects(postJson("https://offline.test", {
-			body: {}, signal: caller.signal, timeoutMs: 20000,
+			body: {}, signal: caller.signal, timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
 			fetchImpl: async () => {
 				caller.abort();
 				return new Promise(() => {});
@@ -95,7 +101,7 @@ test("optional judging survives an otherwise idle operation deadline with its ev
 				query: "q", signal: deadline.signal,
 				settings: { jev: { enabled: true, backend: "typesafe", model: "jev-1.13.0", maxStateChars: 20000 } },
 			}, input, {
-				apiKey: "offline-test-key", timeoutMs: 20000,
+				apiKey: "offline-test-key", timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
 				fetchImpl: async () => new Promise(() => {}),
 			});
 			assert.deepEqual(result.searchResults, input.searchResults);
