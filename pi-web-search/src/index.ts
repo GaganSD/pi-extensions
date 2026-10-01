@@ -248,7 +248,8 @@ async function buildSettingsReport(): Promise<string> {
 		"- Secrets live in Pi's <agent-dir>/auth.json (or the env aliases above; env always overrides).",
 		"- Nonsecret settings live in web-search.json; see the repo README for the full example.",
 		"- Run /reload after changing tool exposure (research_search); credentials refresh automatically.",
-		"- Install/update: pi install npm:@gagansd/pi-web-search",
+		"- Install from a repository checkout: pi install ./pi-web-search",
+		"- After an npm release is available: pi install npm:@gagansd/pi-web-search",
 	);
 	return lines.join("\n");
 }

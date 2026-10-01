@@ -225,6 +225,8 @@ test("the /web-search-settings command reports presence without keys", async () 
 			assert.match(report, /research_search: enabled/);
 			assert.match(report, /github: present via auth\.json/);
 			assert.match(report, /parallel: present via PARALLEL_API_KEY/);
+			assert.match(report, /Install from a repository checkout: pi install \.\/pi-web-search/);
+			assert.match(report, /After an npm release is available:/);
 			assert.doesNotMatch(report, /gh-secret-value/);
 			assert.doesNotMatch(report, /parallel-secret-value/);
 		},
