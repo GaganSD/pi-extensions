@@ -1,6 +1,6 @@
 # pi-web-search
 
-**An optimized web search tool for the Pi Coding Harness that introduces three tools: web_search, code_search, and research_search.**
+**An optimized web search tool for the Pi Coding Harness that introduces three tools: `web_search`, `code_search`, and `research_search`.**
 
 - Connects with Parallel, Exa, and Grep (works without an API key).
 - All connectors are encapsulated for the agent and designed to be human-configured through settings to minimize bloat during coding sessions.
@@ -8,25 +8,28 @@
 
 ## Installation
 
-1. Install with: ``pi install npm:gagansd/pi-web-search``
-2. (Optional) Add API keys for Exa, Parallel, and Jev using /pi-web-search.
+1. Install with: `pi install npm:@gagansd/pi-web-search`
+2. (Optional) Add API keys for Exa, Parallel, and Jev using `/pi-web-search`.
 
 ## Tools and Examples
 
-1. Use web_search for explanations and documentation
-2. code_search for literal public-code patterns
-3. opt-in research_search when you need retrieval from multiple sources.
+1. Use `web_search` for explanations and documentation.
+2. `code_search` for literal public-code patterns.
+3. Opt-in `research_search` when you need retrieval from multiple sources.
 
-> The tool definitions register two tools by default and activate research_search only when enabled.
+> The tool definitions register two tools by default and activate `research_search` only when enabled.
 
-|Tool | Inputs | Use|
-| web_search	| Required query; optional urls	| Public documentation, prose, current information; retrieve known-page excerpts alongside a search. |
-| code_search	| Required query |	Literal identifiers or code snippets in public repositories. |
-| research_search |	Required query and scope (web, code, or both)	| Opt-in concurrent retrieval across available sources; optional judgment is configured separately |
+| Tool | Inputs | Use |
+| --- | --- | --- |
+| `web_search` | Required `query`; optional `urls` | Public documentation, prose, current information; retrieve known-page excerpts alongside a search. |
+| `code_search` | Required `query` | Literal identifiers or code snippets in public repositories. |
+| `research_search` | Required `query` and `scope` (`web`, `code`, or `both`) | Opt-in concurrent retrieval across available sources; optional judgment is configured separately. |
 
 You can narrow searches to specific codebases using prompts like "check Meta's repos only", which your LLM translates to GitHub org/user-level filters:
 
+```json
 { "query": "useSyncExternalStore repo:facebook/react" }
+```
 
 **Cross-source check**, after [enabling research](#optional-research-and-jev) — `research_search` arguments:
 
