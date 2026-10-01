@@ -1,0 +1,12 @@
+# pi-ask
+
+> Structured TUI interviews for the Pi coding agent. One decision at a time.
+
+Non-TUI callers get `status: "unavailable"`. Do not invent filler options.
+
+## Documentation
+
+- [README](README.md): install, commands, input/output contract
+- [Skill](skills/ask-user/SKILL.md): when and how the agent should ask
+- [Extension](src/index.ts): `ask_user` registration
+- [Package manifest](package.json): `npm:@gagansd/pi-ask`

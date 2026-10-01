@@ -1,0 +1,12 @@
+# pi-slate
+
+> Quiet vertical-first TUI for the Pi coding agent. Adds no tools, prompts, or model calls.
+
+Replaces Pi's header, footer, and editor. Other UI extensions that replace the same surfaces may conflict.
+
+## Documentation
+
+- [README](README.md): install, features, commands, themes, composer keys
+- [Extension entry](extensions/pi-slate/index.ts): TUI replacement
+- [Default theme](themes/black-metal.json): install default
+- [Package manifest](package.json): `npm:pi-slate`
