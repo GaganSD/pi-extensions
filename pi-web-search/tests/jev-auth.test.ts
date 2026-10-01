@@ -10,14 +10,25 @@ import {
 	resolveJevAuth,
 } from "../src/jev/auth.ts";
 import { systemOne } from "../src/jev/api.ts";
+import { CREDENTIAL_ENV_ALIASES } from "../src/env.ts";
 
+const CREDENTIAL_ALIASES = [
+	...new Set(Object.values(CREDENTIAL_ENV_ALIASES).flat()),
+];
+
+/**
+ * Runs `run` with every credential alias cleared, then applies `vars` on top.
+ * Clearing the whole alias set is what makes these tests independent of the
+ * operator's environment (e.g. dummy `JEV_API_KEY`/`AI_GATEWAY_API_KEY`).
+ */
 function withEnv(vars: Record<string, string | undefined>, run: () => void): void {
 	const previous = new Map<string, string | undefined>();
+	for (const name of CREDENTIAL_ALIASES) {
+		previous.set(name, process.env[name]);
+		delete process.env[name];
+	}
 	for (const [key, value] of Object.entries(vars)) {
-		previous.set(key, process.env[key]);
-		if (value === undefined) {
-			delete process.env[key];
-		} else {
+		if (value !== undefined) {
 			process.env[key] = value;
 		}
 	}
@@ -50,25 +61,22 @@ test("native TypeSafe env wins over a Vercel gateway key", () => {
 });
 
 test("JEV_API_KEY is accepted as the native key", () => {
-	withEnv({ TYPESAFE_API_KEY: undefined, JEV_API_KEY: "jev-key", AI_GATEWAY_API_KEY: undefined }, () => {
+	withEnv({ JEV_API_KEY: "jev-key" }, () => {
 		assert.equal(resolveJevAuth()?.backend, "typesafe");
 		assert.equal(resolveJevAuth()?.apiKey, "jev-key");
 	});
 });
 
 test("Vercel AI Gateway is used when no native key is set", () => {
-	withEnv(
-		{ TYPESAFE_API_KEY: undefined, JEV_API_KEY: undefined, AI_GATEWAY_API_KEY: "vck-key" },
-		() => {
-			const auth = resolveJevAuth();
-			assert.deepEqual(auth, {
-				backend: "vercel",
-				apiKey: "vck-key",
-				url: VERCEL_TYPESAFE_API_URL,
-				model: JEV_VERCEL_MODEL,
-			});
-		},
-	);
+	withEnv({ AI_GATEWAY_API_KEY: "vck-key" }, () => {
+		const auth = resolveJevAuth();
+		assert.deepEqual(auth, {
+			backend: "vercel",
+			apiKey: "vck-key",
+			url: VERCEL_TYPESAFE_API_URL,
+			model: JEV_VERCEL_MODEL,
+		});
+	});
 });
 
 test("a pinned backend does not fall through to the other key", () => {
@@ -82,19 +90,29 @@ test("a pinned backend does not fall through to the other key", () => {
 });
 
 test("Pi auth.json is ignored unless usePiAuth is on", () => {
-	withEnv(
-		{ TYPESAFE_API_KEY: undefined, JEV_API_KEY: undefined, AI_GATEWAY_API_KEY: undefined },
-		() => {
-			assert.equal(resolveJevAuth(), undefined);
-			const auth = resolveJevAuth({
-				usePiAuth: true,
-				readCredential: (id) =>
-					id === "vercel-ai-gateway" ? { type: "api_key", key: "vck-from-auth" } : undefined,
-			});
-			assert.equal(auth?.backend, "vercel");
-			assert.equal(auth?.apiKey, "vck-from-auth");
-		},
-	);
+	withEnv({}, () => {
+		assert.equal(resolveJevAuth(), undefined);
+		const auth = resolveJevAuth({
+			usePiAuth: true,
+			readCredential: (id) =>
+				id === "vercel-ai-gateway" ? { type: "api_key", key: "vck-from-auth" } : undefined,
+		});
+		assert.equal(auth?.backend, "vercel");
+		assert.equal(auth?.apiKey, "vck-from-auth");
+	});
+});
+
+test("an env alias always beats a stored auth value", () => {
+	withEnv({}, () => {
+		const auth = resolveJevAuth({
+			usePiAuth: true,
+			readCredential: (id) =>
+				id === "typesafe" ? { type: "api_key", key: "stored-key" } : undefined,
+		});
+		assert.equal(auth?.apiKey, "stored-key");
+		process.env.JEV_API_KEY = "env-key";
+		assert.equal(resolveJevAuth({ usePiAuth: true, readCredential: () => ({ key: "stored-key" }) })?.apiKey, "env-key");
+	});
 });
 
 test("whitespace keys are absent", () => {

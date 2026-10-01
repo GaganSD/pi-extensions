@@ -1,67 +1,139 @@
-import { readStoredCredential } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+import {
+	getAgentDir,
+	readStoredCredential,
+} from "@earendil-works/pi-coding-agent";
 
-/** Secrets loaded from Pi auth.json. Env always wins. Never written back. */
-const fromAuth = new Map<string, string>();
+/** Credential ids that Pi's auth.json uses for search and judgment keys. */
+export type CredentialProviderId =
+	| "exa"
+	| "parallel"
+	| "github"
+	| "typesafe"
+	| "vercel-ai-gateway";
 
-const AUTH_ENV: Record<string, readonly string[]> = {
-	PARALLEL_API_KEY: ["parallel"],
-	EXA_API_KEY: ["exa"],
-	GITHUB_TOKEN: ["github"],
-	TYPESAFE_API_KEY: ["typesafe"],
-	AI_GATEWAY_API_KEY: ["vercel-ai-gateway"],
+/**
+ * Environment aliases per credential, highest precedence first. Every nonblank
+ * alias beats the current auth.json value, so rotating or removing a stored key
+ * is observed by the next operation without reloading the extension.
+ */
+export const CREDENTIAL_ENV_ALIASES: Record<
+	CredentialProviderId,
+	readonly string[]
+> = {
+	exa: ["EXA_API_KEY"],
+	parallel: ["PARALLEL_API_KEY"],
+	github: ["GITHUB_TOKEN", "GH_TOKEN"],
+	typesafe: ["TYPESAFE_API_KEY", "JEV_API_KEY"],
+	"vercel-ai-gateway": ["AI_GATEWAY_API_KEY"],
 };
 
-/** Trimmed env lookup. Whitespace-only values are absent, not present. */
-export function readTrimmedEnv(...names: string[]): string | undefined {
-	for (const name of names) {
-		const value = process.env[name] ?? fromAuth.get(name);
-		if (typeof value !== "string") {
-			continue;
-		}
-		const trimmed = value.trim();
-		if (trimmed.length > 0) {
-			return trimmed;
-		}
-	}
-	return undefined;
+export const CREDENTIAL_PROVIDER_IDS = Object.keys(
+	CREDENTIAL_ENV_ALIASES,
+) as CredentialProviderId[];
+
+export interface StoredCredentialLike {
+	type?: string;
+	key?: string;
+}
+
+export type CredentialSource = "env" | "auth";
+
+export interface ResolvedCredential {
+	key: string;
+	/** Where the key came from. Only for diagnostics; never the key itself. */
+	source: CredentialSource;
+	/** The env var or provider id that supplied the key. */
+	name: string;
+}
+
+export type CredentialReader = (
+	providerId: CredentialProviderId,
+) => StoredCredentialLike | undefined;
+
+export interface CredentialResolverOptions {
+	/** Env source; defaults to `process.env`. Injected by tests. */
+	env?: NodeJS.ProcessEnv;
+	/** Fully replaces the stored-credential source. Injected by tests. */
+	readCredential?: CredentialReader;
+	/** auth.json path; read fresh on each call. Injected by tests. */
+	authPath?: string;
+}
+
+let storedReader: CredentialReader | undefined;
+
+/**
+ * Read stored credentials from Pi's auth.json. Called once by the extension
+ * entrypoint. Until it is called, stored credentials are absent, so a bare
+ * import of the tools (or the test suite) never touches the operator's secrets.
+ * The reader reads the file on every call: no immortal secret cache.
+ */
+export function enableStoredCredentials(authPath?: string): void {
+	storedReader = readerForPath(authPath ?? join(getAgentDir(), "auth.json"));
+}
+
+/** Restores the default "no stored credentials" state. */
+export function disableStoredCredentials(): void {
+	storedReader = undefined;
 }
 
 /**
- * Pull search keys out of Pi's gitignored auth.json. Tests never call this,
- * so the suite stays hermetic.
+ * The single credential resolver. It evaluates every nonblank env alias first,
+ * then reads the current stored value. Nothing is cached across calls, so a
+ * rotated or removed auth.json key takes effect on the next operation.
  */
-export function hydrateFromPiAuth(): void {
-	// node:test sets this; never read the operator's auth.json from the suite.
-	if (process.env.NODE_TEST_CONTEXT !== undefined) {
-		return;
-	}
-	for (const [envName, providers] of Object.entries(AUTH_ENV)) {
-		if (readTrimmedEnv(envName) !== undefined) {
-			continue;
-		}
-		for (const providerId of providers) {
-			try {
-				const stored = readStoredCredential(providerId);
-				const key = typeof stored?.key === "string" ? stored.key.trim() : "";
-				if (key.length > 0) {
-					fromAuth.set(envName, key);
-					break;
-				}
-			} catch {
-				// auth.json is optional
-			}
+export function resolveCredential(
+	providerId: CredentialProviderId,
+	options: CredentialResolverOptions = {},
+): ResolvedCredential | undefined {
+	const env = options.env ?? process.env;
+	for (const name of CREDENTIAL_ENV_ALIASES[providerId]) {
+		const value = trim(env[name]);
+		if (value !== undefined) {
+			return { key: value, source: "env", name };
 		}
 	}
+	const reader = options.readCredential ??
+		(options.authPath !== undefined
+			? readerForPath(options.authPath)
+			: storedReader);
+	const key = trim(reader?.(providerId)?.key);
+	return key === undefined ? undefined : { key, source: "auth", name: providerId };
 }
 
-export function exaApiKey(): string | undefined {
-	return readTrimmedEnv("EXA_API_KEY");
+export function exaApiKey(
+	options?: CredentialResolverOptions,
+): string | undefined {
+	return resolveCredential("exa", options)?.key;
 }
 
-export function parallelApiKey(): string | undefined {
-	return readTrimmedEnv("PARALLEL_API_KEY");
+export function parallelApiKey(
+	options?: CredentialResolverOptions,
+): string | undefined {
+	return resolveCredential("parallel", options)?.key;
 }
 
-export function githubToken(): string | undefined {
-	return readTrimmedEnv("GITHUB_TOKEN", "GH_TOKEN");
+export function githubToken(
+	options?: CredentialResolverOptions,
+): string | undefined {
+	return resolveCredential("github", options)?.key;
+}
+
+function readerForPath(authPath: string): CredentialReader {
+	return (providerId) => {
+		try {
+			return readStoredCredential(providerId, authPath);
+		} catch {
+			// auth.json is optional and may be malformed; a missing key is absent.
+			return undefined;
+		}
+	};
+}
+
+function trim(value: string | undefined): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
 }

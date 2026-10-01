@@ -19,9 +19,6 @@ export const DEFAULT_CODE_PROVIDER: ProviderKind = "grep";
 export const DEFAULT_CODE_FALLBACK: ProviderKind[] = ["github"];
 export const DEFAULT_TIMEOUT_MS = 20000;
 export const DEFAULT_MAX_RESULTS = 8;
-export const DEFAULT_MODE: SearchMode = "simple";
-
-export type SearchMode = "simple" | "parallel";
 
 export interface FamilyChain {
 	provider: ProviderKind;
@@ -29,6 +26,12 @@ export interface FamilyChain {
 }
 export const MIN_MAX_RESULTS = 1;
 export const MAX_MAX_RESULTS = 20;
+/**
+ * Hard cap on the model-facing query. The keyless Exa MCP `objective` embeds the
+ * query behind a short prefix and the server rejects objectives above 4096
+ * characters, so the query itself must stay comfortably below that.
+ */
+export const MAX_QUERY_CHARS = 4000;
 
 export const CONFIG_FILE_NAME = "web-search.json";
 export const CONFIG_PATH_ENV_VAR = "PI_WEB_SEARCH_CONFIG";
@@ -47,14 +50,9 @@ export interface JevSettings {
 }
 
 export interface ResolvedSettings {
-	provider: ProviderKind;
-	fallback: ProviderKind[];
 	timeoutMs: number;
 	maxResults: number;
 	configPath: string;
-	/** Legacy. Ordinary tools ignore this; `parallel` only enables research_search. */
-	mode: SearchMode;
-	family?: ProviderFamily;
 	web: FamilyChain;
 	code: FamilyChain;
 	researchEnabled: boolean;
@@ -70,20 +68,14 @@ export interface InvalidConfigError extends ProviderError {
 }
 
 export interface WebSearchConfig {
-	provider?: ProviderKind;
-	fallback?: ProviderKind[];
 	timeoutMs?: number;
 	maxResults?: number;
-	mode?: SearchMode;
-	family?: ProviderFamily;
 	web?: Partial<FamilyChain>;
 	code?: Partial<FamilyChain>;
 	research?: { enabled?: boolean };
 	jev?: Partial<Omit<JevSettings, "weights">> & {
 		weights?: Partial<JevSettings["weights"]>;
 	};
-	/** Non-fatal parse notes, folded into ResolvedSettings.notices. */
-	notices?: string[];
 }
 
 export type WebSearchConfigResult =
@@ -92,7 +84,7 @@ export type WebSearchConfigResult =
 	| { status: "ok"; path: string; config: WebSearchConfig };
 
 const PROVIDER_KIND_SET = new Set<string>(PROVIDER_KINDS);
-const PROVIDER_FAMILIES = new Set<string>(["web", "code"]);
+const CONFIG_KEYS = new Set(["web", "code", "research", "jev", "timeoutMs", "maxResults"]);
 
 export const DEFAULT_JEV_SETTINGS: JevSettings = {
 	enabled: false,
@@ -116,24 +108,48 @@ export async function readWebSearchConfig(
 	path?: string,
 ): Promise<WebSearchConfigResult> {
 	const configPath = path ?? defaultWebSearchConfigPath();
-
 	let raw: string;
 	try {
 		raw = await readFile(configPath, "utf-8");
 	} catch (error) {
-		if (isMissingFileError(error)) {
-			return { status: "missing", path: configPath };
-		}
-		return {
-			status: "invalid",
-			path: configPath,
-			error: invalidConfig(
-				configPath,
-				`Could not read ${configPath}: ${errorMessage(error)}`,
-			),
-		};
+		return readFailure(configPath, error);
 	}
+	return parseWebSearchConfigRaw(raw, configPath);
+}
 
+/** Sync twin of `readWebSearchConfig`, used at extension registration. */
+export function readWebSearchConfigSync(path?: string): WebSearchConfigResult {
+	const configPath = path ?? defaultWebSearchConfigPath();
+	let raw: string;
+	try {
+		raw = readFileSync(configPath, "utf-8");
+	} catch (error) {
+		return readFailure(configPath, error);
+	}
+	return parseWebSearchConfigRaw(raw, configPath);
+}
+
+function readFailure(
+	configPath: string,
+	error: unknown,
+): WebSearchConfigResult {
+	if (isMissingFileError(error)) {
+		return { status: "missing", path: configPath };
+	}
+	return {
+		status: "invalid",
+		path: configPath,
+		error: invalidConfig(
+			configPath,
+			`Could not read ${configPath}: ${errorMessage(error)}`,
+		),
+	};
+}
+
+function parseWebSearchConfigRaw(
+	raw: string,
+	configPath: string,
+): WebSearchConfigResult {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(raw);
@@ -147,7 +163,18 @@ export async function readWebSearchConfig(
 			),
 		};
 	}
+	return parseWebSearchConfig(parsed, configPath);
+}
 
+/**
+ * The single parser: raw JSON in, a validated config out. Both file readers and
+ * the extension's load-time resolver use it, so tool exposure and execution can
+ * never disagree about `research.enabled`.
+ */
+export function parseWebSearchConfig(
+	parsed: unknown,
+	configPath: string,
+): WebSearchConfigResult {
 	if (!isPlainObject(parsed)) {
 		return {
 			status: "invalid",
@@ -160,34 +187,12 @@ export async function readWebSearchConfig(
 	}
 
 	const config: WebSearchConfig = {};
-	const notices: string[] = [];
-	// Unknown keys are ignored, not rejected. An unknown `provider` is also
-	// ignored: the third-party pi-web-search file used LLM vendor names here,
-	// and rejecting the whole file takes search down on install.
-	if ("provider" in parsed) {
-		const provider = parsed.provider;
-		if (typeof provider === "string" && PROVIDER_KIND_SET.has(provider)) {
-			config.provider = provider as ProviderKind;
-		} else {
-			notices.push(
-				`Ignored provider ${JSON.stringify(provider)}; expected ${quotedList(PROVIDER_KINDS)}. Using "${DEFAULT_PROVIDER}".`,
-			);
-		}
-	}
-
-	if ("fallback" in parsed) {
-		const fallback = parsed.fallback;
-		if (!Array.isArray(fallback) || !isProviderKindList(fallback)) {
-			return {
-				status: "invalid",
-				path: configPath,
-				error: invalidConfig(
-					configPath,
-					`"fallback" must be an array of ${quotedList(PROVIDER_KINDS)}.`,
-				),
-			};
-		}
-		config.fallback = [...(fallback as ProviderKind[])];
+	const unknown = Object.keys(parsed).filter((key) => !CONFIG_KEYS.has(key));
+	if (unknown.length > 0) {
+		return {
+			status: "invalid", path: configPath,
+			error: invalidConfig(configPath, `Unsupported configuration keys: ${unknown.join(", ")}. Use web/code provider chains and research.enabled.`),
+		};
 	}
 
 	for (const key of ["timeoutMs", "maxResults"] as const) {
@@ -208,55 +213,32 @@ export async function readWebSearchConfig(
 		config[key] = value;
 	}
 
-	if ("mode" in parsed) {
-		const mode = parsed.mode;
-		if (mode === "simple" || mode === "parallel") {
-			config.mode = mode;
-		} else {
-			notices.push(`Ignored mode ${JSON.stringify(mode)}; expected "simple" | "parallel".`);
-		}
-	}
-
-	if ("family" in parsed) {
-		const family = parsed.family;
-		if (typeof family !== "string" || !PROVIDER_FAMILIES.has(family)) {
+	for (const key of ["web", "code"] as const) {
+		if (!(key in parsed)) continue;
+		const block = parsed[key];
+		if (!isPlainObject(block) ||
+			Object.keys(block).some((field) => field !== "provider" && field !== "fallback") ||
+			("provider" in block && (typeof block.provider !== "string" || !PROVIDER_KIND_SET.has(block.provider))) ||
+			("fallback" in block && (!Array.isArray(block.fallback) || !isProviderKindList(block.fallback)))) {
 			return {
-				status: "invalid",
-				path: configPath,
-				error: invalidConfig(configPath, `"family" must be "web" or "code".`),
+				status: "invalid", path: configPath,
+				error: invalidConfig(configPath, `"${key}" must contain only a valid provider and/or fallback array: ${quotedList(PROVIDER_KINDS)}.`),
 			};
 		}
-		config.family = family as ProviderFamily;
-	}
-
-	if ("web" in parsed || "code" in parsed) {
-		for (const key of ["web", "code"] as const) {
-			if (!(key in parsed)) {
-				continue;
-			}
-			const block = parsed[key];
-			if (!isPlainObject(block)) {
-				notices.push(`Ignored ${key}: expected an object.`);
-				continue;
-			}
-			const chain: Partial<FamilyChain> = {};
-			if (typeof block.provider === "string" && PROVIDER_KIND_SET.has(block.provider)) {
-				chain.provider = block.provider as ProviderKind;
-			}
-			if (Array.isArray(block.fallback) && isProviderKindList(block.fallback)) {
-				chain.fallback = [...(block.fallback as ProviderKind[])];
-			}
-			config[key] = chain;
-		}
+		config[key] = block as Partial<FamilyChain>;
 	}
 
 	if ("research" in parsed) {
 		const research = parsed.research;
-		if (isPlainObject(research)) {
-			config.research = { enabled: research.enabled === true };
-		} else {
-			notices.push(`Ignored research: expected an object.`);
+		if (!isPlainObject(research) ||
+			Object.keys(research).some((key) => key !== "enabled") ||
+			("enabled" in research && typeof research.enabled !== "boolean")) {
+			return {
+				status: "invalid", path: configPath,
+				error: invalidConfig(configPath, '"research" must be an object with an optional boolean "enabled".'),
+			};
 		}
+		config.research = research;
 	}
 
 	if ("jev" in parsed) {
@@ -268,11 +250,21 @@ export async function readWebSearchConfig(
 				error: invalidConfig(configPath, `"jev" must be an object.`),
 			};
 		}
+		const unknown = Object.keys(jev).filter((key) => !Object.hasOwn(DEFAULT_JEV_SETTINGS, key));
+		if (unknown.length > 0) {
+			return {
+				status: "invalid", path: configPath,
+				error: invalidConfig(configPath, `Unsupported jev keys: ${unknown.join(", ")}.`),
+			};
+		}
+		if ("weights" in jev && (!isPlainObject(jev.weights) ||
+			Object.keys(jev.weights).some((key) => !Object.hasOwn(DEFAULT_JEV_SETTINGS.weights, key)))) {
+			return {
+				status: "invalid", path: configPath,
+				error: invalidConfig(configPath, '"jev.weights" must contain only answers, offtopic, and selfcontained.'),
+			};
+		}
 		config.jev = jev as WebSearchConfig["jev"];
-	}
-
-	if (notices.length > 0) {
-		config.notices = notices;
 	}
 
 	return { status: "ok", path: configPath, config };
@@ -288,79 +280,39 @@ export async function resolveSettings(
 	return applyConfig(result.path, result.status === "ok" ? result.config : {});
 }
 
+/**
+ * Sync twin of `resolveSettings` for load-time decisions such as whether to
+ * register `research_search`. It applies the same parser and the same
+ * `research.enabled` switch.
+ */
+export function resolveSettingsSync(
+	path?: string,
+): ResolvedSettings | { error: InvalidConfigError } {
+	const result = readWebSearchConfigSync(path);
+	if (result.status === "invalid") {
+		return { error: result.error };
+	}
+	return applyConfig(result.path, result.status === "ok" ? result.config : {});
+}
+
 export function applyConfig(
 	configPath: string,
 	config: WebSearchConfig,
 ): ResolvedSettings {
-	const notices: string[] = [...(config.notices ?? [])];
+	const notices: string[] = [];
 	const web = resolveFamilyChain("web", config, notices);
 	const code = resolveFamilyChain("code", config, notices);
 
-	// Legacy top-level provider/fallback still populate the matching family
-	// and remain on ResolvedSettings so existing registry tests stay valid.
-	const provider = config.provider ?? web.provider;
-	const family = config.family ?? providerFamily(provider);
-	const configuredFallback = config.fallback ??
-		(providerFamily(provider) === "code" ? [...DEFAULT_CODE_FALLBACK] : [...DEFAULT_FALLBACK]);
-	const fallback = configuredFallback.filter((kind) => {
-		if (providerFamily(kind) === family) {
-			return true;
-		}
-		notices.push(
-			`Ignored fallback "${kind}": it answers ${providerFamily(kind)} questions, but this search is scoped to ${family}.`,
-		);
-		return false;
-	});
-
-	if (config.provider && providerFamily(config.provider) === "code") {
-		notices.push(
-			`Mapped provider "${config.provider}" to code_search. web_search is web-only now.`,
-		);
-	}
-	if (config.family === "code") {
-		notices.push(`Legacy family "code" is ignored. Use code_search.`);
-	}
-
-	const researchEnabled =
-		config.research?.enabled === true ||
-		(config.mode === "parallel" && config.research?.enabled !== false);
-	if (config.mode === "parallel" && config.research?.enabled !== true) {
-		notices.push(
-			`Legacy mode "parallel" enables research_search; web_search no longer fans out.`,
-		);
-	}
-
 	return {
-		provider,
-		fallback,
 		timeoutMs: normalizeTimeoutMs(config.timeoutMs),
 		maxResults: clampMaxResults(config.maxResults ?? DEFAULT_MAX_RESULTS),
 		configPath,
-		mode: config.mode ?? DEFAULT_MODE,
-		...(config.family ? { family } : {}),
 		web,
 		code,
-		researchEnabled,
+		researchEnabled: config.research?.enabled === true,
 		jev: applyJevConfig(config.jev, notices),
 		notices,
 	};
-}
-
-/** Sync peek used at extension load to decide whether to register research_search. */
-export function peekResearchEnabled(path?: string): boolean {
-	try {
-		const raw = readFileSync(path ?? defaultWebSearchConfigPath(), "utf-8");
-		const parsed: unknown = JSON.parse(raw);
-		if (!isPlainObject(parsed)) {
-			return false;
-		}
-		if (isPlainObject(parsed.research) && parsed.research.enabled === true) {
-			return true;
-		}
-		return parsed.mode === "parallel";
-	} catch {
-		return false;
-	}
 }
 
 function resolveFamilyChain(
@@ -375,13 +327,6 @@ function resolveFamilyChain(
 	let provider = scoped?.provider ?? defaults.provider;
 	let fallback = scoped?.fallback ?? defaults.fallback;
 
-	if (config.provider && providerFamily(config.provider) === family && !scoped?.provider) {
-		provider = config.provider;
-	}
-	if (config.fallback && providerFamily(provider) === family && !scoped?.fallback) {
-		fallback = config.fallback.filter((kind) => providerFamily(kind) === family);
-	}
-
 	if (providerFamily(provider) !== family) {
 		notices.push(`Ignored ${family}.provider "${provider}": wrong family.`);
 		provider = defaults.provider;
@@ -390,7 +335,7 @@ function resolveFamilyChain(
 		if (providerFamily(kind) === family) {
 			return true;
 		}
-		notices.push(`Ignored ${family} fallback "${kind}": wrong family.`);
+		notices.push(`Ignored ${family} fallback "${kind}": it answers ${providerFamily(kind)} questions.`);
 		return false;
 	});
 	return { provider, fallback };

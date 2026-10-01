@@ -1,4 +1,4 @@
-import { withTimeout } from "../providers/http.ts";
+import { type FetchLike as HttpFetchLike, postJson } from "../providers/http.ts";
 import { providerError } from "../providers/types.ts";
 import {
 	JEV_NATIVE_MODEL,
@@ -96,68 +96,21 @@ export async function systemOne(
 	if (auth === undefined) {
 		throw providerError(
 			"missing_credentials",
-			"jev: set TYPESAFE_API_KEY or AI_GATEWAY_API_KEY, or log in via `pi auth`.",
+			"jev: set JEV_API_KEY, TYPESAFE_API_KEY or AI_GATEWAY_API_KEY, or add a typesafe/vercel-ai-gateway key to Pi auth.json.",
 		);
 	}
-	const doFetch = options.fetchImpl ??
-		(globalThis.fetch as FetchLike | undefined);
-	if (!doFetch) {
-		throw providerError("network_error", "jev: no fetch implementation available.");
+	// Reuse the bounded transport rather than duplicating fetch/body/error logic.
+	const parsed = await postJson<unknown>(auth.url, {
+		headers: { Authorization: `Bearer ${auth.apiKey}` },
+		body: { state, model: auth.model, questions },
+		signal: options.signal,
+		timeoutMs: options.timeoutMs ?? JEV_TIMEOUT_MS,
+		fetchImpl: options.fetchImpl as HttpFetchLike | undefined,
+	});
+	if (!isRecord(parsed) || !isRecord(parsed.answers)) {
+		throw providerError("parse_error", "jev: response had no answers object.");
 	}
-
-	// Every Jev call is bounded. An unbounded request here would hang the whole
-	// tool, and judging must also honour a user abort like any other step.
-	const timeout = withTimeout(options.signal, options.timeoutMs ?? JEV_TIMEOUT_MS);
-
-	try {
-		const response = await doFetch(auth.url, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${auth.apiKey}`,
-			},
-			body: JSON.stringify({
-				state,
-				model: auth.model,
-				questions,
-			}),
-			signal: timeout.signal,
-		});
-
-		if (!response.ok) {
-			const detail = await safeText(response);
-			throw providerError(
-				response.status === 429 ? "rate_limited" : "http_error",
-				`jev: HTTP ${response.status}${detail ? ` ${detail.slice(0, 200)}` : ""}`,
-				{ status: response.status },
-			);
-		}
-
-		const parsed = await parseBody(response);
-		if (!isRecord(parsed) || !isRecord(parsed.answers)) {
-			throw providerError("parse_error", "jev: response had no answers object.");
-		}
-		return parsed as unknown as JevResponse;
-	} finally {
-		timeout.dispose();
-	}
-}
-
-async function parseBody(response: Response): Promise<unknown> {
-	const text = await safeText(response);
-	try {
-		return JSON.parse(text);
-	} catch {
-		throw providerError("parse_error", "jev: response was not JSON.");
-	}
-}
-
-async function safeText(response: Response): Promise<string> {
-	try {
-		return await response.text();
-	} catch {
-		return "";
-	}
+	return parsed as unknown as JevResponse;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

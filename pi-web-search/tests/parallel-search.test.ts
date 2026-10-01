@@ -5,8 +5,8 @@ import { applyConfig } from "../src/providers/config.ts";
 import {
 	listRunnableProviders,
 	runParallelSearch,
-	tryRunParallelSearch,
 } from "../src/providers/index.ts";
+import { mergeStreamResults } from "../src/providers/results.ts";
 import {
 	type ProviderKind,
 	type StreamResult,
@@ -14,9 +14,7 @@ import {
 } from "../src/providers/types.ts";
 
 const settings = applyConfig("/tmp/web-search.json", {
-	provider: "exa",
-	fallback: ["parallel"],
-	mode: "parallel",
+	web: { provider: "exa", fallback: ["parallel"] },
 });
 
 function hit(kind: ProviderKind, marker: string): StreamResult {
@@ -32,7 +30,7 @@ function hit(kind: ProviderKind, marker: string): StreamResult {
 
 const allUp = { exa: true, parallel: true, grep: true, github: true };
 
-test("parallel mode lists every available source, not just the fallback chain", () => {
+test("research lists every available source, not just the fallback chain", () => {
 	assert.deepEqual(listRunnableProviders(settings, allUp), [
 		"exa",
 		"parallel",
@@ -98,24 +96,26 @@ test("one empty provider does not discard the others", async () => {
 });
 
 test("if every provider fails the last error surfaces", async () => {
-	const attempt = await tryRunParallelSearch(
-		{ query: "q", settings },
-		{
-			availability: { exa: true, parallel: true },
-			transports: {
-				exa: async () => {
-					throw providerError("timeout", "exa timed out");
-				},
-				parallel: async () => {
-					throw providerError("rate_limited", "parallel 429", { status: 429 });
+	await assert.rejects(
+		runParallelSearch(
+			{ query: "q", settings },
+			{
+				availability: { exa: true, parallel: true },
+				transports: {
+					exa: async () => {
+						throw providerError("timeout", "exa timed out");
+					},
+					parallel: async () => {
+						throw providerError("rate_limited", "parallel 429", { status: 429 });
+					},
 				},
 			},
+		),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "rate_limited");
+			return true;
 		},
 	);
-	assert.equal(attempt.ok, false);
-	if (!attempt.ok) {
-		assert.equal(attempt.error.code, "rate_limited");
-	}
 });
 
 test("a missing transport is skipped when another source still works", async () => {
@@ -132,52 +132,89 @@ test("a missing transport is skipped when another source still works", async () 
 
 test("user abort fails the fan-out even if a provider already resolved", async () => {
 	const controller = new AbortController();
-	const attempt = await tryRunParallelSearch(
-		{ query: "q", settings, signal: controller.signal },
-		{
-			availability: { exa: true, grep: true },
-			transports: {
-				exa: async () => {
-					controller.abort();
-					return hit("exa", "late");
+	await assert.rejects(
+		runParallelSearch(
+			{ query: "q", settings, signal: controller.signal },
+			{
+				availability: { exa: true, grep: true },
+				transports: {
+					exa: async () => {
+						controller.abort();
+						return hit("exa", "late");
+					},
+					grep: async () => hit("grep", "also"),
 				},
-				grep: async () => hit("grep", "also"),
 			},
+		),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "aborted");
+			return true;
 		},
 	);
-	assert.equal(attempt.ok, false);
-	if (!attempt.ok) {
-		assert.equal(attempt.error.code, "aborted");
-	}
 });
 
 test("an already-aborted signal never starts a provider", async () => {
 	const controller = new AbortController();
 	controller.abort();
 	let called = 0;
-	const attempt = await tryRunParallelSearch(
-		{ query: "q", settings, signal: controller.signal },
-		{
-			availability: { exa: true },
-			transports: {
-				exa: async () => {
-					called++;
-					return hit("exa", "nope");
+	await assert.rejects(
+		runParallelSearch(
+			{ query: "q", settings, signal: controller.signal },
+			{
+				availability: { exa: true },
+				transports: {
+					exa: async () => {
+						called++;
+						return hit("exa", "nope");
+					},
 				},
 			},
+		),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "aborted");
+			return true;
 		},
 	);
-	assert.equal(attempt.ok, false);
 	assert.equal(called, 0);
 });
 
 test("no available provider is missing_credentials, not an empty merge", async () => {
-	const attempt = await tryRunParallelSearch(
-		{ query: "q", settings },
-		{ availability: { exa: false, parallel: false, grep: false, github: false } },
+	await assert.rejects(
+		runParallelSearch(
+			{ query: "q", settings },
+			{ availability: { exa: false, parallel: false, grep: false, github: false } },
+		),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "missing_credentials");
+			return true;
+		},
 	);
-	assert.equal(attempt.ok, false);
-	if (!attempt.ok) {
-		assert.equal(attempt.error.code, "missing_credentials");
-	}
+});
+
+test("the merger preserves text-only contributions and dedups citations", () => {
+	const merged = mergeStreamResults([
+		{
+			kind: "exa",
+			result: {
+				text: "exa prose",
+				providerKind: "exa",
+				sources: [{ title: "A", url: "https://a.test" }],
+			},
+		},
+		{
+			kind: "parallel",
+			result: {
+				text: "parallel prose",
+				providerKind: "parallel",
+				// Distinct evidence (a second hit) with a shared citation URL.
+				searchResults: [
+					{ title: "A again", url: "https://a.test", source: "parallel" },
+				],
+				sources: [{ title: "A again", url: "https://a.test" }],
+			},
+		},
+	]);
+	assert.equal(merged.text, "exa prose\n\nparallel prose");
+	assert.equal(merged.searchResults?.length, 1);
+	assert.deepEqual(merged.sources, [{ title: "A", url: "https://a.test" }]);
 });

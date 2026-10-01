@@ -3,7 +3,8 @@ import type {
 	AgentToolUpdateCallback,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { Type, type Static } from "@earendil-works/pi-ai";
+import { MAX_QUERY_CHARS } from "./providers/config.ts";
 import { executeSearch } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
@@ -11,7 +12,9 @@ import type { RunSearchOptions } from "./providers/index.ts";
 export const CodeSearchSchema = Type.Object({
 	query: Type.String({
 		minLength: 1,
-		description: "Code identifiers or a literal snippet, not a prose question",
+		maxLength: MAX_QUERY_CHARS,
+		description:
+			"Literal code pattern or identifier (not a prose question). Supports repo:<owner/name> and language:<name> qualifiers, quoted when they contain spaces; path:, filename: and extension: are not filters.",
 	}),
 });
 
@@ -32,6 +35,7 @@ export async function codeSearch(
 			scope: "code",
 			parallel: false,
 			judge: false,
+			tool: "code_search",
 			progress: `Searching code for "${params.query}"...`,
 		},
 		signal,

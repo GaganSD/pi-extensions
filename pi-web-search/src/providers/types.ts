@@ -84,6 +84,8 @@ const CODES = [
 	"timeout",
 	"aborted",
 	"parse_error",
+	"rpc_error",
+	"tool_error",
 	"unknown",
 ] as const;
 
@@ -93,11 +95,14 @@ export type ProviderErrorCode = (typeof CODES)[number];
 export interface ProviderError extends Error {
 	code: ProviderErrorCode;
 	status?: number;
+	/** JSON-RPC error code, kept separate from `status` (which is HTTP). */
+	rpcCode?: number;
 	retryable?: boolean;
 }
 
 export interface ProviderErrorOptions {
 	status?: number;
+	rpcCode?: number;
 	retryable?: boolean;
 	cause?: unknown;
 }
@@ -127,6 +132,9 @@ export function providerError(
 	error.code = code;
 	if (opts.status !== undefined) {
 		error.status = opts.status;
+	}
+	if (opts.rpcCode !== undefined) {
+		error.rpcCode = opts.rpcCode;
 	}
 	error.retryable = opts.retryable ?? isRetryable(code, opts.status);
 	if (opts.cause !== undefined) {

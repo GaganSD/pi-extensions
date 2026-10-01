@@ -1,5 +1,8 @@
-import { readStoredCredential } from "@earendil-works/pi-coding-agent";
-import { readTrimmedEnv } from "../env.ts";
+import {
+	type CredentialProviderId,
+	type StoredCredentialLike,
+	resolveCredential,
+} from "../env.ts";
 
 export type JevBackend = "typesafe" | "vercel";
 export type JevBackendSetting = "auto" | JevBackend;
@@ -13,6 +16,10 @@ export const JEV_NATIVE_MODEL = "jev-1.13.0";
 /** Vercel AI Gateway catalog id for the same model. */
 export const JEV_VERCEL_MODEL = "typesafe-ai/jev";
 
+/** Credential ids Jev can resolve through the one shared resolver in env.ts. */
+const NATIVE_PROVIDER: CredentialProviderId = "typesafe";
+const VERCEL_PROVIDER: CredentialProviderId = "vercel-ai-gateway";
+
 export interface JevResolvedAuth {
 	backend: JevBackend;
 	apiKey: string;
@@ -20,10 +27,7 @@ export interface JevResolvedAuth {
 	model: string;
 }
 
-export interface StoredCredentialLike {
-	type?: string;
-	key?: string;
-}
+export type { StoredCredentialLike };
 
 export interface ResolveJevAuthOptions {
 	apiKey?: string;
@@ -35,12 +39,18 @@ export interface ResolveJevAuthOptions {
 	 * Production search turns this on.
 	 */
 	usePiAuth?: boolean;
-	readCredential?: (providerId: string) => StoredCredentialLike | undefined;
+	readCredential?: (providerId: CredentialProviderId) => StoredCredentialLike | undefined;
+	/** Env source; defaults to `process.env`. Injected by tests. */
+	env?: NodeJS.ProcessEnv;
+	/** auth.json path; read fresh on each call. Injected by tests. */
+	authPath?: string;
 }
 
-const NATIVE_ENV = ["TYPESAFE_API_KEY", "JEV_API_KEY"] as const;
-const VERCEL_ENV = ["AI_GATEWAY_API_KEY"] as const;
-
+/**
+ * Resolves a Jev credential through the same alias table and precedence rule as
+ * every search provider (see `env.ts`): all env aliases first, then the current
+ * stored value. There is no Jev-specific secret store or env list.
+ */
 export function resolveJevAuth(
 	options: ResolveJevAuthOptions = {},
 ): JevResolvedAuth | undefined {
@@ -52,17 +62,17 @@ export function resolveJevAuth(
 		return pack(chosen, explicit, options.model);
 	}
 
-	const nativeEnv = readTrimmedEnv(...NATIVE_ENV);
-	const vercelEnv = readTrimmedEnv(...VERCEL_ENV);
+	const nativeEnv = envKey(NATIVE_PROVIDER, options);
+	const vercelEnv = envKey(VERCEL_PROVIDER, options);
 	if (backend === "typesafe") {
 		return nativeEnv
 			? pack("typesafe", nativeEnv, options.model)
-			: fromPiAuth("typesafe", options);
+			: stored("typesafe", options);
 	}
 	if (backend === "vercel") {
 		return vercelEnv
 			? pack("vercel", vercelEnv, options.model)
-			: fromPiAuth("vercel", options);
+			: stored("vercel", options);
 	}
 
 	if (nativeEnv) {
@@ -72,7 +82,7 @@ export function resolveJevAuth(
 		return pack("vercel", vercelEnv, options.model);
 	}
 
-	return fromPiAuth("typesafe", options) ?? fromPiAuth("vercel", options);
+	return stored("typesafe", options) ?? stored("vercel", options);
 }
 
 /** True when any supported Jev credential is resolvable. */
@@ -80,26 +90,37 @@ export function hasJevAuth(options: ResolveJevAuthOptions = {}): boolean {
 	return resolveJevAuth(options) !== undefined;
 }
 
-function fromPiAuth(
+/** Env-only lookup; the shared resolver owns the alias table and precedence. */
+function envKey(
+	providerId: CredentialProviderId,
+	options: ResolveJevAuthOptions,
+): string | undefined {
+	return resolveCredential(providerId, {
+		env: options.env,
+		// Env is handled here; the stored value is a separate, gated step.
+		readCredential: () => undefined,
+	})?.key;
+}
+
+/**
+ * Stored-credential lookup, gated on `usePiAuth` so a bare import never reads
+ * the operator's secrets. Delegates to the shared resolver, so rotating or
+ * removing a key in auth.json is observed on the next call.
+ */
+function stored(
 	backend: JevBackend,
 	options: ResolveJevAuthOptions,
 ): JevResolvedAuth | undefined {
 	if (options.usePiAuth !== true) {
 		return undefined;
 	}
-	const providerId = backend === "typesafe" ? "typesafe" : "vercel-ai-gateway";
-	const reader = options.readCredential ?? readPiCredential;
-	const stored = reader(providerId);
-	const key = trim(stored?.key);
+	const providerId = backend === "typesafe" ? NATIVE_PROVIDER : VERCEL_PROVIDER;
+	const key = resolveCredential(providerId, {
+		env: {},
+		readCredential: options.readCredential,
+		authPath: options.authPath,
+	})?.key;
 	return key ? pack(backend, key, options.model) : undefined;
-}
-
-function readPiCredential(providerId: string): StoredCredentialLike | undefined {
-	try {
-		return readStoredCredential(providerId);
-	} catch {
-		return undefined;
-	}
 }
 
 function pack(

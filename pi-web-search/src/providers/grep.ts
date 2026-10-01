@@ -18,23 +18,26 @@ export async function grepSearch(
 	req: SearchRequest,
 	options: GrepSearchOptions = {},
 ): Promise<StreamResult> {
-	const warnings = languageFilterWarning(req.query);
+	const parsed = parseCodeQuery(req.query);
+	const warnings = parsed.languages.length > 0 ? [LANGUAGE_FILTER_WARNING] : [];
 
 	// grep.app's `language` filter is nondeterministically broken (verified
 	// 2026-09-30: identical queries returned 504, empty, then 504). Passing it
 	// silently turns a flaky upstream into a confidently wrong "no such code
 	// exists" answer, so only an explicit `language:` qualifier in the query
 	// triggers it, and that path always warns.
+	//
+	// `query` is a *literal code pattern* for grep.app, so extracted qualifiers
+	// are removed from it. Leaving `repo:facebook/react` in the pattern would
+	// search for that whole string instead of the code the caller asked for.
 	const args: Record<string, unknown> = {
-		query: req.query,
+		query: parsed.literal,
 	};
-	const repo = extractQualifier(req.query, "repo");
-	if (repo !== undefined) {
-		args.repo = repo;
+	if (parsed.repo !== undefined) {
+		args.repo = parsed.repo;
 	}
-	const language = extractQualifier(req.query, "language");
-	if (language !== undefined) {
-		args.language = [language];
+	if (parsed.languages.length > 0) {
+		args.language = parsed.languages;
 	}
 
 	const text = await withMcpSession(
@@ -156,7 +159,7 @@ export function parseGrepSearchText(text: string, maxResults: number): SearchRes
 			url: hit.url,
 			source: PROVIDER_NAME,
 			type: "content",
-			...(hit.license ? { query: hit.license } : {}),
+
 			...(hit.snippets.length > 0 ? { citedText: hit.snippets.join("\n\n") } : {}),
 		}));
 }
@@ -166,17 +169,98 @@ function readValue(line: string): string {
 	return index === -1 ? "" : line.slice(index + 1).trim();
 }
 
-/** Pulls a `key:value` qualifier out of a query, code-side and deterministic. */
-function extractQualifier(query: string, key: string): string | undefined {
-	const match = new RegExp(`(?:^|\\s)${key}:(\\S+)`, "i").exec(query);
-	return match?.[1];
+export interface ParsedCodeQuery {
+	/** The literal code pattern, with supported qualifiers removed. */
+	literal: string;
+	repo?: string;
+	languages: string[];
 }
 
-function languageFilterWarning(query: string): string[] {
-	if (extractQualifier(query, "language") === undefined) {
-		return [];
+const QUALIFIER = /^(repo|language):(.*)$/i;
+
+/**
+ * Splits GitHub-style `repo:`/`language:` qualifiers out of a code query.
+ *
+ * grep.app treats `query` as a literal code pattern, so a qualifier left in it
+ * becomes part of the searched text. Tokenization respects quotes, so a code
+ * literal such as `"repo:x"` is never mistaken for a filter.
+ */
+export function parseCodeQuery(query: string): ParsedCodeQuery {
+	const kept: string[] = [];
+	let repo: string | undefined;
+	const languages: string[] = [];
+	for (const token of splitRespectingQuotes(query)) {
+		const match = QUALIFIER.exec(token);
+		if (!match) {
+			kept.push(token);
+			continue;
+		}
+		const value = unquote(match[2]);
+		if (value.length === 0) {
+			kept.push(token);
+			continue;
+		}
+		if (match[1].toLowerCase() === "repo") {
+			repo ??= value;
+			continue;
+		}
+		if (!languages.includes(value)) {
+			languages.push(value);
+		}
 	}
-	return [
-		"grep.app's language filter is unreliable and may have returned no matches; treat zero results with a language filter as inconclusive.",
-	];
+	// A query made only of qualifiers has no literal pattern; keep the original
+	// text so an empty required `query` is never sent upstream.
+	const literal = kept.length > 0 ? kept.join(" ").trim() : query.trim();
+	return { literal, repo, languages };
 }
+
+/** Splits on whitespace, keeping quoted spans (and their quotes) intact. */
+function splitRespectingQuotes(input: string): string[] {
+	const tokens: string[] = [];
+	let current = "";
+	let quote: string | undefined;
+	for (const ch of input) {
+		if (quote !== undefined) {
+			current += ch;
+			if (ch === quote) {
+				quote = undefined;
+			}
+			continue;
+		}
+		if (ch === '"' || ch === "'" || ch === "`") {
+			quote = ch;
+			current += ch;
+			continue;
+		}
+		if (/\s/.test(ch)) {
+			if (current.length > 0) {
+				tokens.push(current);
+				current = "";
+			}
+			continue;
+		}
+		current += ch;
+	}
+	if (current.length > 0) {
+		tokens.push(current);
+	}
+	return tokens;
+}
+
+/** Strips one matching pair of surrounding quotes, if present. */
+function unquote(value: string): string {
+	const trimmed = value.trim();
+	if (trimmed.length >= 2) {
+		const first = trimmed[0];
+		if (
+			(first === '"' || first === "'" || first === "`") &&
+			trimmed.endsWith(first)
+		) {
+			return trimmed.slice(1, -1);
+		}
+	}
+	return trimmed;
+}
+
+const LANGUAGE_FILTER_WARNING =
+	"grep.app's language filter is unreliable and may have returned no matches; treat zero results with a language filter as inconclusive.";

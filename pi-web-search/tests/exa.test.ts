@@ -9,6 +9,7 @@ import {
 	type ExaSearchOptions,
 	exaObjective,
 	exaSearch,
+	parseExaFetchText,
 	parseExaSearchText,
 } from "../src/providers/exa.ts";
 import { type FetchLike, type ResponseLike } from "../src/providers/http.ts";
@@ -17,7 +18,7 @@ import type { SearchRequest } from "../src/providers/index.ts";
 
 const maxResults = 5;
 const settings = applyConfig("/tmp/web-search.json", {
-	provider: "exa",
+	web: { provider: "exa" },
 	maxResults,
 });
 
@@ -29,16 +30,7 @@ function fakeResponse(
 	body: string,
 	init: { status?: number; headers?: Record<string, string> } = {},
 ): ResponseLike {
-	const status = init.status ?? 200;
-	const headers = new Map(
-		Object.entries(init.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
-	);
-	return {
-		ok: status >= 200 && status < 300,
-		status,
-		headers: { get: (name: string) => headers.get(name.toLowerCase()) ?? null },
-		text: () => Promise.resolve(body),
-	};
+	return new Response(body, init);
 }
 
 interface RecordedRequest {
@@ -347,15 +339,6 @@ test("a blank EXA_API_KEY is treated as keyless", async () => {
 	assert.equal(requests[0].body.method, "initialize");
 });
 
-test("a missing key is still searchable: the keyless path never needs a credential", async () => {
-	const { fetchImpl } = mcpFetch([MCP_SEARCH_TEXT]);
-
-	const result = await withoutKey(() => exaSearch(request(), { fetchImpl }));
-
-	assert.equal(result.providerKind, "exa");
-	assert.equal(result.searchResults?.length, 2);
-});
-
 // --- parseExaSearchText ------------------------------------------------------
 
 test("parseExaSearchText splits two groups and stops highlights at the next anchor", () => {
@@ -403,7 +386,7 @@ test("parseExaSearchText normalizes the N/A sentinel to undefined, not a literal
 
 test("an untitled page falls back to its url in the Source list", async () => {
 	// format.ts renders `Source.title` verbatim, so the fallback must live in
-	// the transport: asserted end-to-end through exaSearch's real toSources().
+	// the transport: asserted end-to-end through exaSearch's real source normalization.
 	const { fetchImpl } = mcpFetch([
 		[
 			"Title: N/A",
@@ -537,16 +520,6 @@ test("footer text after the last blank line stays out of the final citedText", (
 	assert.equal(parsed[0].citedText, "Bell Labs hosted the transistor team.");
 });
 
-// Guards the two rules against each other: only a blank line ends a block.
-test("two results separated by a blank line both parse with their real anchors", () => {
-	const parsed = parseExaSearchText(MCP_SEARCH_TEXT);
-
-	assert.equal(parsed.length, 2);
-	assert.equal(parsed[0].url, "https://example.com/transistor");
-	assert.equal(parsed[1].title, "Bell Labs notes");
-	assert.equal(parsed[1].url, "https://example.com/bell-labs");
-});
-
 test("unparseable keyless text degrades to one synthetic result", async () => {
 	const { fetchImpl } = mcpFetch(["Plain prose with no anchors at all."]);
 
@@ -590,6 +563,32 @@ test("with no options.fetchImpl the transport falls back to globalThis.fetch", a
 
 // --- urls --------------------------------------------------------------------
 
+test("keyed URL fetches withhold unrequested and unidentified documents", async () => {
+	const { fetchImpl } = queueFetch([
+		{ body: JSON.stringify(SEARCH_FIXTURE) },
+		{ body: JSON.stringify({ results: [
+			{ url: "https://example.com/requested", text: "Requested evidence" },
+			{ url: "https://evil.example/x", text: "Unexpected document" },
+			{ text: "Unidentified document" },
+		] }) },
+	]);
+	const result = await withKey("dummy-exa", () =>
+		exaSearch(request({ urls: ["https://example.com/requested", "https://example.com/missing"] }), { fetchImpl }));
+	assert.deepEqual(result.searchResults?.filter((entry) => entry.type === "content").map((entry) => entry.url), ["https://example.com/requested"]);
+	assert.match(result.warnings?.join(" ") ?? "", /withheld 2 unrequested or unidentified/);
+	assert.match(result.warnings?.join(" ") ?? "", /no parsed content for https:\/\/example.com\/missing/);
+	assert.doesNotMatch(JSON.stringify(result), /Unexpected document|Unidentified document|evil\.example/);
+});
+
+test("keyless URL fetches cannot recast unrequested pages as unparsed evidence", async () => {
+	const { fetchImpl } = mcpFetch(["", "# Unexpected\nURL: https://evil.example/x\n\nUnexpected document"]);
+	const result = await withoutKey(() => exaSearch(request({ urls: ["https://example.com/requested"] }), { fetchImpl }));
+	assert.deepEqual(result.searchResults, []);
+	assert.match(result.warnings?.join(" ") ?? "", /withheld 1 unrequested or unidentified/);
+	assert.match(result.warnings?.join(" ") ?? "", /no parsed content for/);
+	assert.doesNotMatch(JSON.stringify(result), /Unexpected document|evil\.example/);
+});
+
 test("keyed urls hit /contents and append content results after the search", async () => {
 	const { fetchImpl, requests } = queueFetch([
 		{ body: JSON.stringify(SEARCH_FIXTURE) },
@@ -622,7 +621,8 @@ test("keyed urls hit /contents and append content results after the search", asy
 	assert.equal(requests[1].headers?.["x-api-key"], "exa-secret");
 	assert.deepEqual(requests[1].body, {
 		urls: ["https://example.com/transistor"],
-		text: true,
+		// A documented per-document cap, not an unbounded `text: true`.
+		text: { maxCharacters: 3000 },
 	});
 
 	assert.equal(result.searchResults?.length, 3);
@@ -638,12 +638,25 @@ test("keyed urls hit /contents and append content results after the search", asy
 	assert.equal(result.warnings, undefined);
 });
 
-test("keyless urls call web_fetch_exa and append its text", async () => {
-	const { fetchImpl, requests } = mcpFetch([MCP_SEARCH_TEXT, "Fetched body text."]);
+const FETCH_PAGES_TEXT = [
+	"# First page",
+	"URL: https://example.com/first",
+	"",
+	"first body ".repeat(60),
+	"# Second page",
+	"URL: https://example.com/second",
+	"",
+	"LATE EVIDENCE that must survive the per-result excerpt cap.",
+].join("\n");
+
+test("keyless urls become one URL-bound document per fetched page", async () => {
+	const { fetchImpl, requests } = mcpFetch([MCP_SEARCH_TEXT, FETCH_PAGES_TEXT]);
 
 	const result = await withoutKey(() =>
 		exaSearch(
-			request({ urls: ["https://example.com/transistor"] }),
+			request({
+				urls: ["https://example.com/first", "https://example.com/second"],
+			}),
 			{ fetchImpl },
 		)
 	);
@@ -656,15 +669,35 @@ test("keyless urls call web_fetch_exa and append its text", async () => {
 	};
 	assert.equal(fetchParams.name, "web_fetch_exa");
 	assert.deepEqual(fetchParams.arguments, {
-		urls: ["https://example.com/transistor"],
+		urls: ["https://example.com/first", "https://example.com/second"],
 		maxCharacters: 3000,
 	});
 
-	assert.equal(result.searchResults?.length, 3);
-	assert.equal(result.searchResults?.[2].source, "exa");
-	assert.equal(result.searchResults?.[2].type, "content");
-	assert.equal(result.searchResults?.[2].url, undefined);
-	assert.equal(result.searchResults?.[2].citedText, "Fetched body text.");
+	// Two search hits plus two per-page fetch documents.
+	assert.equal(result.searchResults?.length, 4);
+	assert.equal(result.searchResults?.[2].url, "https://example.com/first");
+	assert.equal(result.searchResults?.[2].title, "First page");
+	assert.equal(result.searchResults?.[3].url, "https://example.com/second");
+	// The later page's evidence is its own document, not buried behind page 1.
+	assert.match(result.searchResults?.[3].citedText ?? "", /LATE EVIDENCE/);
+	assert.equal(result.warnings, undefined);
+});
+
+test("parseExaFetchText preserves per-URL failures as warnings", () => {
+	const parsed = parseExaFetchText(
+		[
+			"# Ok",
+			"URL: https://example.com/ok",
+			"",
+			"body",
+			"Error fetching https://example.com/broken: CRAWL_UNKNOWN_ERROR",
+		].join("\n"),
+	);
+	assert.equal(parsed.results.length, 1);
+	assert.equal(parsed.results[0].url, "https://example.com/ok");
+	assert.equal(parsed.warnings.length, 1);
+	assert.match(parsed.warnings[0], /https:\/\/example\.com\/broken/);
+	assert.match(parsed.warnings[0], /CRAWL_UNKNOWN_ERROR/);
 });
 
 test("a throwing URL fetch keeps the search results and lands in warnings", async () => {

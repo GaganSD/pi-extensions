@@ -1,481 +1,181 @@
 # pi-web-search — implementation contract
 
-Parent-owned architecture contract. Every worker implements exactly this. Do not
-invent new public exports, rename symbols, or add files outside your assigned seam.
+This file describes the maintained contract. It is not published (`package.json`
+`files` ships only `src/`, `README.md`, `LICENSE`). Where the code and this file
+disagree, the code wins; update this file with the code.
 
-## Goal
+## Goal and boundary
 
-A self-hosted search package that exposes **two default tools** (`web_search`,
-`code_search`) and an **opt-in** `research_search`. Providers stay internal.
-See `.reports/astra-architecture.md` for the decision.
+Expose **`web_search`** and **`code_search`** always, and **`research_search`**
+only when research is explicitly enabled. Providers, credential resolution, and
+optional Jev judgment stay internal; the model never selects a vendor, a
+fallback, or a Jev backend.
 
-The third-party package required a paid LLM provider with native web search. We
-search through dedicated search APIs instead, so a search costs a fraction of a
-model call and works with any conversation model.
+Minimum and pinned test baseline: Pi Coding Agent `0.99.0`, Node `>= 22.19.0`.
+Older Pi hosts are rejected. Host packages are peers, never bundled.
 
-Package layout mirrors the repo conventions of `pi-ask` (`src/` + `tests/`,
-`node --test --experimental-strip-types`, `tsc --noEmit`, `pi.extensions` in
-`package.json`).
+## Tools
 
-```
-pi-web-search/
-  package.json
-  tsconfig.json
-  LICENSE
-  README.md
-  SPEC.md              (this file, not published)
-  src/
-    index.ts           register the web_search tool
-    web_search.ts      WebSearchSchema + webSearch() orchestration
-    format.ts          StreamResult -> AgentToolResult
-    utils.ts           error / missing-credential results
-    env.ts             trimmed credential env reads
-    jev/               decision layer (not a provider)
-    providers/
-      types.ts         shared result + error types
-      config.ts        ~/.pi/agent/web-search.json loading + resolution
-      http.ts          fetch wrapper: timeout, abort, error normalization
-      mcp.ts           MCP client + shared withMcpSession
-      results.ts       sourcesFromResults + mergeStreamResults
-      exa.ts           Exa transport
-      parallel.ts      Parallel transport
-      grep.ts          grep.app transport
-      github.ts        GitHub code-search transport
-      index.ts         fallback chain + parallel fan-out
-  tests/
-    *.test.ts
-```
-
-## Tool contract
-
-Tool name **`web_search`** (drop-in replacement). Parameters are **exactly**:
+Registered by `src/index.ts`. Schemas are TypeBox; every `query` is
+`minLength: 1` and `maxLength: MAX_QUERY_CHARS` (4000), which keeps the crafted
+keyless-Exa `objective` (query plus a short prefix) below the server's 4096
+character limit.
 
 ```ts
-Type.Object({
-    query: Type.String({ description: "The search query or question to answer" }),
-    urls: Type.Optional(Type.Array(Type.String(), {
-        description: "Additional URLs to analyze along with search (up to 20)",
-        maxItems: 20
-    })),
-})
+WebSearchSchema   = { query: string, urls?: string[] /* maxItems: 20 */ }
+CodeSearchSchema  = { query: string }
+ResearchSearchSchema = { query: string, scope: "web" | "code" | "both" }
 ```
 
-No other parameters. The tool description names Exa and Parallel, not LLM
-providers. `index.ts` provides `renderCall` and `renderResult` using
-`Text` from `@earendil-works/pi-tui` exactly like the third-party package:
-`renderCall` shows the query plus `+ N URLs`; `renderResult` returns an empty
-`Text` unless expanded or errored.
+Each tool is registered with `promptSnippet` and `promptGuidelines` so it appears
+in Pi's "Available tools" section and its guidelines. The guidelines state the
+selection rule plainly: local files use `rg`/`grep`, prose/docs use `web_search`,
+remote literal code uses `code_search`, and cross-source checking uses
+`research_search`. Only `repo:`/`language:` are portable filters.
 
-## Credentials and configuration
+Every tool declares the `search` namespace, read-only/open-world annotations,
+and `SearchOutputSchema`. Successful and failed results return schema-matching
+`structuredContent`; scripts receive data, while models receive cited Markdown.
 
-| Env var | Meaning |
+`scope: "code"` ignores `urls` with a warning.
+
+## Registration and reload
+
+- `web_search` and `code_search` are always registered.
+- `research_search` is registered only when `resolveSettingsSync()` yields
+  `researchEnabled === true`, using the same parser as execution.
+  Only `research.enabled: true` enables it.
+- Tool exposure is load-time. The README documents `/reload` as the way to apply
+  an exposure change.
+- Execution re-checks the opt-in (`requireResearch`): if `research_search` was
+  registered and settings changed without a reload, the call fails with
+  `invalid_config` instead of silently running.
+
+## Credentials
+
+One resolver in `src/env.ts`. Resolution order per credential:
+
+1. every nonblank environment alias, highest precedence first;
+2. the current stored value in Pi's `auth.json`.
+
+`CREDENTIAL_ENV_ALIASES` is the single source of truth:
+
+| id | aliases |
 | --- | --- |
-| `EXA_API_KEY` | Optional. When set, Exa uses its REST API. |
-| `PARALLEL_API_KEY` | Optional. Required for the Parallel transport. |
-| `GITHUB_TOKEN` / `GH_TOKEN` | Optional. Required for GitHub code search. |
-| `TYPESAFE_API_KEY` / `JEV_API_KEY` | Optional. Native Jev. |
-| `AI_GATEWAY_API_KEY` | Optional. Jev via Vercel AI Gateway. |
-| `PI_WEB_SEARCH_CONFIG` | Overrides the config file path. |
-
-Config file: `$PI_WEB_SEARCH_CONFIG` else `join(getAgentDir(), "web-search.json")`.
-`getAgentDir` is imported from `@earendil-works/pi-coding-agent`.
-
-```jsonc
-{
-  "mode": "simple" | "parallel",    // optional, default "simple"
-  "provider": "exa" | "parallel" | "grep" | "github",
-  "fallback": ["parallel"],
-  "timeoutMs": 20000,
-  "maxResults": 8,
-  "family": "web" | "code",
-  "jev": { "enabled": false, "backend": "auto" | "typesafe" | "vercel" }
-}
-```
+| `exa` | `EXA_API_KEY` |
+| `parallel` | `PARALLEL_API_KEY` |
+| `github` | `GITHUB_TOKEN`, `GH_TOKEN` |
+| `typesafe` | `TYPESAFE_API_KEY`, `JEV_API_KEY` |
+| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` |
 
 Rules:
 
-- The file is optional. Missing file is **not** an error.
-- Malformed file (bad JSON, not an object, non-numeric `timeoutMs`/`maxResults`)
-  is an error that must be surfaced to the model with
-  `details.error === "invalid_config"` and the path. Never throw raw.
-- Unknown keys are ignored, not rejected.
-- Unknown `provider` (including leftover LLM vendor names from the third-party
-  package) is a notice and the default `exa` is used. Do not fail the search.
-- `simple` walks `[provider, ...fallback]` inside one family.
-- `parallel` fans out every available source (or the pinned family). One failure
-  is a warning. User abort fails the whole fan-out. If every source fails, the
-  last error surfaces.
-- Precedence: config file `provider` > default `exa`.
-
-## Exa transport
-
-Two paths, chosen automatically:
-
-1. **REST, when `EXA_API_KEY` is set.**
-   `POST https://api.exa.ai/search` with header `x-api-key`.
-   Body: `{ query, numResults, type: "auto", contents: { highlights: { numSentences: 3 }, text: false, summary: false } }`.
-      Response: `{ requestId, results: [{ title, url, publishedDate, author, score, highlights, text, summary }], searchType }`.
-   (`/search` and `/contents` both answer 402 with an x402 pay-per-request body
-   when called without a key, and 401 when a key is present but invalid. That is
-   why the keyless MCP path exists.)
-
-2. **Keyless hosted MCP, when `EXA_API_KEY` is absent.** This is the free path and
-   the reason the extension needs no key to work.
-   `POST https://mcp.exa.ai/mcp` (JSON-RPC 2.0, streamable HTTP, SSE responses).
-   Call `tools/call` with `{ name: "web_search_exa", arguments: { query, numResults, objective } }`.
-   `objective` is required by that tool; derive it as
-   `Find the most relevant web pages that answer: ${query}`.
-   The tool returns one text block: repeated
-   `Title: <t>\nURL: <u>\nPublished: <p>\nAuthor: <a>\nHighlights:\n> <h>...` groups.
-   Parse those groups into results. If parsing finds nothing usable, still return
-   the raw text as a single synthetic result so the model keeps the content.
-
-3. **Fetch, when `urls` were supplied.** Both paths genuinely retrieve those URLs;
-   neither folds them into the query text.
-   - Keyed: `POST https://api.exa.ai/contents` with header `x-api-key` and body
-     `{ urls, text: true }`. Response: `{ requestId, results: [{ id, title, url,
-     text, summary }], status }`. Merge those results after the search results.
-   - Keyless: call `web_fetch_exa` with `{ urls, maxCharacters: 3000 }` in
-     addition to `web_search_exa`, and append its returned text blocks.
-
-Both paths must populate the same `StreamResult` shape.
-
-## Parallel transport
-
-`POST https://api.parallel.ai/v1/search`
-Headers: `Content-Type: application/json`, `x-api-key: $PARALLEL_API_KEY`.
-
-Body (GA shape, `search_queries` is required by the API):
-
-```jsonc
-{
-  "objective": "<query>",
-  "search_queries": ["<query>"],
-  "mode": "fast",
-  "max_chars_total": 20000,
-  "advanced_settings": {
-    "max_results": 8,
-    "excerpt_settings": { "max_chars_per_result": 2500 }
-  }
-}
-```
-
-Response: `{ search_id, session_id, results: [{ url, title, publish_date, excerpts: string[] }], warnings, usage }`.
-
-`/v1/search` is the documented endpoint for new integrations. Do not use
-`/v1beta/search`. When `urls` are supplied, also call `POST /v1/extract` with
-`{ urls, objective }` and merge those results.
-
-## Shared result types (`src/providers/types.ts`)
-
-```ts
-export type ProviderKind = "exa" | "parallel";
-
-export interface Source { title: string; url: string }
-
-export interface SearchResultDetail {
-    title?: string;
-    url?: string;
-    query?: string;
-    source?: string;          // provider name, e.g. "exa" | "parallel"
-    pageAge?: string | null;  // publishedDate / publish_date
-    citedText?: string;       // joined excerpts / highlights
-    status?: string;
-    type?: string;
-}
-
-export interface StreamResult {
-    text: string;             // markdown summary; "" when the provider only returns documents
-    sources?: Source[];
-    providerKind: ProviderKind;
-    searchResults?: SearchResultDetail[];
-    requestId?: string;       // Exa requestId or Parallel search_id
-    usage?: { name: string; count: number }[];  // Parallel only
-    warnings?: string[];      // Parallel only
-}
-
-/** Thrown by transports; `code` is stable and used for fallback + error details. */
-export interface ProviderError extends Error {
-    code: "missing_credentials" | "invalid_config" | "http_error" | "rate_limited"
-        | "network_error" | "timeout" | "aborted" | "parse_error" | "unknown";
-    status?: number;
-    retryable?: boolean;
-}
-```
-
-Both transports throw `ProviderError`. `missing_credentials` is **not**
-retryable; `http_error` with 5xx, `network_error`, `timeout` and `rate_limited`
-are.
-
-## Provider registry and fallback (`src/providers/index.ts`)
-
-```ts
-export interface SearchRequest {
-    query: string;
-    urls?: string[];
-    signal?: AbortSignal;
-    onUpdate?: AgentToolUpdateCallback;
-    settings: ResolvedSettings;
-}
-
-export function resolveProviderChain(settings: ResolvedSettings): ProviderKind[];
-// [provider, ...fallback] filtered to transports that currently have credentials
-// or that are keyless-capable (exa is always present; parallel needs a key).
-
-export async function runSearch(req: SearchRequest): Promise<StreamResult>;
-// Tries the chain in order. On a retryable error, continues to the next entry.
-// On the last failure (or a non-retryable error), rethrows.
-// Aborts propagate immediately and are never retried.
-```
-
-`runSearch` must not swallow the first provider's error when no fallback
-succeeded — the last error is what surfaces.
-
-## Transport contract (exact export names)
-
-`src/providers/exa.ts` MUST export exactly:
-
-```ts
-export interface ExaSearchOptions { fetchImpl?: FetchLike }
-export async function exaSearch(req: SearchRequest, options?: ExaSearchOptions): Promise<StreamResult>
-```
-
-`src/providers/parallel.ts` MUST export exactly:
-
-```ts
-export interface ParallelSearchOptions { fetchImpl?: FetchLike }
-export async function parallelSearch(req: SearchRequest, options?: ParallelSearchOptions): Promise<StreamResult>
-```
-
-`options.fetchImpl` defaults to `globalThis.fetch`. It is the test-injection
-seam and lives on the transport, NOT on `SearchRequest`: `SearchRequest` is the
-production contract that the tool layer constructs, so it must not carry a
-field only tests ever set. `SearchTransport = (req: SearchRequest) => Promise<StreamResult>`
-still accepts both functions because the second parameter is optional.
-
-The export NAMES `exaSearch` / `parallelSearch` are the compile-time contract
-that `src/providers/index.ts` dynamically imports. A transport file that is
-missing, or that throws while importing, leaves that provider absent so the
-chain skips it; `runSearch` raises its normal "no transport available" error
-only when the chain ends up empty. A renamed export must be a `tsc` error,
-never a silent runtime "No transport is registered".
-
-## `src/format.ts`
-
-- `formatResult(text, details)` uses `truncateHead` with
-  `DEFAULT_MAX_LINES` / `DEFAULT_MAX_BYTES` imported from
-  `@earendil-works/pi-coding-agent`, appends `\n\n[Truncated]` when truncated.
-- `formatWebSearchResult(result)` builds:
-  - a `## Sources` numbered link list from `result.sources`
-  - a `## Results` section listing each `searchResults` entry as
-    `N. [title](url)` plus a `> excerpt` blockquote of the first ~400 characters
-    of `citedText` (single newlines only, collapsed whitespace)
-  - a `## Warnings` section when `warnings` is non-empty
-- `details` must include: `provider`, `requestId`, `resultCount`, `sources`,
-  `searchResults`, `warnings`, and `grounded: sources.length > 0`.
-- Output must be deterministic given the same `StreamResult`, so tests can assert
-  on it.
-
-## `src/utils.ts`
-
-- `missingCredentialResult(kind, hint)` → `details.error === "missing_credentials"`.
-- `invalidConfigResult(path, error)` → `details.error === "invalid_config"`.
-- `errorResult(e)` → maps `ProviderError.code` to `details.error`, includes
-  `details.code` and `details.status`, message is `web_search failed (<code>): <message>`.
-- Always returns `AgentToolResult`, never throws.
-
-## Tests
-
-`node --test --experimental-strip-types`. No network. Every transport is tested
-by injecting a `fetch` implementation (dependency injection through an options
-parameter, default `globalThis.fetch`) so the suite is hermetic and offline.
-
-Required coverage:
-
-- config: missing file, valid file, invalid JSON, unknown provider, defaults,
-  clamp of `maxResults`, `PI_WEB_SEARCH_CONFIG` override
-- exa: REST body/headers with key, keyless MCP initialize + `tools/call` +
-  highlight-group parsing, `urls` path, HTTP 401 → `http_error`,
-  `missing_credentials` never raised for exa
-- parallel: body shape matches the GA schema, headers, `urls` → `/v1/extract`,
-  missing key → `missing_credentials`, 401 → `http_error`
-- registry: chain order, fallback on retryable, no fallback on
-  `missing_credentials`, abort propagates, last error surfaces
-- format: sources section, results section with excerpts, truncation marker,
-  details shape
-- utils: each error result's `details.error`
-
-## Sources: two families, four providers (added 2026-09-30)
-
-`ProviderKind` gains two members. They are **not peers** — they fall into two
-families, and the fallback chain must never cross a family boundary.
-
-```ts
-export type ProviderKind = "exa" | "parallel" | "grep" | "github";
-export type ProviderFamily = "web" | "code";
-export const PROVIDER_FAMILY: Record<ProviderKind, ProviderFamily> = {
-  exa: "web", parallel: "web", grep: "code", github: "code",
-};
-```
-
-Cross-family fallback is a correctness bug, not a config choice: if Exa fails
-and the chain falls through to grep.app, a web question silently receives code
-results. `resolveProviderChain` becomes family-aware and returns a chain
-confined to one family.
-
-### grep.app — keyless, MCP only
-
-- **REST `GET https://grep.app/api/search` is UNUSABLE.** Verified 2026-09-30: it
-  returns a Vercel bot-challenge HTML page, not JSON, from a plain script.
-  Do not implement it.
-- **Use `POST https://mcp.grep.app`** (streamable HTTP). Verified working.
-  No `mcp-session-id` header is returned, so `McpClient.close()` correctly no-ops.
-  `searchGitHub` args: `query`, `matchCase`, `matchWholeWords`, `useRegexp`,
-  `repo`, `language`, `path`.
-- Response is plain text: repeated `Repository:/Path:/URL:/License:` groups with
-  `--- Snippet N (Line X) ---` bodies. Parse in the style of `parseExaSearchText`.
-- **The `language` filter is nondeterministically broken.** Verified: identical
-  query and `language: ["typescript"]` returned 504, empty, and 504 across three
-  attempts; `["TypeScript"]` returned 504, 504, OK. Neither an empty result nor
-  a 504 from a filtered query is trustworthy.
-  - 504 is already retryable (5xx) and falls through the chain.
-  - **Zero results while a filter was applied MUST surface as a warning**, never
-    as an empty result. Otherwise the model concludes the pattern does not exist
-    in the ecosystem, which is a confidently wrong answer. Silent failure.
-
-### GitHub — official MCP, needs a token
-
-- `POST https://api.githubcopilot.com/mcp/`, `Authorization: Bearer $GITHUB_TOKEN`.
-  Without a token: 401. Returns a real `mcp-session-id`, so sessions must be
-  closed. `notifications/initialized` returns 202 with an empty body.
-- `search_code` is present among 45 tools. Args: `query`, `perPage` (max 100),
-  `page`, `order`, and `fields`.
-  - **Always pass `fields: ["path","sha","repository","text_matches"]`.** Omitting
-    `repository`/`text_matches` is what makes responses huge, and `sha` is
-    required to build a citable URL.
-  - Build the source URL as `https://github.com/{repository}/blob/{sha}/{path}`.
-    Verified working. `grounded` depends on real URLs, so this is load-bearing.
-  - The response is JSON **wrapped inside** a text content block; unwrap it.
-  - Sorting is deprecated — results are always best-match and the ordering is not
-    ours to control. `order` exists in the schema; do not rely on it.
-- **Code search has its own 10 req/min limit**, separate from other search types.
-  Observed live: back-to-back probes returned transient failures. Treat 429 and
-  5xx as retryable and back off.
-
-### MCP framing caveat
-
-GitHub's server is inconsistent **within one session**: `initialize` and
-`tools/call` use `event: message\ndata: {...}`, but `tools/list` uses
-`event: message\n{...}` with no `data:` prefix. `extractSseData` collects only
-`data:` lines, so it would return zero payloads for the bare form. Production
-calls are unaffected, but make `extractSseData` tolerate a bare JSON line after
-`event: message` rather than depend on that holding.
-
-## Jev decision layer (`src/jev/`)
-
-**Jev is not a provider.** It never appears in `ProviderKind` or the fallback
-chain. It judges results the providers already returned. `grep`/`github` are
-real providers; Jev is not.
-
-Gated on config `jev.enabled` and a resolvable Jev credential. Absent either, or
-on any error, results pass through byte-identically. A decision layer that is
-down must degrade a search, never fail it. Every failure becomes a warning.
-
-Two backends, same request body:
-
-- Native TypeSafe: `POST https://api.typesafe.ai/v1/systemone`, model `jev-1.13.0`.
-  Keys: `TYPESAFE_API_KEY` or `JEV_API_KEY`, then Pi `auth.json` `typesafe`.
-- Vercel AI Gateway: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`,
-  model `typesafe-ai/jev`. Keys: `AI_GATEWAY_API_KEY`, then Pi `auth.json`
-  `vercel-ai-gateway`.
-
-`backend: "auto"` prefers native, then Vercel. A pinned native model id is
-remapped on the Vercel catalog and vice versa. **Do not add `@typesafe-ai/sdk`**
-— zero runtime deps is a hard constraint. **Pin `jev-1.13.0` on native, never
-`jev-latest`**; the alias moves.
-
-### Two calls, in this order
-
-**1. Route (pre-dispatch, query only).** `Choice` over `{web, code}` selects the
-family. Small state, cheap. Skipped when config pins a family.
-
-**2. Judge (post-retrieval, query + candidates).** All questions share one state
-and go in a single request, so every candidate fits one round trip — instructions
-reference candidates by backticked path (`candidates[0].excerpt`).
-
-Per candidate:
-
-| question | type | purpose |
-| --- | --- | --- |
-| `c{i}_answers` | noul | answers the query, vs merely sharing vocabulary |
-| `c{i}_offtopic` | noul | different subject / product / version |
-| `c{i}_selfcontained` | noul | citable without missing context |
-| `c{i}_safety` | choice | `safe`, `prompt_injection`, `harmful_content`, `phishing`, `other` |
-
-Once per request:
-
-| question | type | purpose |
-| --- | --- | --- |
-| `sufficient` | noul | do these results contain what's needed to answer |
-| `direct` | choice | which candidate (or `none`) answers the query outright |
-
-### Policy lives in code, never in the prompt
-
-- **Ranking** composes the three nouls with configurable weights, sorts in code.
-  Never return empty: if every score is low, keep the best result and set
-  `lowConfidence`. Returning nothing is a worse failure than returning something
-  mediocre.
-- **Safety is a separate axis from quality and must not be folded into the
-  ranking weights.** Any non-`safe` outcome suppresses the result. Use a
-  `Choice`, not a single noul threshold, so suppression reasons stay auditable.
-  Asymmetric costs — a false clear admits unsafe content, a false flag hides a
-  good result — so the safety threshold sits well above the rerank threshold, and
-  the mid-band is **held, not passed**.
-- **Suppress, never silently.** Every suppression is reported in
-  `details.jev.suppressed` with count and URLs. Silent filtering makes a Jev
-  misjudgment invisible, which is the one failure that cannot be debugged later.
-- **"Direct text" means extract-and-select, never generate.** Jev returns typed
-  judgments, not prose. `direct` selects *which* candidate answers the query and
-  we copy that excerpt **verbatim**. Do not synthesize text from it.
-- Thresholds and weights are config, not constants. Nothing here is validated on
-  real traffic; ship the switch and collect `details.jev` before trusting order.
-
-### Budget
-
-Cap the judged set. State size is `candidates × excerptChars`; at
-`maxResults: 20 × 2500` it approaches the 32k state limit. Above a configurable
-character budget, skip augmentation entirely and pass results through.
-
-### Injection risk
-
-Jev reads the same untrusted excerpts the model does. Ranking misjudgments cost
-bad ordering; a manipulated `sufficient` verdict pushes the model toward
-answering on weak evidence. Adversarial fixtures are required, not optional.
-
-## Onboarding (`/web-search-settings`)
-
-Mirrors `pi-ask`'s `/ask-settings` (`pi.registerCommand` + a status panel). One
-consistent view of every credential rather than four ad-hoc ones:
-
-- grouped by family, each source with its state: ready / needs key / disabled /
-  unreachable
-- shows whether Jev is active and which family routing would pick
-- shows the resolved config path and current `provider` / `fallback`
-- never prints a key, only its presence
-
-Keys live in env only. Never written into the config file or the repo.
+- `resolveCredential(id, options?)` is the only resolver. `options.env`,
+  `options.readCredential`, and `options.authPath` are the hermetic test seams.
+- **No immortal cache.** The stored file is read on every call, so rotating or
+  removing a key takes effect on the next operation.
+- Whitespace-only values are absent.
+- `enableStoredCredentials(authPath?)` points the default stored reader at Pi's
+  auth file. `src/index.ts` calls it at extension load; a bare import of the
+  tools, or the test suite, never reads the operator's secrets.
+  `disableStoredCredentials()` restores the no-stored-credential state.
+- Keys are read-only. Nothing writes or edits `auth.json`. Nonsecret settings
+  never live there.
+
+## Configuration
+
+`src/providers/config.ts` owns one parser. `parseWebSearchConfig` is pure;
+`readWebSearchConfig` (async) and `readWebSearchConfigSync` (load-time) share it,
+and `resolveSettings` / `resolveSettingsSync` share `applyConfig`.
+
+- Path: `$PI_WEB_SEARCH_CONFIG`, else `<agent-dir>/web-search.json`.
+- Missing file is not an error; defaults are used.
+- Malformed JSON, a non-object, non-numeric `timeoutMs`/`maxResults`, a bad
+  `fallback`, or a non-object `jev` produce an `InvalidConfigError`
+  (`code: "invalid_config"`, `configPath`).
+- Unsupported top-level keys, malformed family/research blocks, and unknown
+  Jev settings or ranking-weight names are errors.
+- Provider chains exist only under `web` and `code`; research is enabled only
+  by `research.enabled: true`.
+- No top-level `provider`/`fallback`/`family`/`mode` migration, implicit research
+  activation, or older-host compatibility code.
+
+## Errors
+
+Failures return `isError: true`, model-facing `<tool> failed (<code>): <detail>`,
+and a structured `error` payload retaining code, HTTP status, JSON-RPC code,
+retryability, and config path where applicable. `src/utils.ts` formats this
+boundary result; transport errors still throw internally for fallback policy.
+The host preserves `details` and `structuredContent` on failed calls.
+
+## Operation deadline and progress
+
+- One bounded deadline per tool call: `withTimeout(signal, settings.timeoutMs)`
+  composed with the caller's signal, disposed in `finally`. Retrieval and Jev
+  share it. A retrieval deadline abort is a `timeout`, never a user abort.
+  If only optional judging exhausts that budget, return the cited retrieval
+  results with a warning. Genuine user cancellation always fails the call.
+- Progress is a typed, **best-effort** observer owned by the runner
+  (`ProgressObserver`): cancellation is checked before every emit, a throwing
+  callback never fails or reshapes the search, and nothing is emitted after
+  `finish()`. No event bus.
+- A collapsed successful result renders a compact summary (providers, result
+  count, warning count, scope, jev status) rather than a blank row.
+
+## Providers and transports
+
+`src/providers/index.ts` owns chain and fan-out policy:
+`resolveProviderChain`/`listRunnableProviders` keep the walk inside one family
+(`web` = Exa/Parallel, `code` = grep.app/GitHub). `runSearch` walks the chain,
+continues on retryable errors, and throws the last error. `runParallelSearch`
+fans out available sources, records per-source warnings, and fails only when no
+source succeeds or on abort.
+
+Transport detail, parsers, MCP framing, and provider-specific identifiers live in
+`src/providers/{exa,parallel,grep,github,http,mcp}.ts`. GitHub code search is
+public-only and uses the REST `/search/code` endpoint: its repository visibility
+and browsable `html_url` are retained (the minimal MCP response omits them).
+Non-public or unverifiable hits are withheld and reported; unfiltered raw code
+payloads are never used as fallback results. Exa URL-content responses retain
+only requested URL identities; unrequested/unidentified documents are withheld
+with a count warning, on both keyed REST and keyless MCP paths.
+
+## Jev (optional judgment)
+
+Jev is not a provider and never appears in `ProviderKind`. It is gated on
+`jev.enabled` plus a resolvable credential (`typesafe` native, then
+`vercel-ai-gateway`). Absent or failing, results pass through with a warning; a
+down decision layer degrades a search rather than failing it. Suppressions are
+reported (`suppressed`, `suppressedUrls`), never silent. An enabled, authenticated
+judge with no candidates is `skipped`, not `disabled`. See `src/jev/`.
+
+## `/web-search-settings`
+
+A headless-safe command using host custom messages or UI notifications: the resolved config path, each
+family's provider and fallback, `research_search` and Jev state, credential
+presence **and source only** (never a key), and setup guidance. It performs no
+network calls and never writes secrets.
 
 ## Non-goals
 
-- **No `url_context` tool.** Decided 2026-09-30 (see `.reports/url-context-decision.md`).
-  Both transports already fetch URLs, so a second tool would only add schema
-  tokens to every request. Reusing that name would also imply Gemini URL Context
-  parity the rebuild does not have. `urls` on `web_search` is the only URL path.
-  Reserved seam: provider-level URL fetching stays a separate transport call from
-  search orchestration, so a provider-neutral URL-only tool can be added later
-  without touching the search path. Deferral trigger: agents routinely need to
-  read known URLs without searching. When that happens, add a real tool — do not
-  manufacture a dummy query to fake a URL-only call through `web_search`.
-- No LLM provider calls, no streaming SSE parsing beyond the MCP envelope, no
-  HTTP proxy support, no telemetry.
-- No new runtime dependencies. `peerDependencies` only, matching `pi-ask`.
+- No `url_context` tool; `urls` on `web_search` is the only URL path.
+- No LLM provider calls beyond the optional Jev judgment, no proxy support, no
+  telemetry, no additional secret stores.
+- No classes, global pools, watchers, or reactive configuration frameworks.
+- No older-host shims, deprecated setting migration, or redundant error wrappers.
+
+## Test requirements
+
+`node --test --experimental-strip-types`, offline. Required coverage:
+
+- config: scoped defaults, invalid JSON/types, rejected unsupported settings,
+  `maxResults` clamp, `PI_WEB_SEARCH_CONFIG`, and research opt-in with the sync
+  and async resolvers agreeing;
+- credentials: every alias, env-over-auth precedence, rotation/removal observed
+  through an injected `authPath`, whitespace absence, unreadable file;
+- registration: default set, enabled/disabled research, declared namespace,
+  annotations/output schema, invalid config, prompt snippets, settings command;
+- tool boundary: schema-valid structured successes and `isError: true` failures
+  with preserved tool name/code/status/config path;
+- providers/transport: chain order, fallback, abort propagation, parsers, MCP
+  envelope correlation, cancellation, teardown (see `tests/`).

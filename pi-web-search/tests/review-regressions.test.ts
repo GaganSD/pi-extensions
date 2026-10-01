@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { applyConfig, DEFAULT_TIMEOUT_MS } from "../src/providers/config.ts";
+import { CREDENTIAL_ENV_ALIASES } from "../src/env.ts";
 import { parseGrepSearchText } from "../src/providers/grep.ts";
 import { hasGitHubToken, hasParallelKey, providerAvailability } from "../src/providers/index.ts";
 import type { SearchResultDetail } from "../src/providers/types.ts";
+import { providerError } from "../src/providers/types.ts";
 import type { JevAnswer, JevResponse } from "../src/jev/api.ts";
 import { augmentResults } from "../src/jev/augment.ts";
 import { applyPolicy, type Candidate } from "../src/jev/judge.ts";
@@ -41,7 +43,6 @@ function answer(over: Record<string, JevAnswer> = {}): JevResponse {
 			c1_selfcontained: noul(0.8),
 			c1_safety: choice("safe", 0.99),
 			sufficient: noul(0.9),
-			direct: choice("candidate_0", 0.9),
 			...over,
 		},
 	};
@@ -56,16 +57,36 @@ function stream(results: SearchResultDetail[]) {
 	};
 }
 
-function withKey<T>(fn: () => Promise<T>): Promise<T> {
-	const previous = process.env.TYPESAFE_API_KEY;
-	process.env.TYPESAFE_API_KEY = "test-key";
-	return fn().finally(() => {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
+const CREDENTIAL_ALIASES = [
+	...new Set(Object.values(CREDENTIAL_ENV_ALIASES).flat()),
+];
+
+/**
+ * Snapshots and clears every credential alias, returning a restore function.
+ * A test that asserts credential precedence or absence must scope the whole
+ * alias set: clearing one name leaves the operator's other aliases observable.
+ */
+function resetCredentials(): () => void {
+	const previous = new Map<string, string | undefined>();
+	for (const name of CREDENTIAL_ALIASES) {
+		previous.set(name, process.env[name]);
+		delete process.env[name];
+	}
+	return () => {
+		for (const [name, value] of previous) {
+			if (value === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = value;
+			}
 		}
-	});
+	};
+}
+
+function withKey<T>(fn: () => Promise<T>): Promise<T> {
+	const restore = resetCredentials();
+	process.env.TYPESAFE_API_KEY = "test-key";
+	return fn().finally(restore);
 }
 
 // --- grep parser: blank lines are content, not boundaries -------------------
@@ -159,30 +180,13 @@ test("an absent answers key fails closed", () => {
 	assert.equal(applyPolicy(CANDS, bare, settingsWith()).sufficient, false);
 });
 
-test("a suppressed candidate cannot become the direct answer", () => {
-	const outcome = applyPolicy(
-		CANDS,
-		answer({
-			c0_safety: choice("prompt_injection", 0.99),
-			direct: choice("candidate_0", 0.99),
-		}),
-		settingsWith(),
-	);
-	assert.equal(
-		outcome.directText,
-		undefined,
-		"an unsafe excerpt must never be handed over as the direct answer",
-	);
-	assert.equal(outcome.suppressedUrls.length, 1);
-});
-
 test("an empty candidate set returns empty rather than throwing", () => {
 	const outcome = applyPolicy([], answer(), settingsWith());
 	assert.deepEqual(outcome.results, []);
 	assert.equal(outcome.suppressed, 0);
 });
 
-test("the direct excerpt reaches the result text verbatim", () =>
+test("augment never hoists an uncited top-level answer", () =>
 	withKey(async () => {
 		const out = await augmentResults(
 			{ query: "q", settings: { jev: settingsWith() } as never },
@@ -253,7 +257,6 @@ test("two results sharing a url stay distinct results", () =>
 									c1_answers: noul(0.99),
 									c1_offtopic: noul(0),
 									c1_selfcontained: noul(0.99),
-									direct: choice("none_of_the_above", 0.9),
 								}),
 							),
 							{ status: 200 },
@@ -310,13 +313,29 @@ test("an abort during judging is honoured, not just the deadline", () =>
 		assert.ok(elapsed < 4000, `abort must beat the 5s deadline, took ${elapsed}ms`);
 	}));
 
+test("a parent deadline during optional judging returns cited results with a warning", () =>
+	withKey(async () => {
+		const controller = new AbortController();
+		controller.abort(providerError("timeout", "search exceeded 20000ms."));
+		let requests = 0;
+		const input = stream([{ title: "A", url: "https://a.example", citedText: "alpha" }]);
+		const out = await augmentResults(
+			{ query: "q", signal: controller.signal, settings: { jev: settingsWith() } as never },
+			input,
+			{ fetchImpl: (async () => { requests++; throw new Error("should not start"); }) as FetchLike },
+		);
+		assert.equal(requests, 0);
+		assert.deepEqual(out.searchResults, input.searchResults);
+		assert.equal(out.jevStatus, "unavailable");
+		assert.match(out.warnings?.join(" ") ?? "", /operation timeout/);
+	}));
+
 // --- credentials and config -------------------------------------------------
 
 test("a whitespace-only key is not a credential", () => {
-	const previousA = process.env.PARALLEL_API_KEY;
-	const previousB = process.env.GITHUB_TOKEN;
+	const restore = resetCredentials();
 	process.env.PARALLEL_API_KEY = "   ";
-	process.env.GITHUB_TOKEN = "\t\n";
+	process.env.GH_TOKEN = "\t\n";
 	try {
 		// Otherwise the transport throws missing_credentials non-retryably,
 		// which suppresses the fallback the key was meant to enable.
@@ -325,16 +344,7 @@ test("a whitespace-only key is not a credential", () => {
 		assert.equal(providerAvailability().parallel, false);
 		assert.equal(providerAvailability().github, false);
 	} finally {
-		if (previousA === undefined) {
-			delete process.env.PARALLEL_API_KEY;
-		} else {
-			process.env.PARALLEL_API_KEY = previousA;
-		}
-		if (previousB === undefined) {
-			delete process.env.GITHUB_TOKEN;
-		} else {
-			process.env.GITHUB_TOKEN = previousB;
-		}
+		restore();
 	}
 });
 
@@ -347,8 +357,7 @@ test("a non-positive timeout falls back to the default", () => {
 
 test("a dropped cross-family fallback is recorded for the caller to surface", () => {
 	const settings = applyConfig("/c.json", {
-		provider: "exa",
-		fallback: ["parallel", "github"],
+		web: { provider: "exa", fallback: ["parallel", "github"] },
 	});
 	assert.equal(settings.notices.length, 1);
 	assert.match(settings.notices[0], /github/);
@@ -370,7 +379,6 @@ test("suppression reaches the tool details, not just a warning string", () =>
 							JSON.stringify(
 								answer({
 									c1_safety: choice("prompt_injection", 0.99),
-									direct: choice("none_of_the_above", 0.9),
 								}),
 							),
 							{ status: 200 },
@@ -381,7 +389,13 @@ test("suppression reaches the tool details, not just a warning string", () =>
 		const rendered = formatWebSearchResult(out);
 		assert.equal(rendered.details?.jev?.suppressed, 1);
 		assert.deepEqual(rendered.details?.jev?.suppressedUrls, ["https://evil.example"]);
-		assert.equal(rendered.details?.jev?.sufficient, true);
+		// Evidence was withheld, so the model's global sufficiency verdict (which
+		// covered the withheld candidate) is not restated as confirmed.
+		assert.equal(rendered.details?.jev?.sufficient, false);
+		assert.match(
+			(out.warnings ?? []).join(" "),
+			/could not confirm these results answer the query/,
+		);
 		assert.ok(
 			!(rendered.details?.searchResults ?? []).some(
 				(r) => r.url === "https://evil.example",

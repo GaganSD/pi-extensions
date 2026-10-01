@@ -12,14 +12,16 @@ import type {
 import type { WebSearchDetails } from "../src/format.ts";
 import {
 	CONFIG_PATH_ENV_VAR,
+	MAX_QUERY_CHARS,
 } from "../src/providers/config.ts";
 import type { SearchTransport } from "../src/providers/index.ts";
 import { type StreamResult, providerError } from "../src/providers/types.ts";
 import { CodeSearchSchema, codeSearch } from "../src/code_search.ts";
+import { exaObjective } from "../src/providers/exa.ts";
 import { ResearchSearchSchema, researchSearch } from "../src/research_search.ts";
 import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
 
-const VALID_CONFIG = JSON.stringify({ provider: "exa", fallback: [] });
+const VALID_CONFIG = JSON.stringify({ web: { provider: "exa", fallback: [] } });
 
 const SEARCH_RESULT: StreamResult = {
 	text: "",
@@ -58,6 +60,16 @@ function textOf(result: AgentToolResult<WebSearchDetails>): string {
 	return part?.type === "text" ? part.text : "";
 }
 
+async function assertToolError(
+	promise: Promise<AgentToolResult<WebSearchDetails>>,
+	check: (error: NonNullable<WebSearchDetails["error"]>) => boolean,
+) {
+	const result = await promise;
+	assert.equal(result.isError, true);
+	assert.ok(result.details.error);
+	assert.equal(check(result.details.error), true);
+}
+
 function recordingTransport(
 	result: StreamResult,
 	calls: { query: string; urls?: string[]; maxResults: number }[],
@@ -72,78 +84,93 @@ function recordingTransport(
 	};
 }
 
-test("the tool schema exposes only query and urls", () => {
+test("the tool schema exposes only query and urls, and bounds the query", () => {
 	const urls = WebSearchSchema.properties.urls as { maxItems?: number };
+	const query = WebSearchSchema.properties.query as { maxLength?: number };
 	assert.deepEqual(Object.keys(WebSearchSchema.properties), ["query", "urls"]);
 	assert.equal(WebSearchSchema.required?.includes("query"), true);
 	assert.equal(urls.maxItems, 20);
+	assert.equal(query.maxLength, MAX_QUERY_CHARS);
+	// The crafted Exa objective must stay below the server's 4096-char limit.
+	assert.ok(
+		exaObjective("x".repeat(MAX_QUERY_CHARS)).length <= 4096,
+		exaObjective("x".repeat(MAX_QUERY_CHARS)).length.toString(),
+	);
 });
 
-test("an invalid config file returns invalid_config without touching the network", async () => {
+test("an invalid config file returns structured failure with invalid_config without touching the network", async () => {
 	let transportCalls = 0;
 	await withConfigFile("{ not json", async (configPath) => {
-		const result = await webSearch(
-			"call_1",
-			{ query: "hi" },
-			undefined,
-			undefined,
-			ctx,
-			{ transports: { exa: async () => { transportCalls++; return SEARCH_RESULT; } } },
+		await assertToolError(
+			webSearch(
+				"call_1",
+				{ query: "hi" },
+				undefined,
+				undefined,
+				ctx,
+				{ transports: { exa: async () => { transportCalls++; return SEARCH_RESULT; } } },
+			),
+			(error: { code?: string; configPath?: string; message?: string }) => {
+				assert.equal(error.code, "invalid_config");
+				assert.equal(error.configPath, configPath);
+				assert.match(String(error.message), /^web_search failed \(invalid_config\): /);
+				return true;
+			},
 		);
-
-		assert.equal(result.details.error, "invalid_config");
-		assert.equal(result.details.configPath, configPath);
-		assert.match(textOf(result), /^web_search failed \(invalid_config\): /);
 	});
 	assert.equal(transportCalls, 0);
 });
 
-test("a search failure is returned as an error result", async () => {
+test("a search failure returns structured failure naming the originating tool", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
-		const result = await webSearch(
-			"call_1",
-			{ query: "hi" },
-			undefined,
-			undefined,
-			ctx,
-			{
-				transports: {
-					exa: async () => {
-						throw providerError("http_error", "Exa is down.", { status: 503 });
+		await assertToolError(
+			webSearch(
+				"call_1",
+				{ query: "hi" },
+				undefined,
+				undefined,
+				ctx,
+				{
+					transports: {
+						exa: async () => {
+							throw providerError("http_error", "Exa is down.", { status: 503 });
+						},
 					},
 				},
+			),
+			(error: { code?: string; status?: number; message?: string }) => {
+				assert.equal(error.code, "http_error");
+				assert.equal(error.status, 503);
+				assert.equal(error.message, "web_search failed (http_error): Exa is down.");
+				return true;
 			},
-		);
-
-		assert.equal(result.details.error, "http_error");
-		assert.equal(result.details.code, "http_error");
-		assert.equal(result.details.status, 503);
-		assert.equal(
-			textOf(result),
-			"web_search failed (http_error): Exa is down.",
 		);
 	});
 });
 
-test("a non-provider throw becomes an unknown error result", async () => {
+test("a non-provider throw returns structured failure as unknown under the tool name", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
-		const result = await webSearch(
-			"call_1",
-			{ query: "hi" },
-			undefined,
-			undefined,
-			ctx,
-			{
-				transports: {
-					exa: async () => {
-						throw "not an error";
+		await assertToolError(
+			webSearch(
+				"call_1",
+				{ query: "hi" },
+				undefined,
+				undefined,
+				ctx,
+				{
+					transports: {
+						exa: async () => {
+							throw "not an error";
+						},
 					},
 				},
+			),
+			(error: { code?: string; message?: string }) => {
+				assert.equal(error.code, "unknown");
+				assert.equal(error.message, "web_search failed (unknown): not an error");
+				return true;
 			},
 		);
-
-		assert.equal(result.details.error, "unknown");
-		assert.equal(textOf(result), "web_search failed (unknown): not an error");
 	});
 });
 
@@ -166,7 +193,6 @@ test("a successful search returns the formatted result and forwards the request"
 			{ transports: { exa: recordingTransport(SEARCH_RESULT, calls) } },
 		);
 
-		assert.equal(result.details.error, undefined);
 		assert.equal(result.details.provider, "exa");
 		assert.equal(result.details.requestId, "req_1");
 		assert.equal(result.details.grounded, true);
@@ -225,17 +251,37 @@ test("code_search is query-only and stays in the code family", async () => {
 				},
 			},
 		);
-		assert.equal(result.details.error, undefined);
 		assert.equal(result.details.scope, "code");
 		assert.equal(result.details.provider, "grep");
 		assert.equal(result.details.jevStatus, "disabled");
 	});
 });
 
+test("research_search returns structured failure when research is not enabled", async () => {
+	await withConfigFile(VALID_CONFIG, async () => {
+		await assertToolError(
+			researchSearch(
+				"call_1",
+				{ query: "AbortSignal.any", scope: "web" },
+				undefined,
+				undefined,
+				ctx,
+				{ transports: { exa: recordingTransport(SEARCH_RESULT, []) } },
+			),
+			(error: { code?: string; message?: string }) => {
+				assert.equal(error.code, "invalid_config");
+				assert.match(String(error.message), /^research_search failed \(invalid_config\): /);
+				assert.match(String(error.message), /research_search is disabled/);
+				return true;
+			},
+		);
+	});
+});
+
 test("research_search fans out in the requested scope", async () => {
 	assert.ok("scope" in ResearchSearchSchema.properties);
 	await withConfigFile(
-		JSON.stringify({ research: { enabled: true }, provider: "exa", fallback: [] }),
+		JSON.stringify({ research: { enabled: true }, web: { provider: "exa", fallback: [] } }),
 		async () => {
 			const result = await researchSearch(
 				"call_1",
@@ -258,7 +304,6 @@ test("research_search fans out in the requested scope", async () => {
 					},
 				},
 			);
-			assert.equal(result.details.error, undefined);
 			assert.equal(result.details.scope, "both");
 			assert.deepEqual(result.details.providers, ["exa", "grep"]);
 			assert.equal(result.details.resultCount, 2);

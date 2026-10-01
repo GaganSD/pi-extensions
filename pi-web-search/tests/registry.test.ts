@@ -17,7 +17,6 @@ import {
 	providerAvailability,
 	resolveProviderChain,
 	runSearch,
-	tryRunSearch,
 } from "../src/providers/index.ts";
 import {
 	type ProviderKind,
@@ -27,8 +26,7 @@ import {
 } from "../src/providers/types.ts";
 
 const settings = applyConfig("/tmp/web-search.json", {
-	provider: "exa",
-	fallback: ["parallel"],
+	web: { provider: "exa", fallback: ["parallel"] },
 });
 
 function result(kind: ProviderKind, marker: string): StreamResult {
@@ -42,19 +40,7 @@ function fakeResponse(
 	body: string,
 	init: { status?: number; headers?: Record<string, string> } = {},
 ): ResponseLike {
-	const status = init.status ?? 200;
-	const headers = new Map(
-		Object.entries(init.headers ?? {}).map(([k, v]) => [
-			k.toLowerCase(),
-			v,
-		]),
-	);
-	return {
-		ok: status >= 200 && status < 300,
-		status,
-		headers: { get: (name: string) => headers.get(name.toLowerCase()) ?? null },
-		text: () => Promise.resolve(body),
-	};
+	return new Response(body, init);
 }
 
 test("chain order is [provider, ...fallback]", () => {
@@ -62,8 +48,7 @@ test("chain order is [provider, ...fallback]", () => {
 	assert.deepEqual(chain, ["exa", "parallel"]);
 
 	const parallelFirst = applyConfig("/tmp/web-search.json", {
-		provider: "parallel",
-		fallback: ["exa"],
+		web: { provider: "parallel", fallback: ["exa"] },
 	});
 	assert.deepEqual(resolveProviderChain(parallelFirst, {
 		exa: true,
@@ -72,8 +57,14 @@ test("chain order is [provider, ...fallback]", () => {
 });
 
 test("a missing PARALLEL_API_KEY leaves the chain as [exa]", () => {
-	const previous = process.env.PARALLEL_API_KEY;
+	// Snapshot the whole credential alias set this assertion depends on, so an
+	// operator's populated environment cannot change the result.
+	const previousParallel = process.env.PARALLEL_API_KEY;
+	const previousGitHub = process.env.GITHUB_TOKEN;
+	const previousGh = process.env.GH_TOKEN;
 	delete process.env.PARALLEL_API_KEY;
+	delete process.env.GITHUB_TOKEN;
+	delete process.env.GH_TOKEN;
 	try {
 		assert.deepEqual(providerAvailability(), {
 			exa: true,
@@ -85,11 +76,20 @@ test("a missing PARALLEL_API_KEY leaves the chain as [exa]", () => {
 		// Code sources are keyless/available but must never join a web chain.
 		assert.deepEqual(resolveProviderChain(settings), ["exa"]);
 	} finally {
-		if (previous !== undefined) {
-			process.env.PARALLEL_API_KEY = previous;
-		}
+		restoreEnv("PARALLEL_API_KEY", previousParallel);
+		restoreEnv("GITHUB_TOKEN", previousGitHub);
+		restoreEnv("GH_TOKEN", previousGh);
 	}
 });
+
+/** Restores a process.env entry, deleting it when it was originally absent. */
+function restoreEnv(name: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete process.env[name];
+	} else {
+		process.env[name] = value;
+	}
+}
 
 test("fallback happens on a retryable error", async () => {
 	const attempted: ProviderKind[] = [];
@@ -189,34 +189,36 @@ test("the LAST error surfaces when every attempt fails", async () => {
 	const second = providerError("rate_limited", "parallel rate limited", {
 		status: 429,
 	});
-	const attempt = await tryRunSearch({ query: "q", settings }, {
-		availability: bothAvailable,
-		transports: {
-			exa: () => Promise.reject(first),
-			parallel: () => Promise.reject(second),
+	await assert.rejects(
+		runSearch({ query: "q", settings }, {
+			availability: bothAvailable,
+			transports: {
+				exa: () => Promise.reject(first),
+				parallel: () => Promise.reject(second),
+			},
+		}),
+		(error: unknown) => {
+			assert.equal((error as { message: string }).message, "parallel rate limited");
+			assert.equal((error as { code: string }).code, "rate_limited");
+			assert.equal((error as { status?: number }).status, 429);
+			return true;
 		},
-	});
-	assert.equal(attempt.ok, false);
-	if (attempt.ok) {
-		return;
-	}
-	assert.equal(attempt.error.message, "parallel rate limited");
-	assert.equal(attempt.error.code, "rate_limited");
-	assert.equal(attempt.error.status, 429);
+	);
 });
 
 test("a chain with no available provider reports missing_credentials", async () => {
-	const attempt = await tryRunSearch({ query: "q", settings }, {
-		availability: { exa: false, parallel: false },
-		transports: {
-			exa: () => Promise.resolve(result("exa", "should not run")),
+	await assert.rejects(
+		runSearch({ query: "q", settings }, {
+			availability: { exa: false, parallel: false },
+			transports: {
+				exa: () => Promise.resolve(result("exa", "should not run")),
+			},
+		}),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "missing_credentials");
+			return true;
 		},
-	});
-	assert.equal(attempt.ok, false);
-	if (attempt.ok) {
-		return;
-	}
-	assert.equal(attempt.error.code, "missing_credentials");
+	);
 });
 
 test("a non-ProviderError rejection surfaces as unknown and stops the walk", async () => {
@@ -257,29 +259,31 @@ test("a transport left absent by its loader is skipped and the next chain entry 
 });
 
 test("a transport loader that rejects degrades instead of throwing out of runSearch", async () => {
-	const attempt = await tryRunSearch({ query: "q", settings }, {
-		availability: bothAvailable,
-		loadTransports: () => Promise.reject(new Error("cannot load exa")),
-	});
-	assert.equal(attempt.ok, false);
-	if (attempt.ok) {
-		return;
-	}
-	assert.equal(attempt.error.code, "missing_credentials");
-	assert.match(attempt.error.message, /No transport is registered/);
+	await assert.rejects(
+		runSearch({ query: "q", settings }, {
+			availability: bothAvailable,
+			loadTransports: () => Promise.reject(new Error("cannot load exa")),
+		}),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "missing_credentials");
+			assert.match((error as Error).message, /No transport is registered/);
+			return true;
+		},
+	);
 });
 
 test("an empty transport map reports the no-transport-available error", async () => {
-	const attempt = await tryRunSearch({ query: "q", settings }, {
-		availability: bothAvailable,
-		loadTransports: () => Promise.resolve({}),
-	});
-	assert.equal(attempt.ok, false);
-	if (attempt.ok) {
-		return;
-	}
-	assert.equal(attempt.error.code, "missing_credentials");
-	assert.match(attempt.error.message, /No transport is registered/);
+	await assert.rejects(
+		runSearch({ query: "q", settings }, {
+			availability: bothAvailable,
+			loadTransports: () => Promise.resolve({}),
+		}),
+		(error: unknown) => {
+			assert.equal((error as { code: string }).code, "missing_credentials");
+			assert.match((error as Error).message, /No transport is registered/);
+			return true;
+		},
+	);
 });
 
 // --- http seam (offline, injected fetch) -------------------------------------

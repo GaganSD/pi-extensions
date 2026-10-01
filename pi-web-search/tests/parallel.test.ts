@@ -79,8 +79,7 @@ function makeRequest(overrides: Partial<SearchRequest> = {}): SearchRequest {
 	return {
 		query: QUERY,
 		settings: applyConfig("/tmp/web-search.json", {
-			provider: "parallel",
-			fallback: [],
+			web: { provider: "parallel", fallback: [] },
 		}),
 		...overrides,
 	};
@@ -180,20 +179,6 @@ test("posts the GA schema to /v1/search with the documented headers", async () =
 			excerpt_settings: { max_chars_per_result: 2500 },
 		},
 	});
-	// Exact serialization: no undocumented keys slip into the request.
-	assert.equal(
-		String(call.init.body),
-		JSON.stringify({
-			objective: QUERY,
-			search_queries: [QUERY],
-			mode: "fast",
-			max_chars_total: 20000,
-			advanced_settings: {
-				max_results: 8,
-				excerpt_settings: { max_chars_per_result: 2500 },
-			},
-		}),
-	);
 });
 
 test("maps search results into details and sources", async () => {
@@ -529,8 +514,7 @@ test("req.settings.maxResults flows into advanced_settings.max_results", async (
 	const stub = stubFetch(() => jsonResponse(searchFixture()));
 	const request = makeRequest({
 		settings: applyConfig("/tmp/web-search.json", {
-			provider: "parallel",
-			fallback: [],
+			web: { provider: "parallel", fallback: [] },
 			maxResults: 3,
 		}),
 	});

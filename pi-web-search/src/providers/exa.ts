@@ -17,6 +17,8 @@ export const EXA_MCP_URL = "https://mcp.exa.ai/mcp";
 const EXA_HIGHLIGHT_SENTENCES = 3;
 /** `web_fetch_exa` truncates each URL to this many characters. */
 const EXA_FETCH_MAX_CHARACTERS = 3000;
+/** Aggregate fetch cap: bounded by this many URLs times the per-page cap. */
+const EXA_MAX_FETCH_URLS = 20;
 /** Keyless results carry no upstream request id, so the transport names it. */
 const EXA_MCP_REQUEST_ID = "mcp";
 
@@ -71,10 +73,11 @@ export function exaObjective(query: string): string {
  *
  * The anchors are structural only outside a highlights block. Inside one they
  * are ordinary content, because a page whose text starts a line with `URL:` or
- * `Title:` would otherwise fabricate a phantom result. A blank line is what ends
- * the block: the hosted server puts one before every `Title:`, while highlight
- * chunks inside a result are `...`-separated, never blank-line separated. That
- * also keeps trailing footer text out of the last result's cited text.
+ * `Title:` would otherwise fabricate a phantom result. Blank lines inside a
+ * highlight remain content. A boundary needs a following Title/URL header pair
+ * or the known search footer; `---` alone is not enough (pages contain rules).
+ * Unknown footer prose may remain in the bounded excerpt rather than dropping
+ * genuine facts just because they follow a blank line.
  *
  * Two highlight spellings are accepted, because the hosted server emits both:
  * `> `-prefixed blockquote lines and bare lines under `Highlights:`.
@@ -84,10 +87,17 @@ export function parseExaSearchText(text: string): SearchResultDetail[] {
 	let group: ExaGroup | undefined;
 	let inHighlights = false;
 
-	for (const rawLine of text.split("\n")) {
+	const lines = text.split("\n");
+	for (const [index, rawLine] of lines.entries()) {
 		const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-		if (line.trim().length === 0) {
-			inHighlights = false;
+		if (line.trim().length === 0 || line.trim() === "---") {
+			const next = lines[index + 1] ?? "";
+			const afterNext = lines[index + 2] ?? "";
+			if ((TITLE_LINE.test(next) && URL_LINE.test(afterNext)) || /^Searched \d+ sources\b/.test(next)) {
+				inHighlights = false;
+			} else if (inHighlights && group && line.trim().length === 0) {
+				group.highlights.push("");
+			}
 			continue;
 		}
 		if (!inHighlights) {
@@ -152,7 +162,12 @@ async function keyedSearch(
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
 	const headers = { "x-api-key": apiKey, "Content-Type": "application/json" };
-	const response = await postJson<unknown>(EXA_SEARCH_URL, {
+	const fetched = fetchableUrls(req);
+	const warnings: string[] = [...fetched.warnings];
+
+	// Search and the caller's URL fetches are independent, so run them
+	// concurrently; a fetch failure never discards the search results.
+	const searchPromise = postJson<unknown>(EXA_SEARCH_URL, {
 		headers,
 		body: {
 			query: req.query,
@@ -168,68 +183,81 @@ async function keyedSearch(
 		signal: req.signal,
 		fetchImpl: options.fetchImpl,
 	});
+	const fetchPromise = fetched.urls.length > 0
+		? settle(postJson<unknown>(EXA_CONTENTS_URL, {
+			headers,
+			body: { urls: fetched.urls, text: { maxCharacters: EXA_FETCH_MAX_CHARACTERS } },
+			timeoutMs: req.settings.timeoutMs,
+			signal: req.signal,
+			fetchImpl: options.fetchImpl,
+		}))
+		: undefined;
 
-	const body = asObject(response, EXA_SEARCH_URL);
-	const results = toSearchResults(body.results).map((result) => {
-		const detail: SearchResultDetail = {
+	const searchOutcome = await settle(searchPromise);
+	if (!searchOutcome.ok) {
+		await fetchPromise;
+		throw searchOutcome.error;
+	}
+	const body = asObject(searchOutcome.value, EXA_SEARCH_URL);
+	const results: SearchResultDetail[] = toSearchResults(body.results).map(
+		(result) => ({
 			title: result.title,
 			url: result.url,
 			source: PROVIDER_NAME,
 			pageAge: result.publishedDate ?? null,
 			citedText: joinHighlights(result.highlights),
-		};
-		return detail;
-	});
-
-	const { results: allResults, warnings } = await withUrlFetch(
-		req,
-		results,
-		(urls, warn) => keyedUrlFetch(req, urls, headers, options, warn),
+		}),
 	);
+
+	if (fetchPromise) {
+		const fetchOutcome = await fetchPromise;
+		if (!fetchOutcome.ok) {
+			if (isProviderError(fetchOutcome.error) && fetchOutcome.error.code === "aborted") {
+				throw fetchOutcome.error;
+			}
+			warnings.push(describeError("URL fetch", fetchOutcome.error));
+		} else {
+			try {
+				const contents = asObject(fetchOutcome.value, EXA_CONTENTS_URL);
+				results.push(...requestedContents(toContentsResults(contents.results).map(contentsDetail), fetched.urls, warnings));
+				for (const url of fetched.urls) {
+					if (!results.some((result) => result.type === FETCH_RESULT_TYPE && result.url === url)) {
+						warnings.push(`Exa URL fetch returned no parsed content for ${url}.`);
+					}
+				}
+			} catch (error) {
+				warnings.push(describeError("URL fetch", error));
+			}
+		}
+	}
 
 	return {
 		text: "",
 		providerKind: "exa",
-		sources: sourcesFromResults(allResults),
-		searchResults: allResults,
+		sources: sourcesFromResults(results),
+		searchResults: results,
 		requestId: typeof body.requestId === "string" ? body.requestId : undefined,
 		...(warnings.length > 0 ? { warnings } : {}),
 	};
 }
 
-async function keyedUrlFetch(
-	req: SearchRequest,
-	urls: string[],
-	headers: Record<string, string>,
-	options: ExaSearchOptions,
-	warn: (message: string) => void,
-): Promise<SearchResultDetail[]> {
-	try {
-		const response = await postJson<unknown>(EXA_CONTENTS_URL, {
-			headers,
-			body: { urls, text: true },
-			timeoutMs: req.settings.timeoutMs,
-			signal: req.signal,
-			fetchImpl: options.fetchImpl,
-		});
-		const body = asObject(response, EXA_CONTENTS_URL);
-		return toContentsResults(body.results).map((result) => {
-			const detail: SearchResultDetail = {
-				title: result.title,
-				url: result.url,
-				source: PROVIDER_NAME,
-				citedText: typeof result.text === "string" ? result.text : "",
-				type: FETCH_RESULT_TYPE,
-			};
-			return detail;
-		});
-	} catch (error) {
-		if (isProviderError(error) && error.code === "aborted") {
-			throw error;
-		}
-		warn(describeError("URL fetch", error));
-		return [];
-	}
+/** A URL fetch cannot introduce documents outside the caller's requested set. */
+function requestedContents(results: SearchResultDetail[], urls: string[], warnings: string[]): SearchResultDetail[] {
+	const allowed = new Set(urls);
+	const kept = results.filter((result) => typeof result.url === "string" && allowed.has(result.url));
+	const dropped = results.length - kept.length;
+	if (dropped > 0) warnings.push(`Exa URL fetch withheld ${dropped} unrequested or unidentified document(s).`);
+	return kept;
+}
+
+function contentsDetail(result: ExaContentsResult): SearchResultDetail {
+	return {
+		title: result.title,
+		url: result.url,
+		source: PROVIDER_NAME,
+		citedText: typeof result.text === "string" ? result.text : "",
+		type: FETCH_RESULT_TYPE,
+	};
 }
 
 // --- path 2: keyless hosted MCP ----------------------------------------------
@@ -238,6 +266,11 @@ async function keylessSearch(
 	req: SearchRequest,
 	options: ExaSearchOptions,
 ): Promise<StreamResult> {
+	const fetched = fetchableUrls(req);
+	const warnings: string[] = [...fetched.warnings];
+
+	// One session for the whole operation: search and the caller's URL fetches
+	// share the handshake and run concurrently (RPC ids keep the replies apart).
 	const results = await withMcpSession(
 		{
 			url: EXA_MCP_URL,
@@ -246,84 +279,152 @@ async function keylessSearch(
 			signal: req.signal,
 		},
 		async (client) => {
-		const text = await client.callTool("web_search_exa", {
-			query: req.query,
-			numResults: req.settings.maxResults,
-			objective: exaObjective(req.query),
-		});
+			const searchPromise = client.callTool("web_search_exa", {
+				query: req.query,
+				numResults: req.settings.maxResults,
+				objective: exaObjective(req.query),
+			});
+			const fetchPromise = fetched.urls.length > 0
+				? settle(client.callTool("web_fetch_exa", {
+					urls: fetched.urls,
+					maxCharacters: EXA_FETCH_MAX_CHARACTERS,
+				}))
+				: undefined;
 
-		const parsed = parseExaSearchText(text);
-		// The model still needs the content the server did return.
-		return parsed.length > 0
-			? parsed
-			: [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
-	});
+			const searchOutcome = await settle(searchPromise);
+			if (!searchOutcome.ok) {
+				await fetchPromise;
+				throw searchOutcome.error;
+			}
+			const parsed = parseExaSearchText(searchOutcome.value);
+			// The model still needs the content the server did return.
+			const base = parsed.length > 0
+				? parsed
+				: searchOutcome.value.trim().length > 0
+					? [{ source: PROVIDER_NAME, citedText: searchOutcome.value, type: "unparsed" }]
+					: [];
+			if (parsed.length === 0) {
+				warnings.push(base.length > 0 ? "Exa search returned unparsed content." : "Exa search returned no content.");
+			}
+			if (!fetchPromise) {
+				return base;
+			}
 
-	const { results: allResults, warnings } = await withUrlFetch(
-		req,
-		results,
-		(urls, warn) => keylessUrlFetch(req, urls, options, warn),
+			const fetchOutcome = await fetchPromise;
+			if (!fetchOutcome.ok) {
+				if (isProviderError(fetchOutcome.error) && fetchOutcome.error.code === "aborted") {
+					throw fetchOutcome.error;
+				}
+				warnings.push(describeError("URL fetch", fetchOutcome.error));
+				return base;
+			}
+			const pages = parseExaFetchText(fetchOutcome.value);
+			warnings.push(...pages.warnings);
+			const requested = requestedContents(pages.results, fetched.urls, warnings);
+			for (const url of fetched.urls) {
+				if (!requested.some((page) => page.url === url)) {
+					warnings.push(`Exa URL fetch returned no parsed content for ${url}.`);
+				}
+			}
+			if (pages.results.length === 0 && fetchOutcome.value.trim().length > 0) {
+				warnings.push("Exa URL fetch returned unparsed content; page identity is unverified.");
+				requested.push({ source: PROVIDER_NAME, citedText: fetchOutcome.value, type: "unparsed" });
+			}
+			return [...base, ...requested];
+		},
 	);
 
 	return {
 		text: "",
 		providerKind: "exa",
-		sources: sourcesFromResults(allResults),
-		searchResults: allResults,
+		sources: sourcesFromResults(results),
+		searchResults: results,
 		requestId: EXA_MCP_REQUEST_ID,
 		...(warnings.length > 0 ? { warnings } : {}),
 	};
 }
 
-async function keylessUrlFetch(
-	req: SearchRequest,
-	urls: string[],
-	options: ExaSearchOptions,
-	warn: (message: string) => void,
-): Promise<SearchResultDetail[]> {
-	try {
-		return await withMcpSession(
-			{
-				url: EXA_MCP_URL,
-				fetchImpl: options.fetchImpl,
-				timeoutMs: req.settings.timeoutMs,
-				signal: req.signal,
-			},
-			async (client) => {
-			const text = await client.callTool("web_fetch_exa", {
-				urls,
-				maxCharacters: EXA_FETCH_MAX_CHARACTERS,
-			});
-			return [{ source: PROVIDER_NAME, citedText: text, type: FETCH_RESULT_TYPE }];
-		});
-	} catch (error) {
-		if (isProviderError(error) && error.code === "aborted") {
-			throw error;
+/**
+ * Normalizes `web_fetch_exa` output into one URL-bound document per page.
+ *
+ * The hosted server frames each page as a `# Title` line followed by a
+ * `URL: <url>` line, then the page body (which may itself contain `#`
+ * headings). Failures are trailing `Error fetching <url>: <code>` lines. One
+ * document per page is what lets later pages survive the per-result excerpt
+ * cap instead of being collapsed behind the first page.
+ */
+export function parseExaFetchText(text: string): {
+	results: SearchResultDetail[];
+	warnings: string[];
+} {
+	const results: SearchResultDetail[] = [];
+	const warnings: string[] = [];
+	const lines = text.split("\n").map((line) =>
+		line.endsWith("\r") ? line.slice(0, -1) : line
+	);
+
+	let page: { title?: string; url: string; body: string[] } | undefined;
+	const flush = () => {
+		if (!page) {
+			return;
 		}
-		warn(describeError("URL fetch", error));
-		return [];
+		results.push({
+			title: page.title,
+			url: page.url,
+			source: PROVIDER_NAME,
+			citedText: page.body.join("\n").trim(),
+			type: FETCH_RESULT_TYPE,
+		});
+		page = undefined;
+	};
+
+	for (let i = 0; i < lines.length; i++) {
+		const heading = /^#\s+(.*\S)\s*$/.exec(lines[i]);
+		const urlLine = i + 1 < lines.length
+			? /^URL:\s*(\S+)\s*$/.exec(lines[i + 1])
+			: null;
+		if (heading && urlLine) {
+			flush();
+			page = { title: heading[1], url: urlLine[1], body: [] };
+			i++;
+			continue;
+		}
+		const failure = /^Error fetching (\S+):\s*(.*)$/.exec(lines[i].trim());
+		if (failure) {
+			warnings.push(
+				`Exa fetch failed for ${failure[1]}: ${failure[2] || "unknown error"}`,
+			);
+			continue;
+		}
+		if (page) {
+			page.body.push(lines[i]);
+		}
 	}
+	flush();
+	return { results, warnings };
 }
 
-/**
- * Fetching the supplied URLs is best effort: a failure is reported through
- * `warnings` and never discards the search results.
- */
-async function withUrlFetch(
-	req: SearchRequest,
-	results: SearchResultDetail[],
-	fetchUrls: (
-		urls: string[],
-		warn: (message: string) => void,
-	) => Promise<SearchResultDetail[]>,
-): Promise<{ results: SearchResultDetail[]; warnings: string[] }> {
-	const urls = (req.urls ?? []).filter((url) => url.length > 0);
-	if (urls.length === 0) {
-		return { results, warnings: [] };
-	}
-	const warnings: string[] = [];
-	const fetched = await fetchUrls(urls, (message) => warnings.push(message));
-	return { results: [...results, ...fetched], warnings };
+/** Supplied URLs worth fetching, capped so one call cannot fetch unbounded. */
+function fetchableUrls(req: SearchRequest): {
+	urls: string[];
+	warnings: string[];
+} {
+	const all = (req.urls ?? []).filter((url) => url.length > 0);
+	const urls = all.slice(0, EXA_MAX_FETCH_URLS);
+	const warnings = all.length > urls.length
+		? [`Exa fetched the first ${urls.length} of ${all.length} supplied URLs.`]
+		: [];
+	return { urls, warnings };
+}
+
+type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+/** Waits without letting a rejection escape as an unhandled rejection. */
+function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
+	return promise.then(
+		(value) => ({ ok: true, value } as const),
+		(error) => ({ ok: false, error } as const),
+	);
 }
 
 // --- helpers -----------------------------------------------------------------
@@ -367,7 +468,7 @@ function pushGroup(
 		url: group.url,
 		source: PROVIDER_NAME,
 		pageAge: group.published,
-		citedText: group.highlights.join("\n"),
+		citedText: group.highlights.join("\n").trim(),
 	});
 }
 

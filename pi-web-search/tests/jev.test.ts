@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../src/providers/config.ts";
+import { CREDENTIAL_ENV_ALIASES } from "../src/env.ts";
 import type { SearchRequest } from "../src/providers/index.ts";
 import type { StreamResult } from "../src/providers/types.ts";
 import {
@@ -23,6 +24,32 @@ import {
 
 
 type FetchLike = typeof globalThis.fetch;
+
+const CREDENTIAL_ALIASES = [
+	...new Set(Object.values(CREDENTIAL_ENV_ALIASES).flat()),
+];
+
+/**
+ * Snapshots and clears every credential alias, returning a restore function.
+ * A test that asserts credential absence must do this for the whole alias set:
+ * clearing one name leaves the operator's other aliases observable.
+ */
+function resetCredentials(): () => void {
+	const previous = new Map<string, string | undefined>();
+	for (const name of CREDENTIAL_ALIASES) {
+		previous.set(name, process.env[name]);
+		delete process.env[name];
+	}
+	return () => {
+		for (const [name, value] of previous) {
+			if (value === undefined) {
+				delete process.env[name];
+			} else {
+				process.env[name] = value;
+			}
+		}
+	};
+}
 
 const CANDIDATES = [
 	{ index: 0, title: "A", url: "https://a.example", excerpt: "alpha content" },
@@ -90,20 +117,18 @@ function request(settings: JevSettings): SearchRequest {
 // --- api --------------------------------------------------------------------
 
 test("the key is read per call and absent means undefined", () => {
-	const previous = process.env.TYPESAFE_API_KEY;
-	delete process.env.TYPESAFE_API_KEY;
-	assert.equal(jevApiKey(), undefined);
-	process.env.TYPESAFE_API_KEY = "abc";
+	const restore = resetCredentials();
 	try {
+		assert.equal(jevApiKey(), undefined);
+		process.env.TYPESAFE_API_KEY = "abc";
 		assert.equal(jevApiKey(), "abc");
+		// The key is read fresh each call, so a rotation is observed.
+		process.env.TYPESAFE_API_KEY = "rotated";
+		assert.equal(jevApiKey(), "rotated");
 		// An explicit key wins over the environment.
 		assert.equal(jevApiKey("explicit"), "explicit");
 	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
+		restore();
 	}
 });
 
@@ -126,22 +151,11 @@ test("noul and choice reads tolerate malformed answers", () => {
 
 // --- question construction --------------------------------------------------
 
-test("every candidate contributes four questions plus two set-level ones", () => {
+test("every candidate contributes four questions plus one set-level one", () => {
 	const questions = buildJudgeQuestions(CANDIDATES);
-	// 3 candidates * 4 + sufficient + direct
-	assert.equal(Object.keys(questions).length, 14);
+	// 3 candidates * 4 + sufficient
+	assert.equal(Object.keys(questions).length, 13);
 	assert.ok(questions.sufficient);
-	assert.ok(questions.direct);
-});
-
-test("the direct choice offers every candidate plus an escape", () => {
-	const direct = buildJudgeQuestions(CANDIDATES).direct;
-	assert.equal(direct?.type, "choice");
-	const criteria = (direct as { criteria: Record<string, string> }).criteria;
-	assert.ok(criteria.candidate_0);
-	assert.ok(criteria.candidate_2);
-	// Without a no-match outcome the model is forced to pick something.
-	assert.ok(criteria.none_of_the_above);
 });
 
 test("safety covers every documented category", () => {
@@ -230,45 +244,73 @@ test("a missing judgment never scores as perfect", () => {
 	// With no answers at all, nothing is suppressed and everything is kept.
 	assert.equal(outcome.results.length, 3);
 	assert.equal(outcome.suppressed, 0);
+	// A missing safety verdict degrades to "unverified", never to "cleared".
+	assert.equal(outcome.held, 3);
+	assert.match(outcome.warnings[0], /could not confidently clear 3 result/);
 });
 
-test("every result being unsafe returns none", () => {
+test("every result being unsafe returns none even when the model claims sufficiency", () => {
 	const answers: Record<string, JevAnswer> = {};
 	for (const candidate of CANDIDATES) {
 		Object.assign(answers, goodFor(candidate.index));
 		answers[`c${candidate.index}_safety`] = choiceAnswer("harmful_content", 0.99);
 	}
+	// The set-level verdict saw candidates policy then removed; it must not be
+	// repeated as a statement about the (empty) admitted set.
+	answers.sufficient = scoreAnswer(0.99);
 	const outcome = applyPolicy(CANDIDATES, { answers }, settingsWith());
 	assert.equal(outcome.results.length, 0);
 	assert.equal(outcome.suppressed, 3);
 	assert.equal(outcome.sufficient, false);
+	assert.equal(outcome.sufficiencyUnconfirmed, true);
 	assert.match(outcome.warnings[0], /suppressed 3 result/);
 });
 
-test("direct text is the selected excerpt verbatim, never generated", () => {
+test("sufficiency is not asserted when evidence was withheld", () => {
 	const answers: Record<string, JevAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
-		direct: choiceAnswer("candidate_1", 0.95),
-		sufficient: scoreAnswer(0.9),
+		sufficient: scoreAnswer(0.99),
 	};
+	answers.c1_safety = choiceAnswer("prompt_injection", 0.99);
+
 	const outcome = applyPolicy(CANDIDATES, { answers }, settingsWith());
-	assert.equal(outcome.directText, "beta content");
-	assert.equal(outcome.sufficient, true);
+	// Two admitted, high-confidence results remain, but the model's sufficiency
+	// verdict covered the withheld one too, so it is not restated as confirmed.
+	assert.equal(outcome.results.length, 2);
+	assert.equal(outcome.sufficiencyUnconfirmed, true);
+	assert.equal(outcome.sufficient, false);
 });
 
-test("direct is omitted when the model picks none of the above", () => {
+test("an uncertain safety verdict is kept but reported as unverified", () => {
 	const answers: Record<string, JevAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
-		direct: choiceAnswer("none_of_the_above", 0.9),
-		sufficient: scoreAnswer(0.2),
 	};
+	answers.c1_safety = choiceAnswer("other", 0.4);
+
 	const outcome = applyPolicy(CANDIDATES, { answers }, settingsWith());
-	assert.equal(outcome.directText, undefined);
-	assert.equal(outcome.sufficient, false);
+	assert.equal(outcome.suppressed, 0);
+	assert.equal(outcome.held, 1);
+	assert.deepEqual(outcome.heldUrls, ["https://b.example"]);
+	assert.match(outcome.warnings[0], /could not confidently clear 1 result/);
+});
+
+test("an out-of-range safety threshold is clamped to [0, 1]", () => {
+	const answers: Record<string, JevAnswer> = {
+		...goodFor(0),
+		...goodFor(1),
+		...goodFor(2),
+	};
+	answers.c1_safety = choiceAnswer("phishing", 0.6);
+	// A threshold above 1 would clear everything; clamped to 1 it still clears a
+	// 0.6 hazard while a negative threshold would suppress any risk.
+	const high = applyPolicy(CANDIDATES, { answers }, settingsWith({ safetyThreshold: 5 }));
+	assert.equal(high.suppressed, 0);
+	const low = applyPolicy(CANDIDATES, { answers }, settingsWith({ safetyThreshold: -1 }));
+	assert.equal(low.suppressed, 1);
 });
 
 test("usage is surfaced so the token cost is observable", () => {
@@ -278,6 +320,16 @@ test("usage is surfaced so the token cost is observable", () => {
 		settingsWith(),
 	);
 	assert.deepEqual(outcome.usage, [{ name: "jev_tokens", count: 4096 }]);
+});
+
+test("documented input and output token counts are both billed", () => {
+	// TypeSafe reports `usage: { input_tokens, output_tokens }` with no total.
+	const outcome = applyPolicy(
+		CANDIDATES,
+		{ answers: goodFor(0), usage: { input_tokens: 900, output_tokens: 120 } },
+		settingsWith(),
+	);
+	assert.deepEqual(outcome.usage, [{ name: "jev_tokens", count: 1020 }]);
 });
 
 // --- augment orchestration --------------------------------------------------
@@ -295,12 +347,7 @@ test("augment is a no-op when jev is disabled", async () => {
 });
 
 test("augment is a no-op without an api key", async () => {
-	const previous = process.env.TYPESAFE_API_KEY;
-	const previousGateway = process.env.AI_GATEWAY_API_KEY;
-	const previousJev = process.env.JEV_API_KEY;
-	delete process.env.TYPESAFE_API_KEY;
-	delete process.env.AI_GATEWAY_API_KEY;
-	delete process.env.JEV_API_KEY;
+	const restore = resetCredentials();
 	try {
 		const input = result([{ title: "A", url: "https://a.example", citedText: "alpha" }]);
 		const out = await augmentResults(request(settingsWith()), input, {
@@ -308,24 +355,12 @@ test("augment is a no-op without an api key", async () => {
 		});
 		assert.deepEqual(out.searchResults, input.searchResults);
 	} finally {
-		if (previous !== undefined) {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
-		if (previousGateway === undefined) {
-			delete process.env.AI_GATEWAY_API_KEY;
-		} else {
-			process.env.AI_GATEWAY_API_KEY = previousGateway;
-		}
-		if (previousJev === undefined) {
-			delete process.env.JEV_API_KEY;
-		} else {
-			process.env.JEV_API_KEY = previousJev;
-		}
+		restore();
 	}
 });
 
 test("a jev failure becomes a warning and results still come back", async () => {
-	const previous = process.env.TYPESAFE_API_KEY;
+	const restore = resetCredentials();
 	process.env.TYPESAFE_API_KEY = "test-key";
 	try {
 		const input = result([
@@ -339,16 +374,12 @@ test("a jev failure becomes a warning and results still come back", async () => 
 		assert.equal(out.searchResults?.length, 2);
 		assert.match(out.warnings?.join(" ") ?? "", /jev judging unavailable/);
 	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
+		restore();
 	}
 });
 
 test("an oversized judged set is skipped with a visible note", async () => {
-	const previous = process.env.TYPESAFE_API_KEY;
+	const restore = resetCredentials();
 	process.env.TYPESAFE_API_KEY = "test-key";
 	try {
 		const input = result([
@@ -362,16 +393,12 @@ test("an oversized judged set is skipped with a visible note", async () => {
 		assert.equal(out.searchResults?.length, 1);
 		assert.match(out.warnings?.join(" ") ?? "", /jev skipped/);
 	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
+		restore();
 	}
 });
 
 test("augment preserves provider content and only reorders", async () => {
-	const previous = process.env.TYPESAFE_API_KEY;
+	const restore = resetCredentials();
 	process.env.TYPESAFE_API_KEY = "test-key";
 	try {
 		const calls = { bodies: [] as unknown[] };
@@ -390,21 +417,17 @@ test("augment preserves provider content and only reorders", async () => {
 		// One batched request, not one per candidate.
 		assert.equal(calls.bodies.length, 1);
 		const body = calls.bodies[0] as { questions: Record<string, unknown> };
-		assert.equal(Object.keys(body.questions).length, 10);
+		assert.equal(Object.keys(body.questions).length, 9);
 	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
+		restore();
 	}
 });
 
-test("an injection-laden excerpt cannot by itself flip a safe verdict", async () => {
-	// The judge is fed untrusted content on purpose. This asserts the request
-	// shape keeps excerpt text in `state`, so the model evaluates it rather than
-	// treating it as instructions.
-	const previous = process.env.TYPESAFE_API_KEY;
+test("untrusted excerpt text is passed as data, never as instructions", async () => {
+	// The judge is fed untrusted content on purpose. This asserts request-data
+	// separation: excerpt text stays in `state` and can never reach the static
+	// question instructions. It is not evidence about a live model's resistance.
+	const restore = resetCredentials();
 	process.env.TYPESAFE_API_KEY = "test-key";
 	try {
 		const calls = { bodies: [] as unknown[] };
@@ -427,19 +450,15 @@ test("an injection-laden excerpt cannot by itself flip a safe verdict", async ()
 		// excerpt content can never reach them.
 		assert.ok(
 			!/IGNORE ALL PREVIOUS INSTRUCTIONS/.test(JSON.stringify(body.questions)),
-			"injected text must never be interpolated into instructions",
+			"excerpt text must never be interpolated into instructions",
 		);
 	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
+		restore();
 	}
 });
 
 test("the request goes to the documented endpoint with bearer auth", async () => {
-	const previous = process.env.TYPESAFE_API_KEY;
+	const restore = resetCredentials();
 	process.env.TYPESAFE_API_KEY = "test-key";
 	try {
 		let seenUrl = "";
@@ -457,17 +476,17 @@ test("the request goes to the documented endpoint with bearer auth", async () =>
 		assert.equal(seenUrl, TYPESAFE_API_URL);
 		assert.equal(seenAuth, "Bearer test-key");
 	} finally {
-		if (previous === undefined) {
-			delete process.env.TYPESAFE_API_KEY;
-		} else {
-			process.env.TYPESAFE_API_KEY = previous;
-		}
+		restore();
 	}
 });
 
-test("an empty result set is left alone", async () => {
+test("an authenticated empty result set skips judgment without disabling it", async () => {
+	let calls = 0;
 	const out = await augmentResults(request(settingsWith()), result([]), {
-		fetchImpl: (() => Promise.reject(new Error("nope"))) as unknown as FetchLike,
+		apiKey: "dummy-key",
+		fetchImpl: (async () => { calls++; throw new Error("should not judge"); }) as FetchLike,
 	});
 	assert.deepEqual(out.searchResults, []);
+	assert.equal(out.jevStatus, "skipped");
+	assert.equal(calls, 0);
 });

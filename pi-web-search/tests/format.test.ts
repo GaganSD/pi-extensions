@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Check } from "typebox/value";
 
 import {
 	EXCERPT_MAX_CHARS,
 	RESULTS_HEADING,
 	SOURCES_HEADING,
+	SearchOutputSchema,
 	WARNINGS_HEADING,
 	formatResult,
 	formatWebSearchResult,
@@ -15,6 +17,26 @@ function textOf(result: { content: { type: string; text?: string }[] }): string 
 	const part = result.content[0];
 	return part?.type === "text" ? (part.text ?? "") : "";
 }
+
+test("codemode gets schema-valid citation data, not a markdown-only result", () => {
+	const result = formatWebSearchResult({
+		text: "", providerKind: "grep", scope: "code", jevStatus: "disabled",
+		searchResults: [{ title: "Source", url: "https://example.com/code", citedText: "code".repeat(200), source: "grep", pageAge: null }],
+		sources: [{ title: "Source", url: "https://example.com/code" }],
+	});
+	assert.equal(result.isError, false);
+	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	const data = result.structuredContent as { status: string; text: string; searchResults: Array<{ citedText: string }> };
+	assert.equal(data.status, "success");
+	assert.equal(data.text, textOf(result));
+	assert.equal(data.searchResults[0].citedText.length, 800);
+});
+
+test("truncated model output and structured text have identical markers", () => {
+	const result = formatResult("one\\ntwo\\nthree", {}, { maxLines: 1 });
+	assert.equal(Check(SearchOutputSchema, result.structuredContent), true);
+	assert.equal((result.structuredContent as { text: string }).text, textOf(result));
+});
 
 test("sources section is a numbered markdown link list", () => {
 	const result: StreamResult = {
@@ -134,7 +156,12 @@ test("sections are ordered text, results, sources, warnings", () => {
 		providerKind: "parallel",
 		requestId: "search_1",
 		searchResults: [{ title: "A", url: "https://a.example", citedText: "hit" }],
-		sources: [{ title: "A", url: "https://a.example" }],
+		// A source already cited by a result is not repeated in Sources, so this
+		// fixture keeps one extra source to still exercise the Sources section.
+		sources: [
+			{ title: "A", url: "https://a.example" },
+			{ title: "Ref", url: "https://ref.example" },
+		],
 		warnings: ["trimmed"],
 	};
 
@@ -143,6 +170,37 @@ test("sections are ordered text, results, sources, warnings", () => {
 
 	assert.deepEqual(order, [...order].sort((a, b) => a - b));
 	assert.equal(order.every((index) => index >= 0), true);
+});
+
+test("a source already linked in Results is not listed twice", () => {
+	const result: StreamResult = {
+		text: "",
+		providerKind: "exa",
+		searchResults: [{ title: "A", url: "https://a.example", citedText: "hit" }],
+		sources: [
+			{ title: "A", url: "https://a.example" },
+			{ title: "Ref", url: "https://ref.example" },
+		],
+	};
+
+	const text = textOf(formatWebSearchResult(result));
+	const sourcesSection = text.slice(text.indexOf(SOURCES_HEADING));
+	// The citation index is rendered once: the already-linked page is omitted.
+	assert.equal(text.includes(SOURCES_HEADING), true);
+	assert.equal(sourcesSection.includes("https://ref.example"), true);
+	assert.equal(sourcesSection.includes("https://a.example"), false);
+});
+
+test("details carry usage when present", () => {
+	const result: StreamResult = {
+		text: "",
+		providerKind: "exa",
+		usage: [{ name: "jev_tokens", count: 1020 }],
+	};
+
+	const { details } = formatWebSearchResult(result);
+
+	assert.deepEqual(details.usage, [{ name: "jev_tokens", count: 1020 }]);
 });
 
 test("details carry the full result key set", () => {

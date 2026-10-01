@@ -1,4 +1,4 @@
-import type { JevSettings } from "../providers/config.ts";
+import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../providers/config.ts";
 import type { SearchResultDetail, StreamResult } from "../providers/types.ts";
 import {
 	type JevOptions,
@@ -40,13 +40,20 @@ export interface JudgeOutcome {
 	/** Ranked, with suppressed results removed. */
 	results: Judgement[];
 	warnings: string[];
-	/** Verbatim excerpt chosen as the direct answer; never generated text. */
-	directText?: string;
 	sufficient: boolean;
+	/**
+	 * True when evidence was withheld, so the global sufficiency verdict (which
+	 * saw every candidate) can no longer be stated for the admitted evidence.
+	 */
+	sufficiencyUnconfirmed: boolean;
 	lowConfidence: boolean;
 	suppressed: number;
 	/** URLs withheld as unsafe, so a suppression is never invisible. */
 	suppressedUrls: string[];
+	/** Kept results the model did not confidently clear. */
+	held: number;
+	/** URLs of kept-but-uncertain results, so uncertainty is never implied cleared. */
+	heldUrls: string[];
 	usage?: { name: string; count: number }[];
 }
 
@@ -116,18 +123,6 @@ export function buildJudgeQuestions(
 			false: "The set is off-topic, partial, or missing the specific thing asked about.",
 		},
 	};
-	questions.direct = {
-		type: "choice",
-		instructions:
-			"Which single candidate, if any, answers `query` outright and could be quoted directly as the answer? Choose none_of_the_above when no candidate does so.",
-		criteria: Object.fromEntries([
-			...candidates.map((candidate) => [
-				`candidate_${candidate.index}`,
-				`${candidate.title || candidate.url}: substantively answers the query.`,
-			]),
-			["none_of_the_above", "No candidate answers the query outright."],
-		]),
-	};
 	return questions;
 }
 
@@ -146,13 +141,17 @@ export function applyPolicy(
 			results: [],
 			warnings: [],
 			sufficient: false,
+			sufficiencyUnconfirmed: false,
 			lowConfidence: true,
 			suppressed: 0,
 			suppressedUrls: [],
+			held: 0,
+			heldUrls: [],
 		};
 	}
+	const threshold = normalizedSafetyThreshold(settings);
 	const judgements = candidates.map((candidate) =>
-		judgeOne(candidate, answers, settings));
+		judgeOne(candidate, answers, settings, threshold));
 
 	// Unsafe results stay out. An empty admitted set is insufficient, not a
 	// reason to smuggle the "best" unsafe hit back in.
@@ -163,21 +162,28 @@ export function applyPolicy(
 	const suppressedUrls = suppressed.map((judgement) =>
 		judgement.url || judgement.title || "(unknown)");
 
-	const direct = readChoice(answers, "direct");
-	const directIndex = direct.choice.startsWith("candidate_")
-		? Number(direct.choice.slice("candidate_".length))
-		: Number.NaN;
-	const directJudgement = judgements[directIndex];
-	// A suppressed excerpt must never become the direct answer, however
-	// confident the model was that it answered the query.
-	const directCandidate = directJudgement && !directJudgement.suppressed
-		? candidates.find((c) => c.index === directIndex)
-		: undefined;
+	// A result the model did not confidently clear is surfaced, not silently
+	// presented as vetted. This is a heuristic filter, not a security boundary.
+	const held = survivors.filter(
+		(judgement) =>
+			judgement.safety !== "safe" ||
+			!Number.isFinite(judgement.safetyProbability),
+	);
+	const heldUrls = held.map((judgement) =>
+		judgement.url || judgement.title || "(unknown)");
 
 	// Fail closed. A truncated payload must not read as "these results are
 	// sufficient", which is the one conclusion that silently misleads the model.
-	const sufficient = readNoul(answers, "sufficient");
-	const isSufficient = Number.isNaN(sufficient) ? false : sufficient >= 0.5;
+	const sufficientScore = readNoul(answers, "sufficient");
+	const modelSaysSufficient =
+		!Number.isNaN(sufficientScore) && sufficientScore >= 0.5;
+	// The global question saw every candidate, including any policy then removed.
+	// We do not re-ask about the survivors, so a positive verdict that may rest
+	// on discarded evidence is not reported as admitted evidence being
+	// sufficient. All-suppressed survivors are insufficient outright.
+	const sufficiencyUnconfirmed = suppressed.length > 0;
+	const sufficient =
+		modelSaysSufficient && survivors.length > 0 && !sufficiencyUnconfirmed;
 
 	const warnings: string[] = [];
 	if (suppressed.length > 0) {
@@ -185,6 +191,11 @@ export function applyPolicy(
 		// diagnosed later.
 		warnings.push(
 			`jev suppressed ${suppressed.length} result(s) as unsafe: ${suppressedUrls.join(", ")}`,
+		);
+	}
+	if (held.length > 0) {
+		warnings.push(
+			`jev could not confidently clear ${held.length} result(s); treat their safety as unverified: ${heldUrls.join(", ")}`,
 		);
 	}
 
@@ -195,13 +206,13 @@ export function applyPolicy(
 	return {
 		results: ranked,
 		warnings,
-		...(directCandidate !== undefined
-			? { directText: directCandidate.excerpt }
-			: {}),
-		sufficient: isSufficient,
+		sufficient,
+		sufficiencyUnconfirmed,
 		lowConfidence,
 		suppressed: suppressed.length,
 		suppressedUrls,
+		held: held.length,
+		heldUrls,
 		...(usage ? { usage } : {}),
 	};
 }
@@ -210,6 +221,7 @@ function judgeOne(
 	candidate: Candidate,
 	answers: Record<string, JevResponse["answers"][string]>,
 	settings: JevSettings,
+	threshold: number,
 ): Judgement {
 	const i = candidate.index;
 	const answersScore = readNoul(answers, `c${i}_answers`);
@@ -229,10 +241,11 @@ function judgeOne(
 	const category = (SAFETY_CATEGORIES as readonly string[]).includes(safety.choice)
 		? (safety.choice as SafetyCategory)
 		: "other";
-	// Mid-band is held, not passed: only a confident hazard suppresses.
+	// Mid-band is held, not passed: only a confident hazard suppresses. A
+	// missing or malformed probability is uncertain, never treated as safe.
 	const suppressed = category !== "safe" &&
-		!Number.isNaN(safety.probability) &&
-		safety.probability >= settings.safetyThreshold;
+		Number.isFinite(safety.probability) &&
+		safety.probability >= threshold;
 
 	return {
 		index: candidate.index,
@@ -249,14 +262,50 @@ function judgeOne(
 	};
 }
 
+/**
+ * Normalizes `safetyThreshold` to its legal [0, 1] range. Out-of-range values
+ * are clamped rather than trusted; a non-finite value falls back to the default.
+ */
+function normalizedSafetyThreshold(settings: JevSettings): number {
+	const value = settings.safetyThreshold;
+	if (!Number.isFinite(value)) {
+		return DEFAULT_JEV_SETTINGS.safetyThreshold;
+	}
+	return Math.min(1, Math.max(0, value));
+}
+
 function readUsage(
 	response: JevResponse,
 ): { name: string; count: number }[] | undefined {
-	const total = response.usage?.total_tokens ?? response.usage?.input_tokens;
-	if (typeof total !== "number" || !Number.isFinite(total)) {
+	const usage = response.usage;
+	if (!usage) {
+		return undefined;
+	}
+	// The documented shape reports input and output separately; sum them unless
+	// the server already supplied a total.
+	const total = finite(usage.total_tokens) ??
+		sumFinite(usage.input_tokens, usage.output_tokens);
+	if (total === undefined) {
 		return undefined;
 	}
 	return [{ name: "jev_tokens", count: total }];
+}
+
+function finite(value: number | undefined): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** Sums whichever of the two counts are present; undefined when neither is. */
+function sumFinite(
+	input: number | undefined,
+	output: number | undefined,
+): number | undefined {
+	const a = finite(input);
+	const b = finite(output);
+	if (a === undefined && b === undefined) {
+		return undefined;
+	}
+	return (a ?? 0) + (b ?? 0);
 }
 
 /** Builds the judge state, capped so an oversized set skips augmentation. */

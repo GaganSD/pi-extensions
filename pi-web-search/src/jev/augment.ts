@@ -15,29 +15,39 @@ export type AugmentOptions = JevOptions;
 /**
  * Judges and reorders a result set in place.
  *
- * This never fails a search. If the key is missing, the model is disabled, the
- * result set is empty, or the judged set would exceed the state budget, the
- * input is returned unchanged. A decision layer that is down must degrade a
- * search, not break it — so every failure becomes a warning, not an error.
+ * A decision-layer failure never fails a search: a missing key, a disabled
+ * model, an empty result set, an over-budget judged set, or a Jev deadline/
+ * network error returns the input unchanged or with a warning. The one fatal
+ * case is user cancellation. An operation deadline during optional judging
+ * returns already-retrieved results with a warning, rather than discarding them.
  */
 export async function augmentResults(
 	req: SearchRequest,
 	result: StreamResult,
 	options: AugmentOptions = {},
 ): Promise<StreamResult> {
+	if (req.signal?.aborted) {
+		if (isProviderError(req.signal.reason) && req.signal.reason.code === "timeout") {
+			return withWarning(result, "jev judging unavailable: operation timeout");
+		}
+		throw abortError(req.signal.reason);
+	}
 	const settings = req.settings.jev;
 	const authOptions: JevOptions = {
 		...options,
 		backend: options.backend ?? settings.backend,
 		model: options.model ?? settings.model,
 	};
-	if (!settings.enabled || !hasJevAuth(authOptions)) {
-		return result;
+	if (!settings.enabled) {
+		return { ...result, jevStatus: "disabled" };
+	}
+	if (!hasJevAuth(authOptions)) {
+		return withWarning(result, "jev judging unavailable: no credential");
 	}
 
 	const results = result.searchResults ?? [];
 	if (results.length === 0) {
-		return result;
+		return { ...result, jevStatus: "skipped" };
 	}
 
 	const candidates = toCandidates(results, results.length);
@@ -45,6 +55,7 @@ export async function augmentResults(
 		return withWarning(
 			result,
 			`jev skipped: the judged set exceeds ${settings.maxStateChars} characters.`,
+			"skipped",
 		);
 	}
 
@@ -63,11 +74,12 @@ export async function augmentResults(
 		const outcome = applyPolicy(candidates, response, settings);
 		return merge(result, outcome);
 	} catch (error) {
-		// User cancel is fatal. A Jev deadline/network failure is not.
-		if (req.signal?.aborted && isAbortLike(error)) {
-			throw isProviderError(error) && error.code === "aborted"
-				? error
-				: providerError("aborted", "jev judging was aborted.");
+		// User cancellation is fatal; deadlines only skip optional judging.
+		if (req.signal?.aborted) {
+			if (isProviderError(req.signal.reason) && req.signal.reason.code === "timeout") {
+				return withWarning(result, "jev judging unavailable: operation timeout");
+			}
+			throw abortError(req.signal.reason);
 		}
 		return withWarning(result, `jev judging unavailable: ${describe(error)}`);
 	}
@@ -93,7 +105,9 @@ function merge(
 	const warnings = [...(result.warnings ?? []), ...outcome.warnings];
 	if (!outcome.sufficient) {
 		warnings.push(
-			"jev judged these results insufficient to answer the query; consider a narrower or differently worded search.",
+			outcome.sufficiencyUnconfirmed
+				? "jev could not confirm these results answer the query after withholding unsafe evidence; treat the set as unverified."
+				: "jev judged these results insufficient to answer the query; consider a narrower or differently worded search.",
 		);
 	}
 	if (outcome.lowConfidence) {
@@ -112,6 +126,7 @@ function merge(
 			.filter((source) => source.url.length > 0),
 		...(warnings.length > 0 ? { warnings } : {}),
 		...(usage.length > 0 ? { usage } : {}),
+		jevStatus: "ran",
 		jev: {
 			sufficient: outcome.sufficient,
 			lowConfidence: outcome.lowConfidence,
@@ -121,23 +136,24 @@ function merge(
 	};
 }
 
-function withWarning(result: StreamResult, message: string): StreamResult {
+function withWarning(
+	result: StreamResult,
+	message: string,
+	jevStatus: StreamResult["jevStatus"] = "unavailable",
+): StreamResult {
 	return {
 		...result,
+		jevStatus,
 		warnings: [...(result.warnings ?? []), message],
 	};
 }
 
-function isAbortLike(error: unknown): boolean {
-	if (isProviderError(error) && error.code === "aborted") {
-		return true;
+/** Preserves a ProviderError reason; a bare abort becomes an `aborted` error. */
+function abortError(reason: unknown): unknown {
+	if (isProviderError(reason)) {
+		return reason;
 	}
-	return (
-		!!error &&
-		typeof error === "object" &&
-		"name" in error &&
-		(error as { name?: unknown }).name === "AbortError"
-	);
+	return providerError("aborted", "jev judging was aborted.");
 }
 
 function describe(error: unknown): string {

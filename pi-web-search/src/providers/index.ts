@@ -4,7 +4,6 @@ import { type ResolvedSettings } from "./config.ts";
 import { mergeStreamResults } from "./results.ts";
 import {
 	DEFAULT_CHAIN,
-	PROVIDER_KINDS,
 	type ProviderError,
 	type ProviderFamily,
 	type ProviderKind,
@@ -34,13 +33,9 @@ export interface RunSearchOptions {
 	availability?: Partial<Record<ProviderKind, boolean>>;
 	/** Overrides how the default transports are loaded. */
 	loadTransports?: () => Promise<ProviderTransportMap>;
-	/** Set by the Jev router. Confines the chain to one family. */
+	/** The tool scope; omitted only for cross-family research. */
 	family?: ProviderFamily;
 }
-
-export type RunSearchResult =
-	| { ok: true; result: StreamResult; provider: ProviderKind }
-	| { ok: false; error: ProviderError };
 
 /**
  * Credential knowledge at the registry level. Exa and grep.app are keyless
@@ -64,23 +59,15 @@ export function listRunnableProviders(
 	availability: Partial<Record<ProviderKind, boolean>> = providerAvailability(),
 	family?: ProviderFamily,
 ): ProviderKind[] {
-	const target = family ?? settings.family;
-	const preferred = [settings.provider, ...settings.fallback, ...PROVIDER_KINDS];
+	const families = family ? [family] : ["web", "code"] as const;
+	const preferred = families.flatMap((scope) => [settings[scope].provider, ...settings[scope].fallback, ...DEFAULT_CHAIN[scope]]);
 	const chain: ProviderKind[] = [];
 	for (const kind of preferred) {
 		if (
 			availability[kind] === true &&
-			!chain.includes(kind) &&
-			(target === undefined || providerFamily(kind) === target)
+			!chain.includes(kind)
 		) {
 			chain.push(kind);
-		}
-	}
-	if (chain.length === 0 && target !== undefined) {
-		for (const kind of DEFAULT_CHAIN[target]) {
-			if (availability[kind] === true && !chain.includes(kind)) {
-				chain.push(kind);
-			}
 		}
 	}
 	return chain;
@@ -94,13 +81,13 @@ export function listRunnableProviders(
 export function resolveProviderChain(
 	settings: ResolvedSettings,
 	availability: Partial<Record<ProviderKind, boolean>> = providerAvailability(),
-	family?: ProviderFamily,
+	family: ProviderFamily = "web",
 ): ProviderKind[] {
-	const target = family ?? settings.family ?? providerFamily(settings.provider);
+	const configured = settings[family];
 	const chain: ProviderKind[] = [];
 	const add = (kind: ProviderKind) => {
 		if (
-			providerFamily(kind) === target &&
+			providerFamily(kind) === family &&
 			availability[kind] === true &&
 			!chain.includes(kind)
 		) {
@@ -108,11 +95,11 @@ export function resolveProviderChain(
 		}
 	};
 
-	for (const kind of [settings.provider, ...settings.fallback]) {
+	for (const kind of [configured.provider, ...configured.fallback]) {
 		add(kind);
 	}
 	if (chain.length === 0) {
-		for (const kind of DEFAULT_CHAIN[target]) {
+		for (const kind of DEFAULT_CHAIN[family]) {
 			add(kind);
 		}
 	}
@@ -123,36 +110,18 @@ export function resolveProviderChain(
  * Walks the chain in order. Retryable errors continue to the next entry;
  * a non-retryable error (including `missing_credentials` and `aborted`)
  * propagates immediately. The last error is what surfaces.
+ *
+ * A parent operation abort (e.g. a deadline signal composed with `withTimeout`)
+ * stops the walk immediately, so a stage timeout stays retryable while an
+ * operation timeout is never mistaken for a user abort.
  */
 export async function runSearch(
 	req: SearchRequest,
 	options: RunSearchOptions = {},
 ): Promise<StreamResult> {
-	const attempt = await tryRunSearch(req, options);
-	if (attempt.ok) {
-		return attempt.result;
-	}
-	throw attempt.error;
-}
-
-/** Same walk as `runSearch`, but reports the provider that produced the result. */
-export async function tryRunSearch(
-	req: SearchRequest,
-	options: RunSearchOptions = {},
-): Promise<RunSearchResult> {
-	const chain = resolveProviderChain(
-		req.settings,
-		options.availability,
-		options.family,
-	);
+	const chain = resolveProviderChain(req.settings, options.availability, options.family);
 	if (chain.length === 0) {
-		return {
-			ok: false,
-			error: missingCredentials(
-				req.settings.provider,
-				describeNoCredentials(req.settings, options.family),
-			),
-		};
+		throw missingCredentials(req.settings[options.family ?? "web"].provider, describeNoCredentials(options.family));
 	}
 
 	const loadTransports = options.loadTransports ?? loadDefaultTransports;
@@ -165,8 +134,8 @@ export async function tryRunSearch(
 	);
 
 	for (const kind of chain) {
-		if (req.signal?.aborted === true) {
-			return { ok: false, error: aborted(req.signal.reason) };
+		if (isAborted(req.signal)) {
+			throw abortReason(req.signal?.reason);
 		}
 		const transport = transports[kind];
 		if (!transport) {
@@ -177,18 +146,20 @@ export async function tryRunSearch(
 			continue;
 		}
 		try {
-			const result = await transport(req);
-			return { ok: true, result, provider: kind };
+			return await transport(req);
 		} catch (error) {
+			if (isAborted(req.signal)) {
+				throw abortReason(req.signal?.reason);
+			}
 			const providerErr = toProviderError(error);
 			if (providerErr.code === "aborted" || providerErr.retryable !== true) {
-				return { ok: false, error: providerErr };
+				throw providerErr;
 			}
 			lastError = providerErr;
 		}
 	}
 
-	return { ok: false, error: lastError };
+	throw lastError;
 }
 
 function missingCredentials(kind: ProviderKind, message: string): ProviderError {
@@ -199,11 +170,13 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal !== undefined && signal.aborted;
 }
 
-function aborted(reason: unknown): ProviderError {
-	if (isProviderError(reason) && reason.code === "aborted") {
+function abortReason(reason: unknown): ProviderError {
+	// Preserve any ProviderError, including `timeout` from a parent deadline:
+	// an operation timeout must never be reported as a user abort.
+	if (isProviderError(reason)) {
 		return reason;
 	}
-	return providerError("aborted", "web_search was aborted.");
+	return providerError("aborted", "search was aborted.");
 }
 
 function toProviderError(error: unknown): ProviderError {
@@ -242,19 +215,8 @@ export async function runParallelSearch(
 	req: SearchRequest,
 	options: RunSearchOptions = {},
 ): Promise<StreamResult> {
-	const attempt = await tryRunParallelSearch(req, options);
-	if (attempt.ok) {
-		return attempt.result;
-	}
-	throw attempt.error;
-}
-
-export async function tryRunParallelSearch(
-	req: SearchRequest,
-	options: RunSearchOptions = {},
-): Promise<RunSearchResult> {
 	if (isAborted(req.signal)) {
-		return { ok: false, error: aborted(req.signal?.reason) };
+		throw abortReason(req.signal?.reason);
 	}
 
 	const availability = options.availability ?? providerAvailability();
@@ -271,13 +233,7 @@ export async function tryRunParallelSearch(
 		.filter((kind) => availability[kind] !== true)
 		.map((kind) => `${kind} skipped: not available.`);
 	if (kinds.length === 0) {
-		return {
-			ok: false,
-			error: missingCredentials(
-				req.settings.provider,
-				describeNoCredentials(req.settings, options.family),
-			),
-		};
+		throw missingCredentials(req.settings[options.family ?? "web"].provider, describeNoCredentials(options.family));
 	}
 
 	const loadTransports = options.loadTransports ?? loadDefaultTransports;
@@ -295,13 +251,10 @@ export async function tryRunParallelSearch(
 		runnable.push(kind);
 	}
 	if (runnable.length === 0) {
-		return {
-			ok: false,
-			error: missingCredentials(
-				kinds[0],
-				`No transport registered for ${kinds.join(", ")}.`,
-			),
-		};
+		throw missingCredentials(
+			kinds[0],
+			`No transport registered for ${kinds.join(", ")}.`,
+		);
 	}
 
 	const settled = await Promise.allSettled(
@@ -315,7 +268,7 @@ export async function tryRunParallelSearch(
 	);
 
 	if (isAborted(req.signal)) {
-		return { ok: false, error: aborted(req.signal?.reason) };
+		throw abortReason(req.signal?.reason);
 	}
 
 	const successes: { kind: ProviderKind; result: StreamResult }[] = [];
@@ -334,31 +287,22 @@ export async function tryRunParallelSearch(
 		}
 		const err = toProviderError(item.reason);
 		if (err.code === "aborted") {
-			return { ok: false, error: err };
+			throw err;
 		}
 		lastError = err;
 		warnings.push(`${kind} failed (${err.code}): ${err.message}`);
 	}
 
 	if (successes.length === 0) {
-		return {
-			ok: false,
-			error:
-				lastError ??
-				missingCredentials(runnable[0], "Every parallel provider failed."),
-		};
+		throw lastError ??
+			missingCredentials(runnable[0], "Every parallel provider failed.");
 	}
 
-	const merged = mergeStreamResults(successes, warnings);
-	return { ok: true, result: merged, provider: successes[0].kind };
+	return mergeStreamResults(successes, warnings);
 }
 
 /** Names the credential that would actually unlock the family in question. */
-function describeNoCredentials(
-	settings: ResolvedSettings,
-	family?: ProviderFamily,
-): string {
-	const target = family ?? settings.family ?? providerFamily(settings.provider);
+function describeNoCredentials(target: ProviderFamily = "web"): string {
 	const hint = target === "code"
 		? "Set GITHUB_TOKEN to enable the GitHub code-search fallback."
 		: "Set PARALLEL_API_KEY for the Parallel web fallback, or EXA_API_KEY for keyed Exa.";

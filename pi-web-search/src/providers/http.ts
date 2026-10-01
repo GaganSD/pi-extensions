@@ -10,6 +10,8 @@ export interface ResponseLike {
 	status: number;
 	headers: { get(name: string): string | null };
 	text(): Promise<string>;
+	/** Present on real `Response` objects; read with a byte cap when available. */
+	body?: ReadableStream<Uint8Array> | null;
 }
 
 export interface RequestInitLike {
@@ -29,9 +31,16 @@ export interface JsonRequestOptions {
 	onResponse?: (response: ResponseLike) => void;
 	/** Resolve with `undefined` instead of throwing when the body is empty. */
 	allowEmptyBody?: boolean;
+	/** Hard cap on the decoded response body; oversized bodies fail as parse_error. */
+	maxResponseBytes?: number;
+	/** Selects which SSE JSON-RPC message to resolve with (correlates by id). */
+	selectMessage?: (message: unknown) => boolean;
 }
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20000;
+
+/** Bounds the network/memory cost of one response before it is decoded. */
+export const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 /** POST JSON, parse a JSON body, throw `ProviderError` on any failure. */
 export async function postJson<T>(
@@ -39,6 +48,14 @@ export async function postJson<T>(
 	options: JsonRequestOptions,
 ): Promise<T> {
 	return send(url, options, (bodyText) => parseJsonBody<T>(url, bodyText));
+}
+
+/** GET JSON with the same bounds, cancellation and error handling as POST. */
+export async function getJson<T>(
+	url: string,
+	options: Omit<JsonRequestOptions, "body">,
+): Promise<T> {
+	return send(url, { ...options, body: undefined }, (text) => parseJsonBody<T>(url, text), "GET");
 }
 
 /**
@@ -51,7 +68,12 @@ export async function postSseJson<T>(
 	options: JsonRequestOptions,
 ): Promise<T> {
 	return send(url, options, (bodyText) =>
-		parseEnvelope<T>(url, bodyText, options.allowEmptyBody === true),
+		parseEnvelope<T>(
+			url,
+			bodyText,
+			options.allowEmptyBody === true,
+			options.selectMessage,
+		),
 	);
 }
 
@@ -138,7 +160,7 @@ export function withTimeout(
 
 	if (signal) {
 		if (signal.aborted) {
-			abort(abortedError());
+			abort(reasonFrom(signal));
 		} else {
 			signal.addEventListener("abort", onCallerAbort, { once: true });
 		}
@@ -163,8 +185,18 @@ export function withTimeout(
 	};
 
 	function onCallerAbort() {
-		abort(abortedError());
+		abort(reasonFrom(signal));
 	}
+}
+
+/**
+ * A caller's abort reason may itself be a `ProviderError` — e.g. a parent
+ * operation deadline composed with `withTimeout` aborts with `code: "timeout"`.
+ * Preserve that code so an operation timeout is never reported as a user abort.
+ */
+function reasonFrom(signal: AbortSignal | undefined): ProviderError {
+	const reason = signal?.reason;
+	return asProviderError(reason) ?? abortedError();
 }
 
 export function timeoutError(timeoutMs: number): ProviderError {
@@ -181,6 +213,7 @@ async function send<T>(
 	url: string,
 	options: JsonRequestOptions,
 	decode: (bodyText: string) => T,
+	method: "POST" | "GET" = "POST",
 ): Promise<T> {
 	const doFetch = options.fetchImpl ??
 		(globalThis.fetch as FetchLike | undefined);
@@ -196,22 +229,31 @@ async function send<T>(
 	const composed = withTimeout(options.signal, timeoutMs);
 
 	try {
-		const response = await doFetch(url, {
-			method: "POST",
+		if (composed.signal.aborted) throw reasonFrom(composed.signal);
+		const response = await awaitWithSignal(doFetch(url, {
+			method,
 			headers: {
-				"Content-Type": "application/json",
+				...(method === "POST" ? { "Content-Type": "application/json" } : {}),
 				Accept: "application/json, text/event-stream",
 				...options.headers,
 			},
-			body: JSON.stringify(options.body),
+			...(method === "POST" ? { body: JSON.stringify(options.body) } : {}),
 			signal: composed.signal,
-		});
+		}), composed.signal);
 		options.onResponse?.(response);
 
 		let bodyText: string;
 		try {
-			bodyText = await response.text();
+			bodyText = await awaitWithSignal(readBody(
+				response,
+				options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES,
+				url,
+				composed.signal,
+			), composed.signal);
 		} catch (error) {
+			if (error instanceof Error && isProviderErrorLike(error)) {
+				throw error;
+			}
 			throw composed.signal.aborted
 				? abortReason(composed.signal, timeoutMs)
 				: providerError(
@@ -223,6 +265,7 @@ async function send<T>(
 					);
 		}
 
+		if (composed.signal.aborted) throw reasonFrom(composed.signal);
 		if (!response.ok) {
 			throw normalizeHttpError(response, bodyText);
 		}
@@ -256,15 +299,93 @@ function toProviderError(
 }
 
 function abortReason(signal: AbortSignal, timeoutMs: number): ProviderError {
-	return isProviderErrorWithCode(signal.reason, "timeout")
+	const reason = signal.reason;
+	if (asProviderError(reason)) {
+		return reason as ProviderError;
+	}
+	return isProviderErrorWithCode(reason, "timeout")
 		? timeoutError(timeoutMs)
 		: abortedError();
+}
+
+/**
+ * Reads the response body, capping decoded bytes so a hostile or oversized
+ * upstream response cannot buffer without bound before JSON.parse. The
+ * composed request signal stays live here, so the body is also deadline-bound.
+ */
+async function readBody(
+	response: ResponseLike,
+	maxBytes: number,
+	url: string,
+	signal: AbortSignal,
+): Promise<string> {
+	const stream = response.body;
+	if (!stream) {
+		const text = await response.text();
+		assertBodySize(Buffer.byteLength(text, "utf8"), maxBytes, url);
+		return text;
+	}
+
+	const reader = stream.getReader();
+	const cancel = () => { void reader.cancel(signal.reason).catch(() => {}); };
+	signal.addEventListener("abort", cancel, { once: true });
+	if (signal.aborted) cancel();
+	const decoder = new TextDecoder();
+	let total = 0;
+	let text = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			if (value) {
+				total += value.byteLength;
+				assertBodySize(total, maxBytes, url);
+				text += decoder.decode(value, { stream: true });
+			}
+		}
+		text += decoder.decode();
+		return text;
+	} catch (error) {
+		void reader.cancel().catch(() => {});
+		throw error;
+	} finally {
+		signal.removeEventListener("abort", cancel);
+		reader.releaseLock();
+	}
+}
+
+/** Also bound injected transports/body readers that do not honor fetch's signal. */
+export function awaitWithSignal<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) {
+		void pending.catch(() => {});
+		return Promise.reject(reasonFrom(signal));
+	}
+	return new Promise<T>((resolve, reject) => {
+		const abort = () => { signal.removeEventListener("abort", abort); reject(reasonFrom(signal)); };
+		signal.addEventListener("abort", abort, { once: true });
+		pending.then(
+			(value) => { signal.removeEventListener("abort", abort); resolve(value); },
+			(error) => { signal.removeEventListener("abort", abort); reject(error); },
+		);
+	});
+}
+
+function assertBodySize(size: number, maxBytes: number, url: string): void {
+	if (Number.isFinite(maxBytes) && maxBytes > 0 && size > maxBytes) {
+		throw providerError(
+			"parse_error",
+			`Response from ${url} exceeded the ${maxBytes}-byte response cap.`,
+		);
+	}
 }
 
 function parseEnvelope<T>(
 	url: string,
 	bodyText: string,
 	allowEmptyBody: boolean,
+	selectMessage?: (message: unknown) => boolean,
 ): T {
 	if (bodyText.trim().length === 0) {
 		if (allowEmptyBody) {
@@ -274,7 +395,11 @@ function parseEnvelope<T>(
 	}
 	const trimmed = bodyText.trimStart();
 	if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-		return parseJsonBody<T>(url, bodyText);
+		const message = parseJsonBody<T>(url, bodyText);
+		if (selectMessage && !selectMessage(message)) {
+			throw providerError("parse_error", `No JSON-RPC response matching the request id in the response from ${url}.`);
+		}
+		return message;
 	}
 	const frames = extractSseData(bodyText);
 	if (frames.length === 0) {
@@ -283,7 +408,26 @@ function parseEnvelope<T>(
 			`No SSE data frames in the response from ${url}.`,
 		);
 	}
-	return parseJsonBody<T>(url, frames[frames.length - 1]);
+	if (!selectMessage) {
+		return parseJsonBody<T>(url, frames[frames.length - 1]);
+	}
+	// JSON-RPC: pick the message whose id matches the outstanding request and
+	// tolerate unrelated notifications (progress/log events carry no id).
+	for (const frame of frames) {
+		let message: unknown;
+		try {
+			message = JSON.parse(frame);
+		} catch {
+			continue;
+		}
+		if (selectMessage(message)) {
+			return message as T;
+		}
+	}
+	throw providerError(
+		"parse_error",
+		`No JSON-RPC response matching the request id in the response from ${url}.`,
+	);
 }
 
 function parseJsonBody<T>(url: string, bodyText: string): T {
@@ -302,6 +446,17 @@ function parseJsonBody<T>(url: string, bodyText: string): T {
 
 function isProviderErrorLike(error: Error): error is ProviderError {
 	return typeof (error as { code?: unknown }).code === "string";
+}
+
+/** Narrows any value to a `ProviderError` when it carries a stable code. */
+function asProviderError(value: unknown): ProviderError | undefined {
+	if (
+		value instanceof Error &&
+		typeof (value as { code?: unknown }).code === "string"
+	) {
+		return value as ProviderError;
+	}
+	return undefined;
 }
 
 function isProviderErrorWithCode(value: unknown, code: string): boolean {

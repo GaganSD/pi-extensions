@@ -3,8 +3,8 @@ import type {
 	AgentToolUpdateCallback,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
-import { Type, type Static } from "typebox";
+import { StringEnum, Type, type Static } from "@earendil-works/pi-ai";
+import { MAX_QUERY_CHARS } from "./providers/config.ts";
 import { executeSearch } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
@@ -12,6 +12,7 @@ import type { RunSearchOptions } from "./providers/index.ts";
 export const ResearchSearchSchema = Type.Object({
 	query: Type.String({
 		minLength: 1,
+		maxLength: MAX_QUERY_CHARS,
 		description: "Search terms; use code identifiers or snippets for code or both",
 	}),
 	scope: StringEnum(["web", "code", "both"] as const, {
@@ -39,6 +40,8 @@ export async function researchSearch(
 			scope: params.scope,
 			parallel: true,
 			judge: true,
+			tool: "research_search",
+			requireResearch: true,
 			progress: `Researching "${params.query}" (${params.scope})...`,
 		},
 		signal,

@@ -1,3 +1,4 @@
+import { Type, type Static } from "@earendil-works/pi-ai";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_MAX_BYTES,
@@ -5,8 +6,6 @@ import {
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import type {
-	ProviderErrorCode,
-	ProviderKind,
 	SearchResultDetail,
 	Source,
 	StreamResult,
@@ -21,44 +20,43 @@ export const SOURCES_HEADING = "## Sources";
 export const WARNINGS_HEADING = "## Warnings";
 export const COVERAGE_HEADING = "## Coverage";
 
-/**
- * Structured payload returned in `AgentToolResult.details`.
- *
- * `formatWebSearchResult` always populates the result fields; the error fields
- * are set by the failure results in `utils.ts`. `index.ts` treats any result
- * with `error` set as a failure.
- */
-export interface WebSearchDetails {
-	/** Error class; absent on a successful search. */
-	error?: ProviderErrorCode;
-	/** Transport error code; equals `error` for provider failures. */
-	code?: ProviderErrorCode;
-	/** HTTP status, when the provider reported one. */
-	status?: number;
-	/** Human-readable failure message. */
-	message?: string;
-	/** Config file path; only for `invalid_config`. */
-	configPath?: string;
-	/** Actionable next step; only for `missing_credentials`. */
-	hint?: string;
-	/** Provider that produced the result. */
-	provider?: ProviderKind;
-	/** Every provider that contributed, when more than one ran. */
-	providers?: ProviderKind[];
-	/** Exa requestId or Parallel search_id. */
-	requestId?: string;
-	/** Number of reported results: search results, or sources when there are none. */
-	resultCount?: number;
-	sources?: Source[];
-	searchResults?: SearchResultDetail[];
-	warnings?: string[];
-	/** True when the result carries at least one source URL. */
-	grounded?: boolean;
-	/** Decision-layer verdicts; present only when jev actually ran. */
-	jev?: StreamResult["jev"];
-	scope?: StreamResult["scope"];
-	jevStatus?: StreamResult["jevStatus"];
-}
+const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("github")]);
+
+/** One declared data contract for renderers, scripts, and failure results. */
+const DetailsSchema = Type.Object({
+	provider: Type.Optional(ProviderSchema),
+	providers: Type.Optional(Type.Array(ProviderSchema)),
+	requestId: Type.Optional(Type.String()),
+	resultCount: Type.Optional(Type.Integer({ minimum: 0 })),
+	sources: Type.Optional(Type.Array(Type.Object({ title: Type.String(), url: Type.String() }))),
+	searchResults: Type.Optional(Type.Array(Type.Object({
+		title: Type.Optional(Type.String()), url: Type.Optional(Type.String()),
+		query: Type.Optional(Type.String()), source: Type.Optional(Type.String()),
+		pageAge: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+		citedText: Type.Optional(Type.String()), status: Type.Optional(Type.String()), type: Type.Optional(Type.String()),
+	}))),
+	warnings: Type.Optional(Type.Array(Type.String())),
+	usage: Type.Optional(Type.Array(Type.Object({ name: Type.String(), count: Type.Number() }))),
+	grounded: Type.Optional(Type.Boolean()),
+	jev: Type.Optional(Type.Object({
+		sufficient: Type.Boolean(), lowConfidence: Type.Boolean(), suppressed: Type.Integer({ minimum: 0 }),
+		suppressedUrls: Type.Array(Type.String()),
+	})),
+	scope: Type.Optional(Type.Union([Type.Literal("web"), Type.Literal("code"), Type.Literal("both")])),
+	jevStatus: Type.Optional(Type.Union([Type.Literal("ran"), Type.Literal("disabled"), Type.Literal("unavailable"), Type.Literal("skipped")])),
+	error: Type.Optional(Type.Object({
+		code: Type.String(), message: Type.String(), status: Type.Optional(Type.Number()),
+		rpcCode: Type.Optional(Type.Number()), retryable: Type.Optional(Type.Boolean()), configPath: Type.Optional(Type.String()),
+	})),
+}, { additionalProperties: false });
+
+export type WebSearchDetails = Static<typeof DetailsSchema>;
+
+export const SearchOutputSchema = Type.Object({
+	status: Type.Union([Type.Literal("success"), Type.Literal("error")]),
+	text: Type.String(),
+	...DetailsSchema.properties,
+}, { additionalProperties: false });
 
 export interface TruncationLimits {
 	maxLines?: number;
@@ -83,6 +81,12 @@ export function formatResult(
 			{ type: "text", text: content + (truncated ? "\n\n[Truncated]" : "") },
 		],
 		details,
+		structuredContent: JSON.parse(JSON.stringify({
+			status: details.error ? "error" : "success",
+			text: content + (truncated ? "\n\n[Truncated]" : ""),
+			...details,
+		})),
+		isError: details.error !== undefined,
 	};
 }
 
@@ -112,7 +116,7 @@ export function formatWebSearchResult(
 	if (results) {
 		sections.push(results);
 	}
-	const sourcesSection = buildSourcesSection(sources);
+	const sourcesSection = buildSourcesSection(sources, citedUrls(searchResults));
 	if (sourcesSection) {
 		sections.push(sourcesSection);
 	}
@@ -130,6 +134,7 @@ export function formatWebSearchResult(
 		sources,
 		searchResults,
 		warnings,
+		...(result.usage ? { usage: result.usage } : {}),
 		grounded: sources.length > 0,
 		...(result.jev ? { jev: result.jev } : {}),
 		...(result.scope ? { scope: result.scope } : {}),
@@ -168,13 +173,29 @@ function buildResultsSection(results: SearchResultDetail[]): string {
 	return `${RESULTS_HEADING}\n\n${entries.join("\n\n")}`;
 }
 
-function buildSourcesSection(sources: Source[]): string {
-	if (sources.length === 0) {
+/** URLs already linked inline by the Results section. */
+function citedUrls(results: SearchResultDetail[]): Set<string> {
+	const urls = new Set<string>();
+	for (const result of results) {
+		if (result.url) {
+			urls.add(result.url);
+		}
+	}
+	return urls;
+}
+
+/**
+ * Renders a source index once: a source whose URL is already linked in the
+ * Results section is not listed again, so the same full list is not emitted
+ * twice (evidence stays in Results; this is only the citation index).
+ */
+function buildSourcesSection(sources: Source[], cited: Set<string>): string {
+	const lines = sources
+		.filter((source) => !cited.has(source.url))
+		.map((source, index) => `${index + 1}. [${source.title}](${source.url})`);
+	if (lines.length === 0) {
 		return "";
 	}
-	const lines = sources.map(
-		(source, index) => `${index + 1}. [${source.title}](${source.url})`,
-	);
 	return `${SOURCES_HEADING}\n\n${lines.join("\n")}`;
 }
 

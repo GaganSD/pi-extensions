@@ -24,7 +24,9 @@ export interface ProviderContribution {
 /**
  * Concatenates successful provider results. Hits that share a URL stay
  * distinct — a search hit and a /contents hit are not the same document.
- * Dedup is Jev's job, not the merger's.
+ * Citations (the `sources` index) are deduplicated by URL so the same page is
+ * not listed once per provider, and text-only contributions are preserved
+ * rather than silently dropped.
  */
 export function mergeStreamResults(
 	parts: ProviderContribution[],
@@ -36,6 +38,8 @@ export function mergeStreamResults(
 
 	const searchResults: SearchResultDetail[] = [];
 	const sources: Source[] = [];
+	const seenSourceUrls = new Set<string>();
+	const texts: string[] = [];
 	const warnings: string[] = [...extraWarnings];
 	const usage: { name: string; count: number }[] = [];
 	const requestIds: string[] = [];
@@ -44,7 +48,19 @@ export function mergeStreamResults(
 	for (const { kind, result } of parts) {
 		kinds.push(kind);
 		searchResults.push(...(result.searchResults ?? []));
-		sources.push(...(result.sources ?? sourcesFromResults(result.searchResults ?? [])));
+		const contributed = result.sources?.length
+			? result.sources
+			: sourcesFromResults(result.searchResults ?? []);
+		for (const source of contributed) {
+			if (seenSourceUrls.has(source.url)) {
+				continue;
+			}
+			seenSourceUrls.add(source.url);
+			sources.push(source);
+		}
+		if (result.text.length > 0) {
+			texts.push(result.text);
+		}
 		warnings.push(...(result.warnings ?? []));
 		usage.push(...(result.usage ?? []));
 		if (result.requestId) {
@@ -53,7 +69,7 @@ export function mergeStreamResults(
 	}
 
 	return {
-		text: "",
+		text: texts.join("\n\n"),
 		providerKind: kinds[0],
 		providers: kinds,
 		searchResults,

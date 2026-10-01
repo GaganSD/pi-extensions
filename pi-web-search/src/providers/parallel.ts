@@ -11,7 +11,7 @@ import {
 
 const PROVIDER_NAME = "parallel";
 
-/** GA endpoints. `/v1beta/*` is legacy and reserved for existing integrations. */
+/** GA search and extraction endpoints. */
 const SEARCH_URL = "https://api.parallel.ai/v1/search";
 const EXTRACT_URL = "https://api.parallel.ai/v1/extract";
 
@@ -62,18 +62,13 @@ export async function parallelSearch(
 		fetchImpl: options.fetchImpl,
 	};
 
-	let raw: unknown;
-	try {
-		raw = await postJson<unknown>(SEARCH_URL, {
-			headers: context.headers,
-			body: searchRequestBody(req),
-			signal: context.signal,
-			timeoutMs: context.timeoutMs,
-			fetchImpl: context.fetchImpl,
-		});
-	} catch (error) {
-		throw withApiMessage(error);
-	}
+	const raw: unknown = await postJson<unknown>(SEARCH_URL, {
+		headers: context.headers,
+		body: searchRequestBody(req),
+		signal: context.signal,
+		timeoutMs: context.timeoutMs,
+		fetchImpl: context.fetchImpl,
+	});
 
 	const searchResults: SearchResultDetail[] = [];
 	const sources: Source[] = [];
@@ -289,38 +284,6 @@ function normalizeExtractErrorUrls(value: unknown): string[] {
 		}
 	}
 	return urls;
-}
-
-/**
- * 422 responses carry the API's own `message`; keep that text in the error so
- * the model can see what to correct. Every other error is passed through
- * untouched, so 401/403 keep their status and 429 stays retryable.
- */
-function withApiMessage(error: unknown): unknown {
-	if (!isProviderError(error) || error.code !== "http_error" || error.status !== 422) {
-		return error;
-	}
-	const message = apiMessage(error.message);
-	if (!message) {
-		return error;
-	}
-	return providerError("http_error", `HTTP 422: ${message}`, {
-		status: error.status,
-	});
-}
-
-/** Reads `"message": "..."` back out of the summarized response body. */
-function apiMessage(bodySummary: string): string | undefined {
-	const match = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(bodySummary);
-	if (!match) {
-		return undefined;
-	}
-	try {
-		const parsed: unknown = JSON.parse(`"${match[1]}"`);
-		return typeof parsed === "string" && parsed.length > 0 ? parsed : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 function errorText(error: unknown): string {
