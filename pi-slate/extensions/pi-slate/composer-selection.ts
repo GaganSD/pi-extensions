@@ -1,11 +1,11 @@
 import {
+  decodeKittyPrintable,
   isKeyRelease,
   isKeyRepeat,
   matchesKey,
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
-import { decodePrintableKey } from "@earendil-works/pi-tui/dist/keys.js";
 import { paintSelectedContent } from "./composer.ts";
 
 export type ComposerSelectionEditor = {
@@ -56,7 +56,9 @@ function isPrintable(data: string): boolean {
 }
 
 function isReplace(data: string): boolean {
-  return decodePrintableKey(data) !== undefined
+  // Normalize xterm modifyOtherKeys to CSI-u so only the public Pi TUI API is needed.
+  const printableInput = data.replace(/^\x1b\[27;(\d+);(\d+)~$/, "\x1b[$2;$1u");
+  return decodeKittyPrintable(printableInput) !== undefined
     || isPrintable(data)
     || data.includes("\x1b[200~")
     || matchesKey(data, "shift+enter")
