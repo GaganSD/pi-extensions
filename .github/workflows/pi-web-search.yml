@@ -43,6 +43,11 @@ jobs:
           cache-dependency-path: package validation workspace/pi-web-search/package-lock.json
       - name: Install locked development dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      # npm 11 preserves Pi 1.0's vulnerable shrinkwrap (brace-expansion 5.0.9).
+      # npm 12 resolves the patched transitive version. Keep the full audit gate.
+      - name: Use npm 12 for the compatibility host
+        if: matrix.pi != '0.99.0'
+        run: npm install --global --ignore-scripts --no-audit --no-fund npm@12.0.0
       - name: Install compatibility host
         if: matrix.pi != '0.99.0'
         run: npm install --ignore-scripts --no-audit --no-fund --save-dev @earendil-works/pi-coding-agent@${{ matrix.pi }} @earendil-works/pi-ai@${{ matrix.pi }} @earendil-works/pi-tui@${{ matrix.pi }}

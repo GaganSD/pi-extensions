@@ -17,6 +17,7 @@ export interface PackageManifest {
 	dependencies?: Record<string, string>;
 	scripts?: Record<string, string>;
 	peerDependencies: Record<string, string>;
+	peerDependenciesMeta: Record<string, { optional?: boolean }>;
 }
 
 /** Checks the actual tarball, not npm's dry-run listing or a compiled substitute. */
@@ -33,6 +34,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	}
 	for (const name of hostPeers) {
 		assert.equal(manifest.peerDependencies[name], "*", `${name} must be supplied by Pi, not bundled or version-resolved`);
+		assert.equal(manifest.peerDependenciesMeta?.[name]?.optional, true, `${name} must not install automatically for consumers`);
 	}
 	for (const required of ["package.json", "README.md", "LICENSE", "src/index.ts"]) {
 		assert.ok(files.has(required), `Missing required package file: ${required}`);

@@ -77,7 +77,7 @@ Classification is off by default. Failures keep retrieved evidence with warnings
 You can narrow searches to specific codebases using prompts like "check Meta's repos only", which your LLM translates to GitHub org/user-level filters:
 
 ```json
-{ "query": "useSyncExternalStore repo:facebook/react" }
+{ "query": "useSyncExternalStore repo:vercel/next.js" }
 ```
 
 **Multi-source search**, after [enabling it](#optional-multi-source-search-and-jev) — `multi_search` arguments:
@@ -158,6 +158,8 @@ Merge this entry into existing `auth.json` without replacing other credentials:
 - Use narrowly scoped keys/tokens.
 
 The [retrieval credential resolver](src/env.ts) reads literal `.key` strings, not shell commands, embedded environment references, or OAuth refresh credentials. Unreadable/malformed auth means no stored key. The extension never writes credentials.
+
+Pi supplies optional host peers. This package does not install another Pi copy. See the [npm advisory notes](docs/release-validation.md#npm-advisory-and-host-dependencies).
 
 Pi alone resolves classifier authentication at judgment time. Jev needs no separate key.
 

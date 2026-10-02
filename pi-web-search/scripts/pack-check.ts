@@ -52,11 +52,11 @@ withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 			assert.ok(paths.some((path) => path === optional || path.startsWith(`${optional}/`)), `${optional} exists but was omitted from the package`);
 		}
 	}
-	// Matches Pi's managed npm install: host peers must not be fetched or duplicated.
+	// Optional host peers prevent duplicate Pi installs, even without --legacy-peer-deps.
 	const consumer = join(root, "consumer");
 	mkdirSync(consumer);
 	writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "pack-check-consumer", private: true }));
-	runNpmCommand(["install", archive, "--omit=dev", "--legacy-peer-deps", "--ignore-scripts", "--offline", "--package-lock=false"], consumer, env);
+	runNpmCommand(["install", archive, "--omit=dev", "--ignore-scripts", "--offline", "--package-lock=false"], consumer, env);
 	assert.deepEqual(readdirSync(join(consumer, "node_modules")).filter((path) => !path.startsWith(".")), ["@gagansd"], "Installing the tarball must not install host peers");
 	assert.equal(manifest.name, "@gagansd/pi-web-search");
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);

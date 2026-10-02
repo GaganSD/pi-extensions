@@ -13,9 +13,15 @@ Review date: 2026-10-02. These checks describe this release candidate, not a gua
 
 The review covered credentials, process calls, HTTP/MCP transport, config writes, classifier boundaries, packaging, and dependency advisories.
 
-Both full and production npm audits reported zero vulnerabilities for the checked dependency trees. Checks covered Pi 0.99.0 and 1.0.0.
+## npm advisory and host dependencies
 
-The earlier “high security risk” warning was unavailable. This audit cannot identify its cause or certify that every scanner will accept the package. Pi supplies host dependencies. A recipient's Pi installation can have different advisories.
+A plain npm 11 installation reproduced one high-severity advisory through automatically installed Pi peers. Pi 1.0.0's shrinkwrap pins `brace-expansion@5.0.9`. Version `5.0.12` fixes the reported advisories, including [GHSA-qhr7-859c-m2p7](https://github.com/advisories/GHSA-qhr7-859c-m2p7).
+
+Host peers are now optional. Installing this extension no longer downloads another Pi installation or its dependency tree. Pi supplies these modules when it loads the extension. Package tests check an ordinary npm install without peer-suppression flags.
+
+The locked Pi 0.99.0 development tree passes the full audit. Pi 1.0.0 compatibility checks use npm 12, which selected patched `5.0.12`. Both full and production audits passed on those trees. CI retains the full audit gate.
+
+This change does not patch an existing Pi installation. Audit the host separately. The original warning text remains unavailable, so this reproduced path is not a confirmed explanation of that report.
 
 ## Validation
 
@@ -36,7 +42,7 @@ npm run smoke:live
 - Live checks cover Exa, grep.app, scoped Sourcegraph, native Parallel, URL extraction, and multi-source code search through Pi's SDK.
 - Live checks send public test queries. They require network access and can fail when a provider is unavailable.
 - A terminal rehearsal checked local installation, first-run setup, settings display, and a second launch without the welcome prompt.
-- CI covers Node 22.19.0 and 24 on Linux, macOS, and Windows. An additional job checks Pi 1.0.0.
+- CI covers Node 22.19.0 and 24 on Linux, macOS, and Windows. An additional job checks Pi 1.0.0 with npm 12.
 
 To test an installed candidate with the live smoke, supply its package directory:
 

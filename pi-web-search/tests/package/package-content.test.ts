@@ -14,6 +14,12 @@ function fixture(): { manifest: PackageManifest; files: Map<string, string> } {
 		files: [...packageAllowlist],
 		keywords: ["pi-package"],
 		pi: { extensions: ["./src/index.ts"] },
+		peerDependenciesMeta: {
+			"@earendil-works/pi-ai": { optional: true },
+			"@earendil-works/pi-coding-agent": { optional: true },
+			"@earendil-works/pi-tui": { optional: true },
+			typebox: { optional: true },
+		},
 		peerDependencies: {
 			"@earendil-works/pi-ai": "*",
 			"@earendil-works/pi-coding-agent": "*",
@@ -80,6 +86,7 @@ test("package-content prevents bundling or separately version-resolving host pac
 	assert.throws(() => validate(({ manifest }) => { manifest.dependencies = { "@earendil-works/pi-ai": "0.99.0" }; }), /no runtime dependencies/);
 	assert.throws(() => validate(({ manifest }) => { manifest.peerDependencies["@earendil-works/pi-ai"] = ">=0.99.0"; }), /must be supplied by Pi/);
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
+	assert.throws(() => validate(({ manifest }) => { manifest.peerDependenciesMeta.typebox.optional = false; }), /must not install automatically/);
 });
 
 test("package-content rejects install-time lifecycle scripts", () => {
