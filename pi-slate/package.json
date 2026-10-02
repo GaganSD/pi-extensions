@@ -37,14 +37,21 @@
   "scripts": {
     "test": "node --test --experimental-strip-types tests/**/*.test.ts tests/**/*.test.mjs",
     "typecheck": "tsc --noEmit",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": { "optional": true },
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "@earendil-works/pi-tui": { "optional": true },
+    "typebox": { "optional": true }
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.85.1",
