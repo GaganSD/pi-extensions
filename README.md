@@ -1,6 +1,6 @@
 # Pi extensions
 
-<div align="center">
+<table align="center"><tr><td>
 
 ```text
     .--------------------------.
@@ -18,7 +18,7 @@
 '------------------------------'
 ```
 
-</div>
+</td></tr></table>
 
 Monorepo of extensions I've built and maintain for the [Pi Agent Harness](https://pi.dev).
 
