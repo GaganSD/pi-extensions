@@ -17,7 +17,8 @@ import {
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
-import { installPiDiff } from "./pi-diff.ts";
+import { installDiff } from "./diff.ts";
+import { loadDiffPreferences, type DiffPreferences } from "./diff-config.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
 import { GitDiffPreviewLoader } from "./git-diff.ts";
@@ -73,6 +74,7 @@ import {
   type Style,
 } from "./catppuccin.ts";
 import { applySlateTheme, persistFullscreen, persistTheme, shouldApplyInstallDefault } from "./install-defaults.ts";
+import { bundledThemes } from "shiki";
 
 type SlateConfig = {
   density: "comfortable" | "compact";
@@ -81,6 +83,7 @@ type SlateConfig = {
   vertical?: boolean;
   messageLength?: number | "all";
   modelDisplay?: ModelDisplay;
+  diff?: DiffPreferences;
   themeApplied?: boolean;
   fullscreenApplied?: boolean;
 };
@@ -130,6 +133,7 @@ function loadConfig(): SlateConfig {
     const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
     const messageLength = loadMessageLength(value.messageLength);
     const modelDisplay = loadModelDisplay(value.modelDisplay);
+    const diff = loadDiffPreferences(value.diff);
     return {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
@@ -137,6 +141,7 @@ function loadConfig(): SlateConfig {
       vertical: value.vertical !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
+      ...(diff === undefined ? {} : { diff }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
     };
@@ -149,6 +154,16 @@ function withMessageLength(current: SlateConfig, messageLength: number | "all" |
   const next = { ...current };
   if (messageLength === undefined) delete next.messageLength;
   else next.messageLength = messageLength;
+  return next;
+}
+
+function withDiff(current: SlateConfig, patch: DiffPreferences): SlateConfig {
+  const diff = { ...current.diff, ...patch };
+  if (Object.hasOwn(patch, "theme") && patch.theme === undefined) delete diff.theme;
+  const empty = !Object.keys(diff).length;
+  const next = { ...current };
+  if (empty) delete next.diff;
+  else next.diff = diff;
   return next;
 }
 
@@ -192,7 +207,8 @@ class BranchFooter implements Component {
 }
 
 export default function piSlate(pi: ExtensionAPI): void {
-  installPiDiff(pi);
+  let config = loadConfig();
+  installDiff(pi, config.diff);
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
   const selection = new ComposerSelectionController();
@@ -207,7 +223,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     void files.refresh();
   };
   const turnImpact = new TurnImpactTracker();
-  let config = loadConfig();
   let currentContext: ExtensionContext | undefined;
   let activeEditor: CustomEditor | undefined;
   let gitBranch: string | null = null;
@@ -536,6 +551,32 @@ export default function piSlate(pi: ExtensionAPI): void {
     return undefined;
   };
 
+  const pickDiffMenu = async (ctx: ExtensionContext): Promise<boolean | "theme" | undefined> => {
+    const enabled = config.diff?.enabled !== false;
+    const value = await ctx.ui.select("Diff", [
+      withCurrent("On", enabled),
+      withCurrent("Off", !enabled),
+      "Theme",
+    ]);
+    const key = value ? withoutCurrent(value) : undefined;
+    if (key === "On") return true;
+    if (key === "Off") return false;
+    if (key === "Theme") return "theme";
+    return undefined;
+  };
+
+  const pickDiffTheme = async (ctx: ExtensionContext): Promise<{ theme?: string } | undefined> => {
+    const current = config.diff?.theme ?? "github-dark";
+    const options = ["default", "github-dark", "github-light", "catppuccin-mocha"];
+    const value = await ctx.ui.select(
+      "Diff theme",
+      options.map((theme) => withCurrent(theme, theme === current || (theme === "default" && !config.diff?.theme))),
+    );
+    if (!value) return undefined;
+    const key = withoutCurrent(value);
+    return { theme: key === "default" ? undefined : key };
+  };
+
   const pickFooter = async (ctx: ExtensionContext): Promise<SlateConfig["footer"] | undefined> => {
     const value = await ctx.ui.select("Footer", [
       withCurrent("Standard", config.footer === "standard"),
@@ -714,7 +755,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar, vertical mode, message length, theme, or file a bug",
+    description: "Density, footer, sidebar, vertical mode, message length, theme, diff, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -725,13 +766,14 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Vertical", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Vertical", "Message length", "Theme", "Diff", "File a bug"]);
         if (setting === "Density") kind = "density";
         else if (setting === "Footer") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
         else if (setting === "Vertical") kind = "vertical";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
+        else if (setting === "Diff") kind = "diff-menu";
         else if (setting === "File a bug") kind = "bug-menu";
         else return;
       }
@@ -793,6 +835,41 @@ export default function piSlate(pi: ExtensionAPI): void {
         const style = (parsed.kind === "style" ? parsed.value : undefined) ?? await pickStyle(ctx);
         if (!style) return;
         applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
+        return;
+      }
+
+      if (kind === "diff-menu") {
+        const choice = await pickDiffMenu(ctx);
+        if (choice === "theme") kind = "diff-theme-menu";
+        else if (choice !== undefined) {
+          apply(withDiff(config, { enabled: choice }), `Diff ${choice ? "on" : "off"}. Run /reload to apply.`, ctx);
+          return;
+        } else return;
+      }
+
+      if (kind === "diff") {
+        if (parsed.kind !== "diff" || parsed.enabled === undefined) return;
+        apply(withDiff(config, { enabled: parsed.enabled }), `Diff ${parsed.enabled ? "on" : "off"}. Run /reload to apply.`, ctx);
+        return;
+      }
+
+      if (kind === "diff-theme" || kind === "diff-theme-menu") {
+        let selected: string | undefined;
+        if (parsed.kind === "diff-theme") selected = parsed.theme;
+        else {
+          const picked = await pickDiffTheme(ctx);
+          if (!picked) return;
+          selected = picked.theme;
+        }
+        if (selected && !Object.hasOwn(bundledThemes, selected)) {
+          ctx.ui.notify(`Unknown diff theme ${selected}`, "error");
+          return;
+        }
+        apply(
+          withDiff(config, { theme: selected }),
+          selected ? `Diff theme set to ${selected}. Run /reload to apply.` : "Diff theme reset to default. Run /reload to apply.",
+          ctx,
+        );
         return;
       }
 

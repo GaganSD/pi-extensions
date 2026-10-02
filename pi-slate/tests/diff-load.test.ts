@@ -12,11 +12,11 @@ import { ToolExecutionComponent } from "../node_modules/@earendil-works/pi-codin
 test("Slate loads through Pi's real extension loader and renders completed tools in the host shell", { timeout: 30_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-slate-load-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const previous = process.env.PI_DIFF_ENABLED;
-  process.env.PI_DIFF_ENABLED = "1";
+  const previous = process.env.SLATE_DIFF_ENABLED;
+  process.env.SLATE_DIFF_ENABLED = "1";
   t.after(() => {
-    if (previous === undefined) delete process.env.PI_DIFF_ENABLED;
-    else process.env.PI_DIFF_ENABLED = previous;
+    if (previous === undefined) delete process.env.SLATE_DIFF_ENABLED;
+    else process.env.SLATE_DIFF_ENABLED = previous;
   });
   const entry = join(dirname(fileURLToPath(import.meta.url)), "../extensions/pi-slate/index.ts");
   const loaded = await discoverAndLoadExtensions([entry], cwd, join(cwd, "agent"));
@@ -48,7 +48,8 @@ test("Slate loads through Pi's real extension loader and renders completed tools
     for (const width of [30, 80, 140]) {
       const lines = host.render(width);
       const text = lines.map(stripVTControlCharacters).join("\n");
-      assert.match(text, /Pi-Diff/);
+      assert.match(text, /diff ·/);
+      assert.doesNotMatch(text, /Pi-Diff/);
       assert.match(text, name === "edit" && width === 140 ? /split/ : /unified/);
       assert.match(text, name === "edit" ? /3001/ : /3000/);
       for (const line of lines) assert.ok(visibleWidth(line) <= width, `host overflow at ${width}`);

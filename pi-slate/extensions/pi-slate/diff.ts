@@ -6,9 +6,9 @@ import {
   type ExtensionAPI, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { DIFF_MAX_BYTES, diffText, readDiffConfig, type DiffConfig } from "./pi-diff-config.ts";
-import { DiffHighlighter } from "./pi-diff-highlight.ts";
-import { PiDiffView } from "./pi-diff-renderer.ts";
+import { DIFF_MAX_BYTES, diffText, readDiffConfig, type DiffConfig, type DiffPreferences } from "./diff-config.ts";
+import { DiffHighlighter } from "./diff-highlight.ts";
+import { DiffView } from "./diff-renderer.ts";
 
 export type WriteDiffDetails = { slateDiff: { patch?: string; note?: string } };
 
@@ -27,8 +27,10 @@ async function beforeWrite(path: string): Promise<string | undefined> {
         length += bytesRead;
       }
       if (length > DIFF_MAX_BYTES) return undefined;
-      const text = buffer.subarray(0, length).toString("utf8");
-      return text.includes("\0") ? undefined : text;
+      const bytes = buffer.subarray(0, length);
+      const text = bytes.toString("utf8");
+      if (text.includes("\0") || !Buffer.from(text, "utf8").equals(bytes)) return undefined;
+      return text;
     } finally {
       await file.close();
     }
@@ -68,8 +70,8 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
       const patch = result.details?.patch;
       if (!context.isError && typeof patch === "string") {
         const previous = context.lastComponent;
-        if (previous instanceof PiDiffView && previous.patch === patch && previous.path === context.args?.path && previous.expanded === options.expanded) return previous;
-        return new PiDiffView(patch, context.args?.path ?? "", "edit", options.expanded, config, highlighter, context.invalidate);
+        if (previous instanceof DiffView && previous.patch === patch && previous.path === context.args?.path && previous.expanded === options.expanded) return previous;
+        return new DiffView(patch, context.args?.path ?? "", "edit", options.expanded, config, highlighter, context.invalidate);
       }
       const text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
       const fallback = !context.isError && result.details?.diff ? result.details.diff : text;
@@ -102,8 +104,8 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
       const preview = result.details?.slateDiff;
       if (!context.isError && typeof preview?.patch === "string") {
         const previous = context.lastComponent;
-        if (previous instanceof PiDiffView && previous.patch === preview.patch && previous.path === context.args?.path && previous.expanded === options.expanded) return previous;
-        return new PiDiffView(preview.patch, context.args?.path ?? "", "write", options.expanded, config, highlighter, context.invalidate);
+        if (previous instanceof DiffView && previous.patch === preview.patch && previous.path === context.args?.path && previous.expanded === options.expanded) return previous;
+        return new DiffView(preview.patch, context.args?.path ?? "", "write", options.expanded, config, highlighter, context.invalidate);
       }
       let text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
       if (!context.isError && preview?.note) text += `\n${preview.note}`;
@@ -113,8 +115,8 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
   return { edit, write };
 }
 
-export function installPiDiff(pi: ExtensionAPI): void {
-  const config = readDiffConfig();
+export function installDiff(pi: ExtensionAPI, preferences?: DiffPreferences): void {
+  const config = readDiffConfig(process.env, preferences);
   if (!config.enabled) return;
   const highlighter = new DiffHighlighter(config);
   const tools = createDiffTools(config, highlighter);

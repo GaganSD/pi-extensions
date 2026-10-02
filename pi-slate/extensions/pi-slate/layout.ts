@@ -279,7 +279,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | diff [on|off] | diff theme [default|<shiki-theme>] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -312,6 +312,11 @@ const SLATE_COMPLETIONS = [
   ...THEME_STYLES.map((style) => `theme ${style}`),
   "style",
   ...THEME_STYLES.map((style) => `style ${style}`),
+  "diff",
+  "diff on",
+  "diff off",
+  "diff theme",
+  "diff theme default",
   "bug",
   "bug file",
   "bug open",
@@ -329,6 +334,10 @@ export type SlateArgs =
   | { ok: true; kind: "theme-menu" }
   | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style }
   | { ok: true; kind: "style"; value?: Style }
+  | { ok: true; kind: "diff-menu" }
+  | { ok: true; kind: "diff"; enabled?: boolean }
+  | { ok: true; kind: "diff-theme-menu" }
+  | { ok: true; kind: "diff-theme"; theme?: string }
   | { ok: true; kind: "bug-menu" }
   | { ok: true; kind: "bug"; action: "file" | "open" }
   | { ok: false };
@@ -337,6 +346,18 @@ export function parseSlateArgs(raw: string): SlateArgs {
   const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return { ok: true, kind: "menu" };
   const [head, tail, extra] = words;
+  if (head === "diff") {
+    if (!tail) return { ok: true, kind: "diff-menu" };
+    if (tail === "on" || tail === "off") {
+      return extra ? { ok: false } : { ok: true, kind: "diff", enabled: tail === "on" };
+    }
+    if (tail === "theme") {
+      if (words.length > 3) return { ok: false };
+      if (!extra) return { ok: true, kind: "diff-theme-menu" };
+      return extra === "default" ? { ok: true, kind: "diff-theme" } : { ok: true, kind: "diff-theme", theme: extra };
+    }
+    return { ok: false };
+  }
   if (head === "theme") {
     if (words.length > 3) return { ok: false };
     if (!tail) return { ok: true, kind: "theme-menu" };

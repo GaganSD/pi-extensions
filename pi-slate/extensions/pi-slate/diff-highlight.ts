@@ -1,6 +1,6 @@
 import { basename, extname } from "node:path";
 import { bundledLanguages, createHighlighter, type BundledLanguage, type Highlighter, type ThemedToken } from "shiki";
-import type { DiffConfig } from "./pi-diff-config.ts";
+import type { DiffConfig } from "./diff-config.ts";
 
 const extensions: Record<string, string> = {
   h: "c", hh: "cpp", hpp: "cpp", cc: "cpp", cxx: "cpp", mjs: "javascript", cjs: "javascript",

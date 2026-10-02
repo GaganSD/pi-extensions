@@ -4,10 +4,10 @@ import { stripVTControlCharacters } from "node:util";
 import { createTwoFilesPatch } from "diff";
 import { bundledLanguagesInfo } from "shiki";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { ansiColor, DIFF_MAX_BYTES, diffText, readDiffConfig } from "../extensions/pi-slate/pi-diff-config.ts";
-import { DiffHighlighter, diffLanguage } from "../extensions/pi-slate/pi-diff-highlight.ts";
-import { emphasizeRows, pairRows, patchRows, PiDiffView } from "../extensions/pi-slate/pi-diff-renderer.ts";
-import { writeDiff } from "../extensions/pi-slate/pi-diff.ts";
+import { ansiColor, DIFF_MAX_BYTES, diffText, loadDiffPreferences, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
+import { DiffHighlighter, diffLanguage } from "../extensions/pi-slate/diff-highlight.ts";
+import { emphasizeRows, pairRows, patchRows, DiffView } from "../extensions/pi-slate/diff-renderer.ts";
+import { writeDiff } from "../extensions/pi-slate/diff.ts";
 
 const config = readDiffConfig({});
 const patch = (before: string, after: string) => createTwoFilesPatch("before", "after", before, after);
@@ -16,25 +16,32 @@ const plain = (lines: string[]) => lines.map(stripVTControlCharacters).join("\n"
 function view(t: test.TestContext, before: string, after: string, options: { kind?: "edit" | "write"; expanded?: boolean; path?: string } = {}) {
   const highlighter = new DiffHighlighter(config);
   t.after(() => highlighter.dispose());
-  return new PiDiffView(patch(before, after), options.path ?? "example.ts", options.kind ?? "edit", options.expanded ?? true, config, highlighter, () => {});
+  return new DiffView(patch(before, after), options.path ?? "example.ts", options.kind ?? "edit", options.expanded ?? true, config, highlighter, () => {});
 }
 
-test("Pi-Diff validates configuration and exposes every palette color", () => {
+test("diff validates configuration and exposes every palette color", () => {
   assert.equal(config.enabled, true);
   assert.equal(config.theme, "github-dark");
-  for (const value of ["0", "false", "OFF"]) assert.equal(readDiffConfig({ PI_DIFF_ENABLED: value }).enabled, false);
-  const custom = readDiffConfig({ PI_DIFF_THEME: "github-light", PI_DIFF_ADD_BG: "#abc", PI_DIFF_FG: "#123456", PI_DIFF_SPLIT_MIN_WIDTH: "120" });
+  for (const value of ["0", "false", "OFF"]) assert.equal(readDiffConfig({ SLATE_DIFF_ENABLED: value }).enabled, false);
+  assert.equal(readDiffConfig({ PI_DIFF_ENABLED: "0" }).enabled, false);
+  assert.equal(readDiffConfig({}, { enabled: false }).enabled, false);
+  assert.equal(readDiffConfig({ SLATE_DIFF_ENABLED: "1" }, { enabled: false }).enabled, true);
+  const custom = readDiffConfig({ SLATE_DIFF_THEME: "github-light", SLATE_DIFF_ADD_BG: "#abc", SLATE_DIFF_FG: "#123456", SLATE_DIFF_SPLIT_MIN_WIDTH: "120" });
   assert.equal(custom.theme, "github-light");
   assert.equal(custom.colors.addBg, "#aabbcc");
   assert.equal(custom.colors.fg, "#123456");
   assert.equal(custom.splitMinWidth, 120);
-  const invalid = readDiffConfig({ PI_DIFF_THEME: "__proto__", PI_DIFF_REMOVE_BG: "\x1b[31m", PI_DIFF_SPLIT_MIN_WIDTH: "NaN" });
+  assert.equal(readDiffConfig({}, { theme: "github-light", splitMinWidth: 80, colors: { addBg: "#abc" } }).colors.addBg, "#aabbcc");
+  const invalid = readDiffConfig({ SLATE_DIFF_THEME: "__proto__", SLATE_DIFF_REMOVE_BG: "\x1b[31m", SLATE_DIFF_SPLIT_MIN_WIDTH: "NaN" });
   assert.equal(invalid.theme, config.theme);
   assert.equal(invalid.colors.removeBg, config.colors.removeBg);
   assert.equal(invalid.splitMinWidth, config.splitMinWidth);
-  for (const width of ["0", "59", "501", "1.5", ""]) assert.equal(readDiffConfig({ PI_DIFF_SPLIT_MIN_WIDTH: width }).splitMinWidth, 100);
+  for (const width of ["0", "59", "501", "1.5", ""]) assert.equal(readDiffConfig({ SLATE_DIFF_SPLIT_MIN_WIDTH: width }).splitMinWidth, 100);
   const colors = { FG: "fg", CONTEXT_BG: "contextBg", ADD_BG: "addBg", REMOVE_BG: "removeBg", ADD_WORD_BG: "addWordBg", REMOVE_WORD_BG: "removeWordBg", LINE_NUMBER_FG: "lineNumberFg", BORDER_FG: "borderFg", HEADER_FG: "headerFg" } as const;
-  for (const [env, key] of Object.entries(colors)) assert.equal(readDiffConfig({ [`PI_DIFF_${env}`]: "#fedcba" }).colors[key], "#fedcba");
+  for (const [env, key] of Object.entries(colors)) assert.equal(readDiffConfig({ [`SLATE_DIFF_${env}`]: "#fedcba" }).colors[key], "#fedcba");
+  assert.deepEqual(loadDiffPreferences({ enabled: false, theme: "github-light", extra: 1 }), { enabled: false, theme: "github-light" });
+  assert.equal(loadDiffPreferences(null), undefined);
+  assert.equal(loadDiffPreferences({ colors: { addBg: "#abc", nope: 1 } })?.colors?.addBg, "#abc");
 });
 
 test("language detection uses Shiki's full bundle with plaintext fallback", () => {
@@ -148,7 +155,7 @@ test("highlight completion invalidates cached plain rendering", async (t) => {
   const highlighter = new DiffHighlighter(config);
   t.after(() => highlighter.dispose());
   let redraws = 0;
-  const diff = new PiDiffView(patch("old\n", "const n = 2;\n"), "a.ts", "edit", false, config, highlighter, () => { redraws++; });
+  const diff = new DiffView(patch("old\n", "const n = 2;\n"), "a.ts", "edit", false, config, highlighter, () => { redraws++; });
   const initial = diff.render(80);
   await diff.ready;
   assert.equal(redraws, 1);

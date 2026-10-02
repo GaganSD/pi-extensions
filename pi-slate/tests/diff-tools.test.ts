@@ -10,10 +10,10 @@ import {
   type ExtensionAPI, type ExtensionContext, type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
-import { DIFF_MAX_BYTES, readDiffConfig } from "../extensions/pi-slate/pi-diff-config.ts";
-import { DiffHighlighter } from "../extensions/pi-slate/pi-diff-highlight.ts";
-import { PiDiffView } from "../extensions/pi-slate/pi-diff-renderer.ts";
-import { createDiffTools, installPiDiff } from "../extensions/pi-slate/pi-diff.ts";
+import { DIFF_MAX_BYTES, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
+import { DiffHighlighter } from "../extensions/pi-slate/diff-highlight.ts";
+import { DiffView } from "../extensions/pi-slate/diff-renderer.ts";
+import { createDiffTools, installDiff } from "../extensions/pi-slate/diff.ts";
 
 const config = readDiffConfig({});
 const bounded = { timeout: 10_000 };
@@ -48,7 +48,7 @@ const themeMethods: Pick<Theme, "fg" | "bold"> = { fg: (_color, text) => text, b
 const theme = themeMethods as Theme;
 
 async function fixture(t: test.TestContext) {
-  const root = await mkdtemp(join(tmpdir(), "pi-diff-tools-"));
+  const root = await mkdtemp(join(tmpdir(), "slate-diff-tools-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const cwd = join(root, "wrapped");
   const nativeCwd = join(root, "native");
@@ -69,7 +69,7 @@ function gate() {
   return { promise, release };
 }
 
-test("Pi-Diff definitions preserve native schemas, model prompts, and argument preparation", bounded, async (t) => {
+test("diff definitions preserve native schemas, model prompts, and argument preparation", bounded, async (t) => {
   const { tools, native } = await fixture(t);
   for (const name of ["edit", "write"] as const) {
     for (const key of ["name", "label", "description", "promptSnippet", "promptGuidelines", "constrainedSampling", "executionMode"] as const) {
@@ -143,6 +143,17 @@ test("TUI writes still succeed when bounded or binary snapshots cannot be displa
       assert.match(plain(rendered), /Diff preview/);
     });
   }
+});
+
+test("invalid UTF-8 previous content is treated as unreadable, not as replacement characters", bounded, async (t) => {
+  const f = await fixture(t);
+  const args = { path: "invalid-utf8.bin", content: "new\n" };
+  await writeFile(join(f.cwd, args.path), Buffer.from([0x61, 0xff, 0x62]));
+  const result = await f.tools.write.execute("write", args, undefined, undefined, f.ctx);
+  assert.equal(result.details?.slateDiff.patch, undefined);
+  assert.match(result.details?.slateDiff.note ?? "", /previous content/);
+  assert.doesNotMatch(result.details?.slateDiff.note ?? "", /\uFFFD/);
+  assert.equal(await readFile(join(f.cwd, args.path), "utf8"), args.content);
 });
 
 test("same-file TUI snapshots are ordered inside the native mutation queue", bounded, async (t) => {
@@ -228,7 +239,7 @@ test("edit retains native CRLF/BOM bytes and renders the native normalized patch
   assert.deepEqual(result, native);
   assert.deepEqual(await readFile(join(f.cwd, args.path)), Buffer.from(after));
   const rendered = f.tools.edit.renderResult!(result, { expanded: false, isPartial: false }, theme, renderContext(f.cwd, args));
-  assert.ok(rendered instanceof PiDiffView);
+  assert.ok(rendered instanceof DiffView);
   await rendered.ready;
   assert.equal(rendered.patch, native.details?.patch);
   assert.equal(applyPatch("alpha\nkept\nomega\n", rendered.patch), "ALPHA\nkept\nomega\n");
@@ -362,21 +373,21 @@ test("edit and write render serialized native-backed details and reuse only matc
           : f.tools.write.renderResult!(restored as Awaited<ReturnType<typeof f.tools.write.execute>>, options, theme, current);
       };
       const view = render(false);
-      assert.ok(view instanceof PiDiffView);
+      assert.ok(view instanceof DiffView);
       await view.ready;
       assert.equal(redraws, 1);
       assert.equal(view.patch, serializedPatch);
       assert.equal(view.path, path);
       assert.equal(view.kind, name);
-      assert.match(plain(view), name === "edit" ? /Pi-Diff · split/ : /Pi-Diff · unified/);
+      assert.match(plain(view), name === "edit" ? /diff · split/ : /diff · unified/);
       assert.equal(render(false, view), view);
       const expanded = render(true, view);
-      assert.ok(expanded instanceof PiDiffView);
+      assert.ok(expanded instanceof DiffView);
       assert.notEqual(expanded, view);
       await expanded.ready;
       assert.equal(expanded.expanded, true);
       const otherPath = render(false, view, { ...args, path: "other.txt" });
-      assert.ok(otherPath instanceof PiDiffView);
+      assert.ok(otherPath instanceof DiffView);
       assert.notEqual(otherPath, view);
       await otherPath.ready;
       assert.equal(otherPath.path, "other.txt");
@@ -412,7 +423,7 @@ test("renderers prioritize partial and error paths over successful patch details
   for (const error of errors) {
     assert.ok(error instanceof Text);
     assert.equal(plain(error), "failed\\x1b[2J\nnot successful");
-    assert.doesNotMatch(plain(error), /Pi-Diff|success preview/);
+    assert.doesNotMatch(plain(error), /diff ·|success preview/);
   }
   const partialWrite = f.tools.write.renderResult!(write, { ...options, isPartial: true }, theme, { ...ctx, isPartial: true });
   const partialEdit = f.tools.edit.renderResult!(edit, { ...options, isPartial: true }, theme, { ...ctx, isPartial: true });
@@ -420,8 +431,8 @@ test("renderers prioritize partial and error paths over successful patch details
   assert.equal(plain(partialEdit), "Editing…");
 });
 
-test("disabled Pi-Diff registers neither overrides nor shutdown hooks", () => {
-  const previous = process.env.PI_DIFF_ENABLED;
+test("disabled diff registers neither overrides nor shutdown hooks", () => {
+  const previous = process.env.SLATE_DIFF_ENABLED;
   let registered = 0;
   let hooks = 0;
   const api: Pick<ExtensionAPI, "registerTool" | "on"> = {
@@ -430,13 +441,15 @@ test("disabled Pi-Diff registers neither overrides nor shutdown hooks", () => {
   };
   try {
     for (const disabled of ["0", "false", "OFF"]) {
-      process.env.PI_DIFF_ENABLED = disabled;
-      installPiDiff(api as ExtensionAPI);
+      process.env.SLATE_DIFF_ENABLED = disabled;
+      installDiff(api as ExtensionAPI);
     }
+    delete process.env.SLATE_DIFF_ENABLED;
+    installDiff(api as ExtensionAPI, { enabled: false });
     assert.equal(registered, 0);
     assert.equal(hooks, 0);
   } finally {
-    if (previous === undefined) delete process.env.PI_DIFF_ENABLED;
-    else process.env.PI_DIFF_ENABLED = previous;
+    if (previous === undefined) delete process.env.SLATE_DIFF_ENABLED;
+    else process.env.SLATE_DIFF_ENABLED = previous;
   }
 });

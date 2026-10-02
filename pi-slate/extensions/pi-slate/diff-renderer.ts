@@ -1,8 +1,8 @@
 import { diffChars, parsePatch } from "diff";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ThemedToken } from "shiki";
-import { ansiColor, DIFF_MAX_BYTES, DIFF_MAX_ROWS, diffText, type DiffConfig } from "./pi-diff-config.ts";
-import type { DiffHighlighter } from "./pi-diff-highlight.ts";
+import { ansiColor, DIFF_MAX_BYTES, DIFF_MAX_ROWS, diffText, type DiffConfig } from "./diff-config.ts";
+import type { DiffHighlighter } from "./diff-highlight.ts";
 
 export type DiffRow = {
   kind: "context" | "add" | "remove" | "meta";
@@ -81,7 +81,7 @@ export function emphasizeRows(rows: DiffRow[]): void {
 
 const RESET = "\x1b[0m";
 
-export class PiDiffView implements Component {
+export class DiffView implements Component {
   readonly rows: DiffRow[];
   readonly ready: Promise<void>;
   private cache = new Map<number, string[]>();
@@ -192,7 +192,7 @@ export class PiDiffView implements Component {
     const split = this.kind === "edit" && width >= this.config.splitMinWidth;
     const additions = this.rows.filter((row) => row.kind === "add").length;
     const removals = this.rows.filter((row) => row.kind === "remove").length;
-    const title = `Pi-Diff · ${split ? "split" : "unified"} · +${additions} -${removals}`;
+    const title = `diff · ${split ? "split" : "unified"} · +${additions} -${removals}`;
     const output = [this.fit(ansiColor(this.config.colors.headerFg) + title, width)];
     const digits = String(Math.max(1, ...this.rows.map((row) => Math.max(row.oldLine ?? 0, row.newLine ?? 0)))).length;
     const limit = this.expanded ? 400 : 16;
