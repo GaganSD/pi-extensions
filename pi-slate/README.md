@@ -25,7 +25,7 @@ pi install npm:pi-slate
 pi --tui-mode fullscreen
 ```
 
-Explore extension settings using `/slate` after installation.
+Explore extension settings using `/slate` after installation. Releases: [CHANGELOG](CHANGELOG.md).
 
 ## Features
 

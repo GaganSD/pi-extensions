@@ -12,6 +12,8 @@
 Requires Pi **0.99.0 or newer** and Node.js **22.19.0 or newer**.
 
 1. Install: `pi install npm:@gagansd/pi-web-search`
+
+Releases: [CHANGELOG](CHANGELOG.md).
 2. The first interactive session shows a one-time setup prompt for existing Exa, GitHub, and Parallel credentials. For optional keys and settings anytime, run `/web-search-settings`.
 
 > Keyless configs have limitations set by Exa and Parallel.
