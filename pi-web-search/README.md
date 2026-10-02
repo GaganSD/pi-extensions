@@ -93,13 +93,11 @@ Other qualifiers are provider-dependent: grep.app leaves `path:`, `filename:`, a
 
 ## Full Configuration
 
-Ask your agent to set up the keys for you.
+The config path is `<agent-dir>/web-search.json`, normally `~/.pi/agent/web-search.json`. `PI_WEB_SEARCH_CONFIG` overrides this path. `PI_CODING_AGENT_DIR` changes Pi's agent directory.
 
-Alternatively:
+The extension does not automatically read project `.pi/web-search.json` or merge Pi's `settings.json`. Project-local installation does not change the config location.
 
-To change providers or enable research, use `<agent-dir>/web-search.json`, normally `~/.pi/agent/web-search.json`. `PI_WEB_SEARCH_CONFIG` overrides that file path; `PI_CODING_AGENT_DIR` changes Pi's agent directory. There is no automatic project `.pi/web-search.json` lookup or merge with Pi's `settings.json`. A project-local package install does not make this config project-local.
-
-A missing config file uses these retrieval defaults:
+A missing file uses these defaults:
 
 ```json
 {
@@ -111,81 +109,90 @@ A missing config file uses these retrieval defaults:
 }
 ```
 
-All fields are optional; the [configuration resolver](src/providers/config.ts) defines the defaults and accepted fields. Merge changes into your existing file instead of replacing it. Config is read each operation; changing research tool exposure also requires `/reload`.
+All fields are optional. Merge changes into the existing file. The extension reads config each operation. Tool exposure changes require `/reload`.
 
-- `web` accepts `exa` and `parallel`; `code` accepts `grep`, `sourcegraph`, and `github`.
-- `maxResults` is truncated to an integer and clamped to **1–20**. It is a per-provider search setting, not a cap on merged research hits; URL excerpts are additional entries. Upstreams may return fewer hits or not honor a requested limit.
-- `timeoutMs` is truncated to integer milliseconds. Positive values have a **1,000 ms minimum**; nonpositive values use **20,000 ms**. See [deadline behavior](#timeouts-fallback-and-errors), not a whole-call latency guarantee.
-- Malformed JSON, unsupported field/provider names, and malformed major blocks produce `invalid_config`. Wrong-family provider selections are ignored/defaulted with search warnings. Some known Jev values also default with warnings; `jev.enabled` activates only for literal `true`. Numeric normalization above does not itself emit a warning.
+- `web` accepts `exa` and `parallel`. `code` accepts `grep`, `sourcegraph`, and `github`.
+- `maxResults` truncates to an integer, then clamps to **1–20**, per provider. Merged results and additional URL excerpts can exceed this limit. Providers may return fewer results or ignore the limit.
+- `timeoutMs` truncates to integer milliseconds. Positive values have a **1,000 ms minimum**. Nonpositive values use **20,000 ms**. These numeric adjustments emit no warnings.
+- Invalid JSON, unknown fields/providers, and malformed blocks produce `invalid_config`. Wrong-family providers trigger warnings and defaults or removal. Some invalid Jev values trigger defaults with warnings. Only literal `true` enables `jev.enabled`.
+
+See the [configuration resolver](src/providers/config.ts) for validation details.
 
 ### Optional multi-source search and Jev
 
-To expose `multi_search`, merge this into the config path printed by `/web-search-settings`, then `/reload`:
+1. Run `/web-search-settings` to identify the config path.
+2. Merge `{"research":{"enabled":true}}` into that file.
+3. Run `/reload`.
 
-```json
-{ "research": { "enabled": true } }
-```
+`multi_search` sends the same query concurrently to all eligible sources in scope. `fallback: []` does not exclude sources. It does not check agreement or initiate further searches.
 
-Research sends the same query to all eligible sources in the chosen scope, concurrently. It is not an autonomous research agent, agreement checker, or automatic follow-up search. It merges successful responses while the operation deadline remains live. Ordinary web/code searches do not run Jev.
-
-For optional ranking and safety classification, pin a Pi classifier with `/web-search-settings on` or `/web-search-settings provider/model`. Anonymous search does not depend on classifier credentials. See [settings and limits](docs/research.md).
+Jev requires a separate opt-in. Anonymous retrieval needs no classifier credentials. See [classifier setup](docs/research.md#enable-external-judgment), [tuning](docs/research.md#all-jev-settings), and [failure behavior](docs/research.md#outcomes-and-limits).
 
 ## Credentials
 
-### Which providers need an API key?
+Exa MCP, Parallel native MCP, grep.app, and Sourcegraph need no search key. Anonymous Parallel has lower server-controlled rate limits. A Parallel key is optional.
 
-Default Exa web search, native Parallel MCP web fallback, grep.app, and Sourcegraph need no search-provider key. Parallel anonymous access has lower server-controlled rate limits; an already configured key is optional for higher limits. An Exa key selects REST instead of keyless MCP; GitHub requires a token. Jev is independently opt-in and uses Pi classifier authentication. Additional providers do not guarantee more results or availability.
+Search credentials use the first nonblank environment alias before `<agent-dir>/auth.json`. GitHub then tries an existing `gh auth login` token.
 
-For search credentials, the first nonblank environment alias overrides the stored key in `<agent-dir>/auth.json`. Classifier credentials are resolved exclusively by Pi—no extension key store or separate Jev key.
-
-| Stored ID | Environment aliases, in precedence order | Enables |
+| Stored ID | Environment aliases, highest precedence first | Behavior |
 | --- | --- | --- |
-| `exa` | `EXA_API_KEY` | Exa REST instead of keyless MCP. |
-| `parallel` | `PARALLEL_API_KEY` | Optional Bearer header for Parallel native MCP (anonymous without it). |
-| `github` | `GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth login` | Authenticated GitHub search; only verified public results are returned. Official code search is not keyless. |
+| `exa` | `EXA_API_KEY` | Selects REST instead of keyless MCP. |
+| `parallel` | `PARALLEL_API_KEY` | Adds a Bearer header for higher limits. |
+| `github` | `GITHUB_TOKEN`, `GH_TOKEN` | Requires a token. Returns only verified public results. |
 
-Set environment variables **before starting Pi**. A new export in another shell cannot change a running Pi process; restart Pi with that environment. Exa/GitHub stored keys are read each operation; the Parallel Bearer header is captured when its MCP server is registered, so changing its key requires `/reload`. Pi, not this package, resolves classifier credentials at judgment time.
+- Set environment variables **before starting Pi**. Exports in another shell cannot change a running Pi process. Restart Pi with the changed environment.
+- The extension reads Exa/GitHub stored keys each operation.
+- Parallel captures its Bearer header at MCP registration. Run `/reload` after changing its key.
 
-To store a key, merge an entry of this form into Pi's existing `auth.json` (replace the placeholder privately; do not replace other credentials):
+Merge this entry into existing `auth.json` without replacing other credentials:
 
 ```json
 { "parallel": { "type": "api_key", "key": "<your-api-key>" } }
 ```
 
-For retrieval keys, this extension reads literal `.key` strings; it does not resolve shell commands, environment references inside those strings, or OAuth refresh credentials. Pi owns classifier credential resolution, including its other supported auth sources. Unreadable/malformed retrieval auth is treated as no stored key. This extension does not write credentials. Keep auth files out of version control and use narrowly scoped keys/tokens. Additional sources have their own quotas and billing; no price or quota increase is promised here.
+- Replace the placeholder privately.
+- Exclude auth files from version control.
+- Use narrowly scoped keys/tokens.
 
-`/web-search-settings` reports Pi's classifier authentication snapshot, not a live key-validity test. It never displays keys. Queries, URLs, errors, and excerpts can still contain sensitive text; see [data handling](#data-handling).
+The [retrieval credential resolver](src/env.ts) reads literal `.key` strings, not shell commands, embedded environment references, or OAuth refresh credentials. Unreadable/malformed auth means no stored key. The extension never writes credentials.
+
+Pi alone resolves classifier authentication at judgment time. Jev needs no separate key.
+
+Each provider controls quotas and billing. Keys do not guarantee quota or price changes. Additional sources do not guarantee results or availability.
+
+`/web-search-settings` shows an authentication snapshot, not a live key-validity test. It never displays keys.
 
 ## Provider behavior and limits
 
-- Web: **Exa → Parallel**. Code: **grep.app → Sourcegraph → GitHub** (token or `gh auth` required for GitHub).
-- Web empty results do not trigger fallback. Empty or retryable code failures continue to the next code source.
-- Research queries all eligible sources in scope. `fallback: []` does not exclude providers.
-- Results include source links and compact excerpts, not full pages. Scripts receive [structured output](src/format.ts).
+- Default chains: **Exa → Parallel** and **grep.app → Sourcegraph → GitHub**.
+- Empty web results do not trigger fallback. Empty code results or retryable failures continue through the [provider chain](src/providers/index.ts).
+- Results contain links and excerpts, not full pages. See [structured output](src/format.ts).
 
 ## Timeouts, fallback, and errors
 
-- Default operation budget: **20 seconds**, shared by retrieval and judgment; cleanup can take longer.
-- Check warnings and `/web-search-settings`; use `/mcp` for Parallel connection issues.
-- Jev failures return unjudged evidence with warnings. Retrieval timeout or cancellation fails the call.
+Retrieval and judgment share a default **20-second** budget. Cleanup can take longer. Jev failures return unjudged evidence with warnings. Retrieval deadline expiry or caller cancellation fails the call.
+
+Check warnings and `/web-search-settings`. Use `/mcp` for Parallel connection issues.
 
 ## Data handling
 
-- Queries and URLs go to external providers. Optional Jev also receives candidate titles, URLs, and provider excerpts before output clipping. **Do not send secrets or private code.**
-- Retrieved content is untrusted. Jev is not a prompt-injection firewall or truth guarantee.
-- The extension does not send workspace files or session history as search payloads; tool calls can still appear in Pi's session history.
+**Do not send secrets or private code.** External providers receive queries and URLs. Optional Jev receives candidate titles, URLs, and provider excerpts before output clipping.
+
+Retrieved content is untrusted. Jev is not a prompt-injection firewall or truth guarantee.
+
+The extension does not send workspace files or session history as search payloads. Pi can retain tool calls in session history.
+
+Queries, URLs, errors, and excerpts can contain sensitive text.
 
 ## Development and package checks
 
-```bash
-cd pi-web-search
-npm ci --ignore-scripts --no-audit --no-fund
-npm test
-npm run typecheck
-npm run pack:check
-```
+1. Run `cd pi-web-search`.
+2. Run `npm ci --ignore-scripts --no-audit --no-fund`.
+3. Run `npm test`.
+4. Run `npm run typecheck`.
+5. Run `npm run pack:check`.
 
-SDK users must load Pi's MCP and codemode extensions and call `bindExtensions()`; see the [SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
+SDK users must load Pi's MCP and codemode extensions. They must call `bindExtensions()`. See the [SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
 ## License
 
