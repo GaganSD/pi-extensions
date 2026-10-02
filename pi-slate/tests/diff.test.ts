@@ -4,7 +4,7 @@ import { stripVTControlCharacters } from "node:util";
 import { createTwoFilesPatch } from "diff";
 import { bundledLanguagesInfo } from "shiki";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { ansiColor, DIFF_MAX_BYTES, diffAppearance, diffText, loadDiffPreferences, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
+import { ansiColor, DIFF_MAX_BYTES, diffAppearance, diffText, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
 import { DiffHighlighter, diffLanguage } from "../extensions/pi-slate/diff-highlight.ts";
 import { emphasizeRows, pairRows, patchRows, DiffView } from "../extensions/pi-slate/diff-renderer.ts";
 import { writeDiff } from "../extensions/pi-slate/diff.ts";
@@ -16,18 +16,13 @@ const plain = (lines: string[]) => lines.map(stripVTControlCharacters).join("\n"
 function view(t: test.TestContext, before: string, after: string, options: { kind?: "edit" | "write"; expanded?: boolean; path?: string; themeName?: string } = {}) {
   const highlighter = new DiffHighlighter();
   t.after(() => highlighter.dispose());
-  const live = readDiffConfig({}, undefined, options.themeName);
+  const live = readDiffConfig({}, options.themeName);
   return new DiffView(patch(before, after), options.path ?? "example.ts", options.kind ?? "edit", options.expanded ?? true, live, highlighter, () => {}, options.themeName ?? "black-metal");
 }
 
-test("diff follows the Slate theme and only allows enabling via settings", () => {
-  assert.equal(config.enabled, true);
+test("diff follows the Slate theme", () => {
   assert.equal(config.theme, "github-dark");
   assert.equal(config.colors.headerFg, "#dd9999");
-  for (const value of ["0", "false", "OFF"]) assert.equal(readDiffConfig({ SLATE_DIFF_ENABLED: value }).enabled, false);
-  assert.equal(readDiffConfig({ PI_DIFF_ENABLED: "0" }).enabled, false);
-  assert.equal(readDiffConfig({}, { enabled: false }).enabled, false);
-  assert.equal(readDiffConfig({ SLATE_DIFF_ENABLED: "1" }, { enabled: false }).enabled, true);
   const mauve = diffAppearance("catppuccin-mocha-mauve");
   const peach = diffAppearance("catppuccin-mocha-peach");
   assert.equal(mauve.theme, "catppuccin-mocha");
@@ -38,9 +33,6 @@ test("diff follows the Slate theme and only allows enabling via settings", () =>
   assert.equal(diffAppearance("unknown").theme, "github-dark");
   assert.equal(readDiffConfig({ SLATE_DIFF_SPLIT_MIN_WIDTH: "120" }).splitMinWidth, 120);
   for (const width of ["0", "59", "501", "1.5", ""]) assert.equal(readDiffConfig({ SLATE_DIFF_SPLIT_MIN_WIDTH: width }).splitMinWidth, 100);
-  assert.deepEqual(loadDiffPreferences({ enabled: false, theme: "github-light" }), { enabled: false });
-  assert.equal(loadDiffPreferences(null), undefined);
-  assert.equal(loadDiffPreferences({ theme: "github-light" }), undefined);
 });
 
 test("language detection uses Shiki's full bundle with plaintext fallback", () => {

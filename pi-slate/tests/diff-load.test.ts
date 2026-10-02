@@ -12,12 +12,6 @@ import { ToolExecutionComponent } from "../node_modules/@earendil-works/pi-codin
 test("Slate loads through Pi's real extension loader and renders completed tools in the host shell", { timeout: 30_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-slate-load-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const previous = process.env.SLATE_DIFF_ENABLED;
-  process.env.SLATE_DIFF_ENABLED = "1";
-  t.after(() => {
-    if (previous === undefined) delete process.env.SLATE_DIFF_ENABLED;
-    else process.env.SLATE_DIFF_ENABLED = previous;
-  });
   const entry = join(dirname(fileURLToPath(import.meta.url)), "../extensions/pi-slate/index.ts");
   const loaded = await discoverAndLoadExtensions([entry], cwd, join(cwd, "agent"));
   assert.deepEqual(loaded.errors, []);

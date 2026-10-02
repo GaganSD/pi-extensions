@@ -431,25 +431,14 @@ test("renderers prioritize partial and error paths over successful patch details
   assert.equal(plain(partialEdit), "Editing…");
 });
 
-test("disabled diff registers neither overrides nor shutdown hooks", () => {
-  const previous = process.env.SLATE_DIFF_ENABLED;
-  let registered = 0;
+test("installDiff always registers edit and write", () => {
+  const names: string[] = [];
   let hooks = 0;
   const api: Pick<ExtensionAPI, "registerTool" | "on"> = {
-    registerTool() { registered++; },
+    registerTool(tool) { names.push(tool.name); },
     on() { hooks++; },
   };
-  try {
-    for (const disabled of ["0", "false", "OFF"]) {
-      process.env.SLATE_DIFF_ENABLED = disabled;
-      installDiff(api as ExtensionAPI);
-    }
-    delete process.env.SLATE_DIFF_ENABLED;
-    installDiff(api as ExtensionAPI, { enabled: false });
-    assert.equal(registered, 0);
-    assert.equal(hooks, 0);
-  } finally {
-    if (previous === undefined) delete process.env.SLATE_DIFF_ENABLED;
-    else process.env.SLATE_DIFF_ENABLED = previous;
-  }
+  installDiff(api as ExtensionAPI);
+  assert.deepEqual(names.sort(), ["edit", "write"]);
+  assert.equal(hooks, 1);
 });

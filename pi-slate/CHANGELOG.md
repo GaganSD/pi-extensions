@@ -10,8 +10,6 @@ Syntax-highlighted `edit` and `write` results in the transcript.
 - Colors follow `/slate theme` — Black Metal or Catppuccin Mocha styles
 - Compact until you expand the tool card
 
-`/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves Pi's native edit/write renderers untouched.
-
 ## 0.1.7
 
 - README screenshots served from the npm CDN

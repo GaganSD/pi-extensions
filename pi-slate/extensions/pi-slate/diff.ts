@@ -6,7 +6,7 @@ import {
   type ExtensionAPI, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { DIFF_MAX_BYTES, diffAppearance, diffText, readDiffConfig, type DiffConfig, type DiffPreferences } from "./diff-config.ts";
+import { DIFF_MAX_BYTES, diffAppearance, diffText, readDiffConfig, type DiffConfig } from "./diff-config.ts";
 import { DiffHighlighter } from "./diff-highlight.ts";
 import { DiffView } from "./diff-renderer.ts";
 
@@ -117,9 +117,8 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
   return { edit, write };
 }
 
-export function installDiff(pi: ExtensionAPI, preferences?: DiffPreferences): void {
-  const config = readDiffConfig(process.env, preferences);
-  if (!config.enabled) return;
+export function installDiff(pi: ExtensionAPI): void {
+  const config = readDiffConfig();
   const highlighter = new DiffHighlighter();
   const tools = createDiffTools(config, highlighter);
   pi.registerTool(tools.edit);

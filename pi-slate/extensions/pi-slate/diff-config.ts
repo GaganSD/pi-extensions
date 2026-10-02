@@ -14,14 +14,9 @@ export type DiffColors = {
 };
 
 export type DiffConfig = {
-  enabled: boolean;
   theme: BundledTheme;
   splitMinWidth: number;
   colors: DiffColors;
-};
-
-export type DiffPreferences = {
-  enabled?: boolean;
 };
 
 const BLACK_METAL: DiffColors = {
@@ -55,26 +50,9 @@ export function diffAppearance(themeName?: string): Pick<DiffConfig, "theme" | "
   };
 }
 
-function envValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
-  const value = env[`SLATE_DIFF_${name}`]?.trim() || env[`PI_DIFF_${name}`]?.trim();
-  return value || undefined;
-}
-
-export function loadDiffPreferences(value: unknown): DiffPreferences | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const raw = value as Record<string, unknown>;
-  return typeof raw.enabled === "boolean" ? { enabled: raw.enabled } : undefined;
-}
-
-export function readDiffConfig(
-  env: NodeJS.ProcessEnv = process.env,
-  preferences?: DiffPreferences,
-  themeName?: string,
-): DiffConfig {
-  const width = Number(envValue(env, "SPLIT_MIN_WIDTH") ?? 100);
-  const enabledValue = envValue(env, "ENABLED");
+export function readDiffConfig(env: NodeJS.ProcessEnv = process.env, themeName?: string): DiffConfig {
+  const width = Number(env.SLATE_DIFF_SPLIT_MIN_WIDTH ?? 100);
   return {
-    enabled: enabledValue !== undefined ? !/^(0|false|off)$/i.test(enabledValue) : preferences?.enabled !== false,
     splitMinWidth: Number.isInteger(width) && width >= 60 && width <= 500 ? width : 100,
     ...diffAppearance(themeName),
   };

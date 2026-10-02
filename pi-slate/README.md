@@ -65,8 +65,6 @@ Native schemas, mutation queue, errors, and model-facing text are unchanged. Wri
   <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-rust.png" alt="Split Rust edit with syntax highlighting" />
 </p>
 
-`/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves native edit/write tools untouched if another extension must own them. Requires `/reload`.
-
 Previews are bounded: 256 KiB snapshots, 2,000 parsed rows, 16 collapsed / 400 expanded. Binary or oversized previous content shows a notice, not a fake overwrite.
 
 ### Rich Media Rendering
@@ -148,7 +146,6 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Footer | `/slate footer [standard\|minimal]` | Standard shows model and thinking on the composer; minimal hides them. |
 | Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal]` | Catppuccin Mocha style. `/slate style` does the same. |
-| Diff | `/slate diff [on\|off]` | Turn highlighted edit/write results off if another extension must own those tools. Requires `/reload`. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Model Display
