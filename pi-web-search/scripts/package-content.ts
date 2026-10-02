@@ -15,6 +15,7 @@ export interface PackageManifest {
 	keywords: string[];
 	pi: { extensions: string[] };
 	dependencies?: Record<string, string>;
+	scripts?: Record<string, string>;
 	peerDependencies: Record<string, string>;
 }
 
@@ -27,6 +28,9 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	assert.deepEqual(manifest.files, packageAllowlist);
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
 	assert.deepEqual(manifest.dependencies ?? {}, {}, "This source-only extension has no runtime dependencies");
+	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
+		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
+	}
 	for (const name of hostPeers) {
 		assert.equal(manifest.peerDependencies[name], "*", `${name} must be supplied by Pi, not bundled or version-resolved`);
 	}

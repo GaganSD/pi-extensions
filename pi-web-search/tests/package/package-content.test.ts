@@ -82,6 +82,12 @@ test("package-content prevents bundling or separately version-resolving host pac
 	assert.throws(() => validate(({ manifest }) => { manifest.files.push("tests"); }));
 });
 
+test("package-content rejects install-time lifecycle scripts", () => {
+	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
+		assert.throws(() => validate(({ manifest }) => { manifest.scripts = { [hook]: "node unwanted.js" }; }), /must not run lifecycle hook/);
+	}
+});
+
 test("validation isolates Pi/npm configuration and excludes inherited credentials", () => {
 	let temporaryRoot = "";
 	withTemporaryDirectory("package-environment-test-", (root) => {

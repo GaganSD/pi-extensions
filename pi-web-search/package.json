@@ -36,7 +36,8 @@
     "typecheck": "tsc --noEmit",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "node --experimental-strip-types scripts/pack-check.ts",
-    "prepublishOnly": "npm test && npm run typecheck && npm run pack:check"
+    "smoke:live": "node --experimental-strip-types scripts/live-smoke.ts",
+    "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck && npm run pack:check"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

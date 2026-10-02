@@ -30,7 +30,7 @@ Authenticate a classifier in Pi, then pin that exact catalog pair:
 /web-search-settings on
 ```
 
-`on` enables multi-source search and judgment. It writes `provider` and `model` only when Pi reports exactly one available classifier. If several are available, list them and pin one:
+`on` enables multi-source search and judgment. It keeps an existing provider/model pin without checking other accounts. Otherwise, it selects a pin only when Pi reports exactly one available classifier. Discovery stops after three seconds. If discovery fails, settings stay unchanged. Select an exact provider/model to avoid discovery:
 
 ```text
 /web-search-settings typesafe/jev-latest
@@ -48,6 +48,16 @@ Authenticate a classifier in Pi, then pin that exact catalog pair:
 Run `/reload` if research was not already exposed. Other judgment config changes are read next operation. Pi owns catalog, authentication, and `classify()`. See [classifier models](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md#use-classifier-models).
 
 **Data sent:** at most one judgment request contains the query and every retained candidate's index, title, URL, and complete provider-returned `citedText`. This happens before formatter preview caps and before safety suppression. All candidates share one request with relevance, off-topic, self-contained, safety, and set-sufficiency questions. Do not enable it for evidence you are unwilling to send to the selected external service. This is a heuristic, not a security firewall or verified-answer guarantee.
+
+## Upgrade from 0.1.x
+
+Old `jev.backend` settings no longer select a provider. Model names do not receive automatic alias changes.
+
+1. Run `/web-search-settings` to check the current pin.
+2. Select the matching command from the [provider table](../README.md#try-jev-with-your-existing-pi-login).
+3. Run `/reload` if you enabled `multi_search`.
+
+The command removes `jev.backend` and keeps other settings. Missing or unavailable pins return unjudged results with warnings. Ordinary searches need no classifier.
 
 ## All Jev settings
 

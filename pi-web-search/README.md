@@ -9,8 +9,10 @@
 
 ## Installation
 
+Requires Pi **0.99.0 or newer** and Node.js **22.19.0 or newer**.
+
 1. Install: `pi install npm:@gagansd/pi-web-search`
-2. The first interactive session shows a one-time setup prompt that reuses existing Exa, GitHub, Parallel, and Pi classifier auth. For optional keys and settings anytime, run `/web-search-settings`.
+2. The first interactive session shows a one-time setup prompt for existing Exa, GitHub, and Parallel credentials. For optional keys and settings anytime, run `/web-search-settings`.
 
 > Keyless configs have limitations set by Exa and Parallel.
 
@@ -35,15 +37,16 @@ The classifier receives the query and candidate titles, URLs, and excerpts as st
 | **Any Pi classifier** including llama.cpp | Pin its exact `provider`/`model`. |
 | **OpenAI Decisions API** | Planned adapter; official API contract and access still need verification. Not available today. |
 
-The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. The current model selector supports TypeSafe, Vercel, and OpenRouter; pin any Pi classifier with `/web-search-settings provider/model`.
+The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. Pin any registered Pi classifier with `/web-search-settings provider/model`.
 
 ### Try Jev with your existing Pi login
 
 For OpenRouter:
 
 1. Run `/login openrouter` **only if Pi isn't already authenticated**.
-2. Run `/web-search-settings on` or `/web-search-settings typesafe/jev-latest`, then `/reload`.
-3. Ask: “Use multi_search to search the web for AbortSignal.timeout.”
+2. Run `/web-search-settings openrouter/~typesafe/jev-latest`.
+3. Run `/reload`.
+4. Ask: “Use multi_search to search the web for AbortSignal.timeout.”
 
 | Use | Setup command | Default model |
 | --- | --- | --- |
@@ -190,7 +193,10 @@ Queries, URLs, errors, and excerpts can contain sensitive text.
 2. Run `npm ci --ignore-scripts --no-audit --no-fund`.
 3. Run `npm test`.
 4. Run `npm run typecheck`.
-5. Run `npm run pack:check`.
+5. Run `npm run audit:prod`.
+6. Run `npm run pack:check`.
+
+Optional live check: `npm run smoke:live`. It sends public test queries without your credentials. See [release checks and limits](docs/release-validation.md).
 
 SDK users must load Pi's MCP and codemode extensions. They must call `bindExtensions()`. See the [SDK example](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/sdk/14-codemode-mcp.ts).
 
