@@ -23,10 +23,10 @@ import {
 	resolveSettingsSync,
 } from "./providers/config.ts";
 import {
-	type ResearchSearchInput,
-	ResearchSearchSchema,
-	researchSearch,
-} from "./research_search.ts";
+	type MultiSearchInput,
+	MultiSearchSchema,
+	multiSearch,
+} from "./multi_search.ts";
 import {
 	type WebSearchInput,
 	WebSearchSchema,
@@ -126,27 +126,27 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 
 	// Tool exposure and execution use the same research.enabled switch.
 	if (!("error" in registered) && registered.researchEnabled) {
-		pi.registerTool<typeof ResearchSearchSchema, WebSearchDetails>({
-			name: "research_search",
-			label: "Research Search",
+		pi.registerTool<typeof MultiSearchSchema, WebSearchDetails>({
+			name: "multi_search",
+			label: "Multi Search",
 			description:
-				"Cross-check a query across available sources in an explicit scope. Slower than ordinary search; may apply optional ranking and safety judgments.",
+				"Search multiple available sources concurrently in an explicit scope. May apply optional ranking and safety classification.",
 			promptSnippet:
-				"Opt-in cross-source research over web and/or code with an explicit scope; applies optional ranking and safety judgments.",
+				"Opt-in multi-source search over web and/or code with an explicit scope; optional ranking and safety classification.",
 			promptGuidelines: [
-				"Use `research_search` only when a question genuinely needs cross-source checking; it is slower than `web_search`.",
-				"`research_search` takes an explicit `scope`: `web`, `code`, or `both`.",
+				"Use `multi_search` when you need retrieval from multiple sources; it is slower than `web_search`.",
+				"`multi_search` takes an explicit `scope`: `web`, `code`, or `both`.",
 			],
-			parameters: ResearchSearchSchema,
+			parameters: MultiSearchSchema,
 			outputSchema: SearchOutputSchema,
 			namespace: { name: "search", description: "Cited public web and code retrieval." },
 			annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 			execute: (toolCallId, params, signal, onUpdate, ctx) =>
-				researchSearch(toolCallId, params, signal, onUpdate, ctx),
-			renderCall(args: ResearchSearchInput, theme) {
+				multiSearch(toolCallId, params, signal, onUpdate, ctx),
+			renderCall(args: MultiSearchInput, theme) {
 				const query = `${args.query || "…"} [${args.scope}]`;
 				return new Text(
-					`${theme.fg("toolTitle", theme.bold("research_search"))} ${theme.fg("accent", query)}`,
+					`${theme.fg("toolTitle", theme.bold("multi_search"))} ${theme.fg("accent", query)}`,
 					0,
 					0,
 				);
@@ -242,7 +242,7 @@ async function buildSettingsReport(): Promise<string> {
 		`config: ${resolved.configPath}`,
 		`web_search: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
 		`code_search: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
-		`research_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
+		`multi_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
 		`jev: ${resolved.jev.enabled ? `enabled (${resolved.jev.backend}, ${resolved.jev.model})` : "disabled"}`,
 		"",
 		"Credentials (presence only; keys are never shown):",
@@ -272,7 +272,7 @@ async function buildSettingsReport(): Promise<string> {
 		"- Retrieval secrets can live in Pi's <agent-dir>/auth.json or env; Pi separately resolves classifier credentials from supported provider env, stored, runtime or model auth.",
 		"- Nonsecret settings live in web-search.json; see the repo README for the full example.",
 		"- Parallel native MCP is keyless by default; check /mcp for connection status or a same-name mcp.json override.",
-		"- Run /reload after changing research_search exposure or a Parallel credential (its MCP header is captured at registration).",
+		"- Run /reload after changing multi_search exposure or a Parallel credential (its MCP header is captured at registration).",
 		"- Install from a repository checkout: pi install ./pi-web-search",
 		"- After an npm release is available: pi install npm:@gagansd/pi-web-search",
 	);

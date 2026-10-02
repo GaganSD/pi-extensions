@@ -21,7 +21,7 @@ import { MCP_PROTOCOL_VERSION } from "../src/providers/mcp.ts";
 import type { FetchLike } from "../src/providers/http.ts";
 import { droppedParamsWarning } from "../src/utils.ts";
 import { exaObjective } from "../src/providers/exa.ts";
-import { ResearchSearchSchema, researchSearch } from "../src/research_search.ts";
+import { MultiSearchSchema, multiSearch } from "../src/multi_search.ts";
 import { WebSearchSchema, type WebSearchInput, webSearch } from "../src/web_search.ts";
 
 const VALID_CONFIG = JSON.stringify({ web: { provider: "exa", fallback: [] } });
@@ -260,10 +260,10 @@ test("code_search is query-only and stays in the code family", async () => {
 	});
 });
 
-test("research_search returns structured failure when research is not enabled", async () => {
+test("multi_search returns structured failure when research is not enabled", async () => {
 	await withConfigFile(VALID_CONFIG, async () => {
 		await assertToolError(
-			researchSearch(
+			multiSearch(
 				"call_1",
 				{ query: "AbortSignal.any", scope: "web" },
 				undefined,
@@ -273,20 +273,20 @@ test("research_search returns structured failure when research is not enabled", 
 			),
 			(error: { code?: string; message?: string }) => {
 				assert.equal(error.code, "invalid_config");
-				assert.match(String(error.message), /^research_search failed \(invalid_config\): /);
-				assert.match(String(error.message), /research_search is disabled/);
+				assert.match(String(error.message), /^multi_search failed \(invalid_config\): /);
+				assert.match(String(error.message), /multi_search is disabled/);
 				return true;
 			},
 		);
 	});
 });
 
-test("research_search fans out in the requested scope", async () => {
-	assert.ok("scope" in ResearchSearchSchema.properties);
+test("multi_search fans out in the requested scope", async () => {
+	assert.ok("scope" in MultiSearchSchema.properties);
 	await withConfigFile(
 		JSON.stringify({ research: { enabled: true }, web: { provider: "exa", fallback: [] } }),
 		async () => {
-			const result = await researchSearch(
+			const result = await multiSearch(
 				"call_1",
 				{ query: "AbortSignal.any", scope: "both" },
 				undefined,

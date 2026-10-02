@@ -9,7 +9,7 @@ import { type FetchLike, postJson } from "../src/providers/http.ts";
 import { applyConfig } from "../src/providers/config.ts";
 import { createMcpClient } from "../src/providers/mcp.ts";
 import { systemOne } from "../src/jev/api.ts";
-import { researchSearch } from "../src/research_search.ts";
+import { multiSearch } from "../src/multi_search.ts";
 import { webSearch } from "../src/web_search.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { classifierRegistry } from "./fixtures/native-jev.ts";
@@ -108,7 +108,7 @@ test("a URL request that rejects before slower search is immediately observed", 
 
 test("independent code configuration cannot narrow both-scope research", () => withSettings({ code: { provider: "grep" }, research: { enabled: true } }, async () => {
 	const calls: string[] = [];
-	const result = await researchSearch("id", { query: "snippet", scope: "both" }, undefined, undefined, ctx, {
+	const result = await multiSearch("id", { query: "snippet", scope: "both" }, undefined, undefined, ctx, {
 		availability: { exa: true, grep: true },
 		transports: {
 			exa: async () => { calls.push("exa"); return document; },
@@ -146,7 +146,7 @@ test("progress observers cannot fail retrieval or emit after completion/cancella
 
 test("operation budget exhausted only during optional judging preserves retrieved evidence", () => withSettings({ timeoutMs: 1000, research: { enabled: true }, jev: { enabled: true } }, async () => {
 	const judgeContext = { modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})) } as ExtensionContext;
-	const result = await researchSearch("id", { query: "example", scope: "web" }, undefined, undefined, judgeContext, {
+	const result = await multiSearch("id", { query: "example", scope: "web" }, undefined, undefined, judgeContext, {
 		availability: { exa: true },
 		transports: { exa: async () => { await new Promise((resolve) => setTimeout(resolve, 850)); return document; } },
 	});

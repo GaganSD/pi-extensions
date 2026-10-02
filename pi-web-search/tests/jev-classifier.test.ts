@@ -22,7 +22,19 @@ const questions = {
 const state = { query: "query", candidates: [{ index: 0, title: "A", url: "https://a.example", excerpt: "A" }] };
 
 // No environment mutation: credentials, including runtime-only/OAuth sources, belong to Pi.
-test("legacy default maps to installed catalog IDs and prefers available TypeSafe", async () => {
+test("current default prefers TypeSafe and maps to Vercel when needed", async () => {
+	assert.equal((await selectJevModel(registry([typesafe, vercel]), {}))?.provider, "typesafe");
+	assert.equal((await selectJevModel(registry([vercel]), {}))?.id, JEV_VERCEL_MODEL);
+	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_NATIVE_MODEL, backend: "vercel" }))?.id, JEV_VERCEL_MODEL);
+	assert.equal(await selectJevModel(registry([vercel]), { model: JEV_NATIVE_MODEL, backend: "typesafe" }), undefined);
+	const unavailableTypeSafe = {
+		...registry([typesafe, vercel]),
+		getAvailableOfType: async (_type: string, provider: string) => provider === "typesafe" ? [] : [vercel],
+	} as unknown as Registry;
+	assert.equal((await selectJevModel(unavailableTypeSafe, {}))?.provider, "vercel-ai-gateway");
+});
+
+test("legacy alias maps to installed catalog IDs and prefers available TypeSafe", async () => {
 	assert.equal((await selectJevModel(registry([typesafe, vercel]), { model: JEV_LEGACY_MODEL }))?.provider, "typesafe");
 	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_LEGACY_MODEL }))?.id, JEV_VERCEL_MODEL);
 	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_LEGACY_MODEL, backend: "typesafe" })), undefined);
@@ -30,14 +42,19 @@ test("legacy default maps to installed catalog IDs and prefers available TypeSaf
 
 test("explicit catalog models honor backend and never switch to an arbitrary fallback", async () => {
 	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_VERCEL_MODEL, backend: "auto" }))?.provider, "vercel-ai-gateway");
-	assert.equal(await selectJevModel(registry([vercel]), { model: "jev-latest", backend: "auto" }), undefined);
+	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_NATIVE_MODEL, backend: "auto" }))?.id, JEV_VERCEL_MODEL);
 	assert.equal(await selectJevModel(registry([typesafe, vercel]), { model: JEV_VERCEL_MODEL, backend: "typesafe" }), undefined);
 	assert.equal(await selectJevModel(registry([typesafe, vercel]), { model: "unknown", backend: "auto" }), undefined);
 });
 
-test("legacy default emits an actionable migration notice when enabled", () => {
-	const enabled = applyConfig("/unused", { jev: { enabled: true } });
-	assert.match(enabled.notices.join(" "), /legacy direct-API ID.*typesafe\/jev-latest/);
+test("default and current catalog IDs do not emit a legacy migration notice", () => {
+	for (const jev of [{ enabled: true }, { enabled: true, model: JEV_NATIVE_MODEL }, { enabled: false }]) {
+		const settings = applyConfig("/unused", { jev });
+		assert.equal(settings.jev.model, JEV_NATIVE_MODEL);
+		assert.deepEqual(settings.notices, []);
+	}
+	const legacy = applyConfig("/unused", { jev: { enabled: true, model: JEV_LEGACY_MODEL } });
+	assert.match(legacy.notices.join(" "), /legacy direct-API ID.*typesafe\/jev-latest/);
 	assert.equal(applyConfig("/unused", {}).notices.length, 0);
 	const explicit = applyConfig("/unused", { jev: { enabled: true, model: "unknown-catalog-id" } });
 	assert.equal(explicit.jev.model, "unknown-catalog-id");

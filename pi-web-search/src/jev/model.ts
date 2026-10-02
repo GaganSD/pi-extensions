@@ -6,7 +6,7 @@ type ModelRegistry = ExtensionContext["modelRegistry"];
 export type JevBackend = "typesafe" | "vercel";
 export type JevBackendSetting = "auto" | JevBackend;
 
-/** Former direct-API default; only this legacy ID is translated across catalogs. */
+/** Former direct-API default, retained as a compatibility alias. */
 export const JEV_LEGACY_MODEL = "jev-1.13.0";
 export const JEV_NATIVE_MODEL = "jev-latest";
 export const JEV_VERCEL_MODEL = "typesafe-ai/jev";
@@ -20,8 +20,8 @@ export interface JevModelOptions {
 }
 
 /**
- * Auto prefers TypeSafe, then Vercel only for the legacy package default.
- * An explicit catalog ID never silently changes to a different model/provider.
+ * Auto maps the current Jev default (and legacy alias) to TypeSafe, then Vercel.
+ * Other catalog IDs are exact; an explicit backend never changes providers.
  * Pi, not the package, decides availability and resolves authentication.
  */
 export async function selectJevModel(
@@ -29,15 +29,16 @@ export async function selectJevModel(
 	options: JevModelOptions,
 	signal?: AbortSignal,
 ): Promise<ClassifierModel<ClassifierApi> | undefined> {
-	const requested = options.model?.trim() || JEV_LEGACY_MODEL;
+	const requested = options.model?.trim() || JEV_NATIVE_MODEL;
+	const defaultModel = requested === JEV_NATIVE_MODEL || requested === JEV_LEGACY_MODEL;
 	const backend = options.backend ?? "auto";
 	const order: JevBackend[] = backend === "auto"
-		? requested === JEV_LEGACY_MODEL
+		? defaultModel
 			? ["typesafe", "vercel"]
 			: requested === JEV_VERCEL_MODEL ? ["vercel"] : ["typesafe"]
 		: [backend];
 	for (const candidate of order) {
-		const id = requested === JEV_LEGACY_MODEL
+		const id = defaultModel
 			? candidate === "typesafe" ? JEV_NATIVE_MODEL : JEV_VERCEL_MODEL
 			: requested;
 		const provider = PROVIDERS[candidate];
@@ -54,6 +55,6 @@ export async function selectJevModel(
 /** User-facing diagnostic; never exposes credentials or falls back to an arbitrary model. */
 export function jevUnavailableMessage(options: JevModelOptions): string {
 	const backend = options.backend ?? "auto";
-	const id = options.model?.trim() || JEV_LEGACY_MODEL;
+	const id = options.model?.trim() || JEV_NATIVE_MODEL;
 	return `jev judging unavailable: Pi has no available classifier for jev.backend=${backend}, jev.model=${id}. Check the Pi classifier model catalog and configure TYPESAFE_API_KEY or AI_GATEWAY_API_KEY (or Pi stored/runtime/model auth).`;
 }

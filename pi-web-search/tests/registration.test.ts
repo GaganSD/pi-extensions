@@ -126,7 +126,7 @@ function names(registration: Pick<Registration, "tools" | "commands">): string[]
 
 const ctx = {} as unknown as ExtensionContext;
 
-test("a missing config registers web_search and code_search, not research_search", async () => {
+test("a missing config registers web_search and code_search, not multi_search", async () => {
 	await loadExtension(undefined, ({ tools, commands, servers }) => {
 		assert.equal(servers[0]?.name, PARALLEL_MCP_SERVER);
 		assert.deepEqual(names({ tools, commands }), ["web_search", "code_search"]);
@@ -158,14 +158,14 @@ test("all tools declare the modern Pi data and permission contracts", async () =
 	});
 });
 
-test("research.enabled=true registers research_search", async () => {
+test("research.enabled=true registers multi_search", async () => {
 	await loadExtension(
 		JSON.stringify({ research: { enabled: true } }),
 		({ tools, commands }) => {
 			assert.deepEqual(names({ tools, commands }), [
 				"web_search",
 				"code_search",
-				"research_search",
+				"multi_search",
 			]);
 		},
 	);
@@ -220,9 +220,9 @@ test("registered web_search forwards the live tool context through the native pi
 	});
 });
 
-test("research.enabled=false does not register research_search", async () => {
+test("research.enabled=false does not register multi_search", async () => {
 	await loadExtension(JSON.stringify({ research: { enabled: false } }), ({ tools, commands }) => {
-		assert.equal(names({ tools, commands }).includes("research_search"), false);
+		assert.equal(names({ tools, commands }).includes("multi_search"), false);
 	});
 });
 
@@ -282,7 +282,7 @@ test("the /web-search-settings command reports presence without keys", async () 
 			}
 
 			assert.match(report, /pi-web-search settings/);
-			assert.match(report, /research_search: enabled/);
+			assert.match(report, /multi_search: enabled/);
 			assert.match(report, /github: present via auth\.json/);
 			assert.match(report, /parallel: present via PARALLEL_API_KEY/);
 			assert.match(report, /Install from a repository checkout: pi install \.\/pi-web-search/);

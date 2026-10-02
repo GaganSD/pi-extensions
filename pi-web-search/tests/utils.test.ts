@@ -19,9 +19,9 @@ test("failed searches return isError plus schema-valid structured data", () => {
 test("structured failures preserve config paths and originating tool", () => {
 	const error = providerError("invalid_config", "not valid JSON") as InvalidConfigError;
 	error.configPath = "/tmp/web-search.json";
-	const result = formatSearchError("research_search", error);
+	const result = formatSearchError("multi_search", error);
 	assert.equal(result.details.error?.configPath, error.configPath);
-	assert.match(result.details.error?.message ?? "", /^research_search failed \(invalid_config\)/);
+	assert.match(result.details.error?.message ?? "", /^multi_search failed \(invalid_config\)/);
 });
 
 test("missing HTTP fields are absent from the JSON result", () => {

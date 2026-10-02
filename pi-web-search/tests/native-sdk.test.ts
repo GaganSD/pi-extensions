@@ -104,7 +104,7 @@ for (const judge of [false, true]) {
 			await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
 				command: process.execPath, args: [fixture, callsPath], exposure: "codemode-deferred",
 			} } }));
-			const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", ...(judge ? ["research_search"] : [])],
+			const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", ...(judge ? ["multi_search"] : [])],
 				compaction: { enabled: false }, retry: { enabled: false } });
 			const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
 				noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
@@ -149,7 +149,7 @@ for (const judge of [false, true]) {
 				hit.type === "extract" && hit.url === args.urls[0]));
 			assert.equal(classifyCalls, 0, "ordinary search never judges");
 			if (judge) {
-				const judged = await ctx.executeTool("research_search", { query, scope: "web" });
+				const judged = await ctx.executeTool("multi_search", { query, scope: "web" });
 				assert.equal(judged.isError, false, JSON.stringify(judged.result));
 				assert.equal((judged.result.structuredContent as { jevStatus?: string }).jevStatus, "ran");
 				assert.equal(judged.result.usage?.totalTokens, 11, "own classifier usage reaches AgentToolResult");

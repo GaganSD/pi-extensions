@@ -88,8 +88,8 @@ function request(settings: JevSettings): SearchRequest {
 
 // --- api --------------------------------------------------------------------
 
-test("the old default is recognizable for explicit catalog mapping", () => {
-	assert.equal(JEV_DEFAULT_MODEL, "jev-1.13.0");
+test("the default uses the current Pi Jev catalog ID", () => {
+	assert.equal(JEV_DEFAULT_MODEL, "jev-latest");
 });
 
 test("noul and choice reads tolerate malformed answers", () => {
