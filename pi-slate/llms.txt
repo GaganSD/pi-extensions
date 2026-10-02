@@ -1,12 +1,15 @@
 # pi-slate
 
-> Quiet vertical-first TUI for the Pi coding agent. Adds no tools, prompts, or model calls.
+> Quiet vertical-first TUI for the Pi coding agent, with Shiki-powered Pi-Diff. Adds no new model-facing tools, prompts, or model calls.
 
-Replaces Pi's header, footer, and editor. Other UI extensions that replace the same surfaces may conflict.
+Replaces Pi's header, footer, editor, and edit/write tool rendering. Other extensions that replace the same surfaces or tool implementations may conflict. Set PI_DIFF_ENABLED=0 to leave edit/write untouched.
+
+Pi-Diff uses responsive split edits, unified writes, and character-level emphasis. Configure syntax themes and all diff colors with PI_DIFF_* environment variables; see README. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
 ## Documentation
 
 - [README](README.md): install, features, commands, themes, composer keys
 - [Extension entry](extensions/pi-slate/index.ts): TUI replacement
+- [Pi-Diff](extensions/pi-slate/pi-diff.ts): native edit/write integration
 - [Default theme](themes/black-metal.json): install default
 - [Package manifest](package.json): `npm:pi-slate`

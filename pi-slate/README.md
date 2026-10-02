@@ -1,7 +1,7 @@
 <h1 align="center">Slate 🌱</h1>
 
 <p align="center">
-  A minimal terminal UI/UX for Pi Coding Agent with a vertical-first workspace, contextual sidebar, rich media, and quiet update notices.
+  A minimal terminal UI/UX for Pi Coding Agent with a vertical-first workspace, contextual sidebar, rich diffs, rich media, and quiet update notices.
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@ Explore extension settings using `/slate` after installation.
 
 ## Features
 
-Slate renders cleanly into your terminal and stays customizable without adding tools, prompts, model calls, or context bloat.
+Slate renders cleanly into your terminal and stays customizable without adding new model-facing tools, prompts, or model calls.
 
 ### Vertical-first Workspace
 
@@ -46,6 +46,50 @@ The tall vertical screenshot is constrained so it does not dominate the page:
 <p align="center">
   <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-vertical.png" alt="Slate vertical mode with the sidebar unmounted" height="420" />
 </p>
+
+### Pi-Diff
+
+Rich, syntax-highlighted `edit` and `write` results, built into Slate and enabled by default.
+
+- **Shiki highlighting:** 190+ bundled languages, loaded on demand and composited over diff backgrounds. Unknown file types remain readable as plain text.
+- **Split edits:** before/after columns with line numbers. Automatically switches to unified below 100 available columns, including when the sidebar narrows the chat pane.
+- **Unified writes:** stacked removed/added lines for overwrites, or additions for new files.
+- **Word-level emphasis:** stronger backgrounds isolate the changed characters inside paired lines, not just whole words.
+- **Compact by default:** expand tool output to see more. Long lines are clipped to the pane; resize to reveal more horizontally.
+
+Pi-Diff preserves Pi's built-in schemas, argument normalization, mutation queue, errors, and model-facing response text. Edit previews use Pi's actual result patch; write snapshots are captured inside the same mutation queue. Bounded write patches are saved in tool-result details so they survive session restore. RPC, JSON, and print execution keep the native results without collecting write snapshots. Nothing is sent to a highlighting service.
+
+#### Configuration
+
+Set environment variables before starting Pi. Restart Pi after changing them; these settings are separate from `/slate theme`.
+
+```bash
+PI_DIFF_THEME=catppuccin-mocha \
+PI_DIFF_ADD_BG='#173526' \
+PI_DIFF_REMOVE_BG='#3d2027' \
+pi
+```
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `PI_DIFF_ENABLED` | `true` | Set `0`, `false`, or `off` to leave the native tools/renderers untouched. |
+| `PI_DIFF_THEME` | `github-dark` | Any [bundled Shiki theme](https://shiki.style/themes), including `github-light` and `catppuccin-mocha`. Controls syntax-token colors and styles. |
+| `PI_DIFF_SPLIT_MIN_WIDTH` | `100` | Minimum available columns for split edits; integer from 60–500. Writes remain unified. |
+| `PI_DIFF_FG` | `#c9d1d9` | Plaintext/fallback foreground. |
+| `PI_DIFF_CONTEXT_BG` | `#161b22` | Context lines, headers, and empty cells. |
+| `PI_DIFF_ADD_BG` | `#173526` | Added-line background. |
+| `PI_DIFF_REMOVE_BG` | `#3d2027` | Removed-line background. |
+| `PI_DIFF_ADD_WORD_BG` | `#286442` | Changed characters on added lines. |
+| `PI_DIFF_REMOVE_WORD_BG` | `#85343e` | Changed characters on removed lines. |
+| `PI_DIFF_LINE_NUMBER_FG` | `#8b949e` | Line numbers, change signs, and column labels. |
+| `PI_DIFF_BORDER_FG` | `#484f58` | Split divider. |
+| `PI_DIFF_HEADER_FG` | `#79c0ff` | Summary, hunk headers, and preview notices. |
+
+Colors accept `#RGB` or `#RRGGBB`. Invalid values fall back to defaults. For light themes, also set the diff backgrounds and foregrounds to suit your terminal. Truecolor is recommended.
+
+Previews are deliberately bounded: 256 KiB per write snapshot/patch, 2,000 parsed rows, 16 displayed rows when collapsed and 400 when expanded. Omitted rows are disclosed; binary, unreadable, or oversized previous content produces a notice rather than a misleading overwrite diff. Expensive comparisons and highlighting have limits and fall back gracefully. None of these limits truncate the file operation itself. Historical write results without saved diff details retain their native success message.
+
+Pi-Diff overrides the built-in `edit` and `write` definitions. Do not combine it with other extensions that override those tools (including remote/sandbox execution tools); set `PI_DIFF_ENABLED=0` if those extensions need to own them.
 
 ### Rich Media Rendering
 
@@ -148,7 +192,7 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 ## Minimal By Design
 
-Slate adds no context bloat; no tools, prompts, or model calls. It's entirely deterministic and made to be customizable and improve your Pi experience while your Pi remains yours.
+Slate adds no new model-facing tools, prompts, or model calls. Pi-Diff customizes the existing `edit` and `write` tools without changing their model-facing response text. It's entirely deterministic and made to be customizable and improve your Pi experience while your Pi remains yours.
 
 ## Requirements
 

@@ -60,5 +60,9 @@
       "./themes/*.json"
     ],
     "image": "https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-overview.png"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "shiki": "^4.5.0"
   }
 }

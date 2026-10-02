@@ -17,6 +17,7 @@ import {
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
+import { installPiDiff } from "./pi-diff.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
 import { GitDiffPreviewLoader } from "./git-diff.ts";
@@ -191,6 +192,7 @@ class BranchFooter implements Component {
 }
 
 export default function piSlate(pi: ExtensionAPI): void {
+  installPiDiff(pi);
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
   const selection = new ComposerSelectionController();
