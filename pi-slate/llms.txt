@@ -4,7 +4,7 @@
 
 Replaces Pi's header, footer, editor, and edit/write result rendering. Other extensions that replace the same surfaces or tool implementations may conflict. `/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves edit/write untouched.
 
-Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. Configure with `/slate diff` and `diff` in `pi-slate.json`; `SLATE_DIFF_*` (and legacy `PI_DIFF_*`) override. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
+Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow `/slate theme`. `/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves native edit/write tools untouched. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
 ## Documentation
 

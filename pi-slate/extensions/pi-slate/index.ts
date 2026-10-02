@@ -74,7 +74,6 @@ import {
   type Style,
 } from "./catppuccin.ts";
 import { applySlateTheme, persistFullscreen, persistTheme, shouldApplyInstallDefault } from "./install-defaults.ts";
-import { bundledThemes } from "shiki";
 
 type SlateConfig = {
   density: "comfortable" | "compact";
@@ -159,7 +158,6 @@ function withMessageLength(current: SlateConfig, messageLength: number | "all" |
 
 function withDiff(current: SlateConfig, patch: DiffPreferences): SlateConfig {
   const diff = { ...current.diff, ...patch };
-  if (Object.hasOwn(patch, "theme") && patch.theme === undefined) delete diff.theme;
   const empty = !Object.keys(diff).length;
   const next = { ...current };
   if (empty) delete next.diff;
@@ -551,30 +549,16 @@ export default function piSlate(pi: ExtensionAPI): void {
     return undefined;
   };
 
-  const pickDiffMenu = async (ctx: ExtensionContext): Promise<boolean | "theme" | undefined> => {
+  const pickDiffMenu = async (ctx: ExtensionContext): Promise<boolean | undefined> => {
     const enabled = config.diff?.enabled !== false;
     const value = await ctx.ui.select("Diff", [
       withCurrent("On", enabled),
       withCurrent("Off", !enabled),
-      "Theme",
     ]);
     const key = value ? withoutCurrent(value) : undefined;
     if (key === "On") return true;
     if (key === "Off") return false;
-    if (key === "Theme") return "theme";
     return undefined;
-  };
-
-  const pickDiffTheme = async (ctx: ExtensionContext): Promise<{ theme?: string } | undefined> => {
-    const current = config.diff?.theme ?? "github-dark";
-    const options = ["default", "github-dark", "github-light", "catppuccin-mocha"];
-    const value = await ctx.ui.select(
-      "Diff theme",
-      options.map((theme) => withCurrent(theme, theme === current || (theme === "default" && !config.diff?.theme))),
-    );
-    if (!value) return undefined;
-    const key = withoutCurrent(value);
-    return { theme: key === "default" ? undefined : key };
   };
 
   const pickFooter = async (ctx: ExtensionContext): Promise<SlateConfig["footer"] | undefined> => {
@@ -608,6 +592,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       return;
     }
     persistTheme(ctx.cwd, name);
+    requestRender(true);
     ctx.ui.notify(message, "info");
   };
 
@@ -840,36 +825,14 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       if (kind === "diff-menu") {
         const choice = await pickDiffMenu(ctx);
-        if (choice === "theme") kind = "diff-theme-menu";
-        else if (choice !== undefined) {
-          apply(withDiff(config, { enabled: choice }), `Diff ${choice ? "on" : "off"}. Run /reload to apply.`, ctx);
-          return;
-        } else return;
+        if (choice === undefined) return;
+        apply(withDiff(config, { enabled: choice }), `Diff ${choice ? "on" : "off"}. Run /reload to apply.`, ctx);
+        return;
       }
 
       if (kind === "diff") {
         if (parsed.kind !== "diff" || parsed.enabled === undefined) return;
         apply(withDiff(config, { enabled: parsed.enabled }), `Diff ${parsed.enabled ? "on" : "off"}. Run /reload to apply.`, ctx);
-        return;
-      }
-
-      if (kind === "diff-theme" || kind === "diff-theme-menu") {
-        let selected: string | undefined;
-        if (parsed.kind === "diff-theme") selected = parsed.theme;
-        else {
-          const picked = await pickDiffTheme(ctx);
-          if (!picked) return;
-          selected = picked.theme;
-        }
-        if (selected && !Object.hasOwn(bundledThemes, selected)) {
-          ctx.ui.notify(`Unknown diff theme ${selected}`, "error");
-          return;
-        }
-        apply(
-          withDiff(config, { theme: selected }),
-          selected ? `Diff theme set to ${selected}. Run /reload to apply.` : "Diff theme reset to default. Run /reload to apply.",
-          ctx,
-        );
         return;
       }
 

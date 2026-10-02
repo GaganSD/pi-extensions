@@ -89,6 +89,7 @@ export class DiffView implements Component {
   readonly path: string;
   readonly kind: "edit" | "write";
   readonly expanded: boolean;
+  readonly themeName: string;
   private config: DiffConfig;
   private requestRender: () => void;
 
@@ -100,11 +101,13 @@ export class DiffView implements Component {
     config: DiffConfig,
     highlighter: DiffHighlighter,
     requestRender: () => void,
+    themeName = "black-metal",
   ) {
     this.patch = patch;
     this.path = path;
     this.kind = kind;
     this.expanded = expanded;
+    this.themeName = themeName;
     this.config = config;
     this.requestRender = requestRender;
     this.rows = patchRows(patch);
@@ -122,7 +125,7 @@ export class DiffView implements Component {
       for (const excluded of ["add", "remove"] as const) {
         const side = hunk.filter((row) => row.kind !== excluded);
         if (!side.length) continue;
-        const tokens = await highlighter.tokens(side.map((row) => row.text).join("\n"), this.path);
+        const tokens = await highlighter.tokens(side.map((row) => row.text).join("\n"), this.path, this.config.theme);
         side.forEach((row, i) => { row.tokens = tokens?.[i]; });
       }
       start = end;

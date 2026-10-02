@@ -1,6 +1,5 @@
 import { basename, extname } from "node:path";
-import { bundledLanguages, createHighlighter, type BundledLanguage, type Highlighter, type ThemedToken } from "shiki";
-import type { DiffConfig } from "./diff-config.ts";
+import { bundledLanguages, createHighlighter, type BundledLanguage, type BundledTheme, type Highlighter, type ThemedToken } from "shiki";
 
 const extensions: Record<string, string> = {
   h: "c", hh: "cpp", hpp: "cpp", cc: "cpp", cxx: "cpp", mjs: "javascript", cjs: "javascript",
@@ -27,22 +26,20 @@ export class DiffHighlighter {
   private disposed = false;
   private loads = new Map<string, Promise<void>>();
 
-  private config: DiffConfig;
-
-  constructor(config: DiffConfig) { this.config = config; }
-
-  async tokens(code: string, path: string): Promise<ThemedToken[][] | undefined> {
+  async tokens(code: string, path: string, theme: BundledTheme): Promise<ThemedToken[][] | undefined> {
     const lang = diffLanguage(path);
     if (lang === "text" || this.disposed) return undefined;
     try {
-      this.highlighter ??= createHighlighter({ themes: [this.config.theme], langs: [] });
+      this.highlighter ??= createHighlighter({ themes: [theme], langs: [] });
       const highlighter = await this.highlighter;
       if (this.disposed) return undefined;
+      const themeKey = `theme:${theme}`;
+      if (!this.loads.has(themeKey)) this.loads.set(themeKey, highlighter.loadTheme(theme));
       if (!this.loads.has(lang)) this.loads.set(lang, highlighter.loadLanguage(lang));
-      await this.loads.get(lang);
+      await Promise.all([this.loads.get(themeKey), this.loads.get(lang)]);
       if (this.disposed) return undefined;
       return highlighter.codeToTokens(code, {
-        lang, theme: this.config.theme, tokenizeMaxLineLength: 2000, tokenizeTimeLimit: 50,
+        lang, theme, tokenizeMaxLineLength: 2000, tokenizeTimeLimit: 50,
       }).tokens;
     } catch {
       // Highlighting is optional. Never turn a successful mutation into an error.

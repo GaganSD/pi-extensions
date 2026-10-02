@@ -245,10 +245,7 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("diff"), { ok: true, kind: "diff-menu" });
   assert.deepEqual(parseSlateArgs("diff on"), { ok: true, kind: "diff", enabled: true });
   assert.deepEqual(parseSlateArgs("diff off"), { ok: true, kind: "diff", enabled: false });
-  assert.deepEqual(parseSlateArgs("diff theme"), { ok: true, kind: "diff-theme-menu" });
-  assert.deepEqual(parseSlateArgs("diff theme default"), { ok: true, kind: "diff-theme" });
-  assert.deepEqual(parseSlateArgs("diff theme github-dark"), { ok: true, kind: "diff-theme", theme: "github-dark" });
-  assert.deepEqual(parseSlateArgs("diff theme extra extra"), { ok: false });
+  assert.deepEqual(parseSlateArgs("diff theme"), { ok: false });
   assert.deepEqual(parseSlateArgs("diff nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
   assert.deepEqual(parseSlateArgs("theme nope"), { ok: false });

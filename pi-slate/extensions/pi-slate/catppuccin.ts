@@ -89,6 +89,19 @@ export function themeMessage(flavor: Flavor, style: Style): string {
   return `Theme set to ${FLAVOR_LABELS[flavor]} · ${STYLE_LABELS[style]}`;
 }
 
+export function catppuccinChrome(name?: string): { accent: string; border: string; text: string; mantle: string } | undefined {
+  const parsed = parseCatppuccinTheme(name);
+  if (!parsed) return undefined;
+  const palette = PALETTES[parsed.flavor];
+  const roles = STYLE_ROLES[parsed.style];
+  return {
+    accent: palette[roles.accent],
+    border: palette[roles.border],
+    text: palette.text,
+    mantle: palette.mantle,
+  };
+}
+
 export type CatppuccinThemeJson = {
   $schema: string;
   name: string;

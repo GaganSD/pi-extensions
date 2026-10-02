@@ -6,7 +6,7 @@ import {
   type ExtensionAPI, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { DIFF_MAX_BYTES, diffText, readDiffConfig, type DiffConfig, type DiffPreferences } from "./diff-config.ts";
+import { DIFF_MAX_BYTES, diffAppearance, diffText, readDiffConfig, type DiffConfig, type DiffPreferences } from "./diff-config.ts";
 import { DiffHighlighter } from "./diff-highlight.ts";
 import { DiffView } from "./diff-renderer.ts";
 
@@ -69,9 +69,10 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
       if (options.isPartial) return new Text(theme.fg("muted", "Editing…"), 0, 0);
       const patch = result.details?.patch;
       if (!context.isError && typeof patch === "string") {
+        const themeName = theme.name ?? "black-metal";
         const previous = context.lastComponent;
-        if (previous instanceof DiffView && previous.patch === patch && previous.path === context.args?.path && previous.expanded === options.expanded) return previous;
-        return new DiffView(patch, context.args?.path ?? "", "edit", options.expanded, config, highlighter, context.invalidate);
+        if (previous instanceof DiffView && previous.patch === patch && previous.path === context.args?.path && previous.expanded === options.expanded && previous.themeName === themeName) return previous;
+        return new DiffView(patch, context.args?.path ?? "", "edit", options.expanded, { ...config, ...diffAppearance(themeName) }, highlighter, context.invalidate, themeName);
       }
       const text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
       const fallback = !context.isError && result.details?.diff ? result.details.diff : text;
@@ -103,9 +104,10 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
       if (options.isPartial) return new Text(theme.fg("muted", "Writing…"), 0, 0);
       const preview = result.details?.slateDiff;
       if (!context.isError && typeof preview?.patch === "string") {
+        const themeName = theme.name ?? "black-metal";
         const previous = context.lastComponent;
-        if (previous instanceof DiffView && previous.patch === preview.patch && previous.path === context.args?.path && previous.expanded === options.expanded) return previous;
-        return new DiffView(preview.patch, context.args?.path ?? "", "write", options.expanded, config, highlighter, context.invalidate);
+        if (previous instanceof DiffView && previous.patch === preview.patch && previous.path === context.args?.path && previous.expanded === options.expanded && previous.themeName === themeName) return previous;
+        return new DiffView(preview.patch, context.args?.path ?? "", "write", options.expanded, { ...config, ...diffAppearance(themeName) }, highlighter, context.invalidate, themeName);
       }
       let text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
       if (!context.isError && preview?.note) text += `\n${preview.note}`;
@@ -118,7 +120,7 @@ export function createDiffTools(config: DiffConfig, highlighter: DiffHighlighter
 export function installDiff(pi: ExtensionAPI, preferences?: DiffPreferences): void {
   const config = readDiffConfig(process.env, preferences);
   if (!config.enabled) return;
-  const highlighter = new DiffHighlighter(config);
+  const highlighter = new DiffHighlighter();
   const tools = createDiffTools(config, highlighter);
   pi.registerTool(tools.edit);
   pi.registerTool(tools.write);

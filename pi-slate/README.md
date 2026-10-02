@@ -55,16 +55,9 @@ The tall vertical screenshot is constrained so it does not dominate the page:
 - Word-level emphasis on paired lines. 190+ languages via Shiki; unknown types stay plain text.
 - Compact until you expand the tool card. Long lines clip to the pane.
 
-Native schemas, mutation queue, errors, and model-facing text are unchanged. Write snapshots stay in `slateDiff` result details for session restore. RPC, JSON, and print keep native results. `/slate theme` is chrome; `/slate diff theme` is syntax tokens only.
+Native schemas, mutation queue, errors, and model-facing text are unchanged. Write snapshots stay in `slateDiff` result details for session restore. RPC, JSON, and print keep native results. `/slate theme` styles the whole UI, including diffs — there is no separate diff theme.
 
-```text
-/slate diff on
-/slate diff off
-/slate diff theme catppuccin-mocha
-/slate diff theme default
-```
-
-Saved in `~/.pi/agent/pi-slate.json` as `diff`. Run `/reload` after changing. Width and colors can also be set there (`splitMinWidth`, `colors`). Env overrides: `SLATE_DIFF_*` (legacy `PI_DIFF_*` still works). `/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves native edit/write tools untouched — use that if another extension must own them.
+`/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves native edit/write tools untouched if another extension must own them. Requires `/reload`.
 
 Previews are bounded: 256 KiB snapshots, 2,000 parsed rows, 16 collapsed / 400 expanded. Binary or oversized previous content shows a notice, not a fake overwrite.
 
@@ -147,7 +140,7 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Footer | `/slate footer [standard\|minimal]` | Standard shows model and thinking on the composer; minimal hides them. |
 | Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal]` | Catppuccin Mocha style. `/slate style` does the same. |
-| Diff | `/slate diff [on\|off]` / `/slate diff theme [default\|<shiki-theme>]` | Highlighted edit/write results. Theme is syntax tokens, not chrome. Requires `/reload`. |
+| Diff | `/slate diff [on\|off]` | Turn highlighted edit/write results off if another extension must own those tools. Requires `/reload`. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Model Display

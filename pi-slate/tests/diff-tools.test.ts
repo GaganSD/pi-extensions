@@ -54,7 +54,7 @@ async function fixture(t: test.TestContext) {
   const nativeCwd = join(root, "native");
   await Promise.all([mkdir(cwd), mkdir(nativeCwd)]);
   assert.notEqual(cwd, process.cwd());
-  const highlighter = new DiffHighlighter(config);
+  const highlighter = new DiffHighlighter();
   t.after(() => highlighter.dispose());
   return {
     cwd, nativeCwd, ctx: context(cwd), nativeCtx: context(nativeCwd),
