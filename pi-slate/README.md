@@ -58,11 +58,11 @@ The tall vertical screenshot is constrained so it does not dominate the page:
 Native schemas, mutation queue, errors, and model-facing text are unchanged. Write snapshots stay in `slateDiff` result details for session restore. RPC, JSON, and print keep native results. `/slate theme` styles the whole UI, including diffs — there is no separate diff theme.
 
 <p align="center">
-  <img src="./assets/slate-diff-yaml.png" alt="Split YAML edit with word-level emphasis" />
+  <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-yaml.png" alt="Split YAML edit with word-level emphasis" />
 </p>
 
 <p align="center">
-  <img src="./assets/slate-diff-rust.png" alt="Split Rust edit with syntax highlighting" />
+  <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-rust.png" alt="Split Rust edit with syntax highlighting" />
 </p>
 
 `/slate diff off` or `SLATE_DIFF_ENABLED=0` leaves native edit/write tools untouched if another extension must own them. Requires `/reload`.
