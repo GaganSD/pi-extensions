@@ -61,7 +61,10 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	}
 }
 
+const forbiddenNames = /(?:^|\/)(?:\.env(?:\..*)?|auth\.json|.*\.pem)$/i;
+
 export function isAllowedPackagePath(path: string): boolean {
+	if (forbiddenNames.test(path)) return false;
 	if (path.includes("\\") || path.split("/").some((part) => part === ".." || part.startsWith(".") || part === "node_modules")) return false;
 	if (["package.json", "README.md", "LICENSE", "llms.txt"].includes(path)) return true;
 	if (path.startsWith("src/")) return path.endsWith(".ts") && !path.endsWith(".d.ts");

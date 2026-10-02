@@ -34,6 +34,7 @@
   "scripts": {
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "tsc --noEmit",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "node --experimental-strip-types scripts/pack-check.ts",
     "prepublishOnly": "npm test && npm run typecheck && npm run pack:check"
   },
