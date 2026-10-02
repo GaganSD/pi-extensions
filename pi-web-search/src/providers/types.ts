@@ -1,8 +1,8 @@
-export type ProviderKind = "exa" | "parallel" | "grep" | "github";
+export type ProviderKind = "exa" | "parallel" | "grep" | "sourcegraph" | "github";
 
 /**
  * Sources answer different questions. Exa/Parallel answer web questions;
- * grep.app/GitHub answer code questions. The fallback chain never crosses a
+ * grep.app/Sourcegraph/GitHub answer code questions. The fallback chain never crosses a
  * boundary, because falling back from a web source to a code source answers a
  * different question than the caller asked.
  */
@@ -12,6 +12,7 @@ export const PROVIDER_FAMILY: Record<ProviderKind, ProviderFamily> = {
 	exa: "web",
 	parallel: "web",
 	grep: "code",
+	sourcegraph: "code",
 	github: "code",
 };
 
@@ -19,13 +20,14 @@ export const PROVIDER_KINDS: readonly ProviderKind[] = [
 	"exa",
 	"parallel",
 	"grep",
+	"sourcegraph",
 	"github",
 ];
 
 /** Default order tried within a family when config does not override it. */
 export const DEFAULT_CHAIN: Record<ProviderFamily, ProviderKind[]> = {
 	web: ["exa", "parallel"],
-	code: ["grep", "github"],
+	code: ["grep", "sourcegraph", "github"],
 };
 
 export function providerFamily(kind: ProviderKind): ProviderFamily {

@@ -63,6 +63,14 @@ export async function getJson<T>(
 	return send(url, { ...options, body: undefined }, (text) => parseJsonBody<T>(url, text), "GET");
 }
 
+/** GET a raw body (used for Sourcegraph's search stream). */
+export async function getText(
+	url: string,
+	options: Omit<JsonRequestOptions, "body">,
+): Promise<string> {
+	return send(url, { ...options, body: undefined }, (text) => text, "GET");
+}
+
 /**
  * POST JSON to an endpoint answering with the MCP streamable-HTTP envelope
  * (`text/event-stream` framed as `event: message` / `data: {...}`) or with a
@@ -532,6 +540,9 @@ function summarizeBody(bodyText: string): string {
 	const collapsed = bodyText.replace(/\s+/g, " ").trim();
 	if (collapsed.length === 0) {
 		return "";
+	}
+	if (/<!doctype|<html|<title>/i.test(collapsed)) {
+		return "upstream returned an HTML error page";
 	}
 	return collapsed.length > 300
 		? `${collapsed.slice(0, 300)}…`

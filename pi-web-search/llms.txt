@@ -1,27 +1,21 @@
 # pi-web-search
 
-> Pi tools for best-effort public web (keyless Exa and native Parallel MCP fallback) and public code retrieval with source links when available. Research and external Jev judgment are separate opt-ins, off by default.
+> Pi tools for best-effort public web (keyless Exa and native Parallel MCP fallback) and public code (grep.app, Sourcegraph, optional GitHub). Research and external Jev judgment are separate opt-ins, off by default.
 
-This file is a navigation index for agents, not an API specification or a retrieval/performance feature. Paths are relative to this package. For the monorepo, see [root llms.txt](../llms.txt).
+This file is a navigation index for agents, not an API specification. Paths are relative to this package. For the monorepo, see [root llms.txt](../llms.txt).
 
 ## Documentation
 
-- [Package README](README.md): requirements, release status, isolated-subfolder installation, first search, and tool payloads.
-- [Configuration](README.md#full-configuration): retrieval defaults, normalization, config location, and reload behavior.
-- [Credentials](README.md#credentials): retrieval key precedence and Pi-owned classifier authentication.
-- [Try Jev](README.md#try-jev-with-your-existing-pi-login): explicit TypeSafe/Vercel/OpenRouter setup using existing Pi credentials.
-- [Code qualifiers](README.md#code-qualifiers): repo:/language: translation, provider differences, and inconclusive zero hits.
-- [Provider behavior and limits](README.md#provider-behavior-and-limits): eligibility, excerpt/citation limits, and fallback scope.
-- [Timeouts, fallback, and errors](README.md#timeouts-fallback-and-errors): deadline and partial-result semantics; troubleshooting.
-- [Data handling](README.md#data-handling): external query/evidence egress, untrusted content, and privacy boundaries.
-- [Multi-source search and Jev reference](docs/research.md): every judgment setting/default, Pi classifier model selection, external data flow, and fail-open outcomes.
-- [Classifier support plan](docs/classifier-plan.md): planned local/custom selection and conditional OpenAI adapter.
+- [Package README](README.md): install, tools, defaults, optional setup, config, and code-search notes.
+- [Multi-source search and Jev](docs/research.md): judgment settings, Pi classifier selection, and fail-open behavior.
+- [Classifier support plan](docs/classifier-plan.md): planned local/custom selection.
 
 ## Source contracts
 
-- [Tool registration](src/index.ts): tool exposure, guidance, namespace, and settings command.
-- [Configuration resolver](src/providers/config.ts): accepted settings and effective defaults.
+- [Tool registration](src/index.ts): tools, first-run welcome, and `/web-search-settings`.
+- [Configuration resolver](src/providers/config.ts): accepted settings and defaults.
 - [Provider orchestration](src/providers/index.ts): ordinary chains versus research fan-out.
-- [Parallel native MCP](src/providers/parallel.ts): Pi `executeTool` envelope, anonymous/optional Bearer registration, metadata and extract evidence.
-- [Jev classifier](src/jev/api.ts): Pi model registry typed classification and usage; never a package HTTP client.
-- [Structured output schema and formatter](src/format.ts): fields, previews, truncation, and error results.
+- [Sourcegraph](src/providers/sourcegraph.ts): keyless stream search.
+- [GitHub](src/providers/github.ts): authenticated REST; token or `gh auth`.
+- [Jev classifier](src/jev/api.ts): Pi model registry typed classification.
+- [Structured output](src/format.ts): fields, previews, truncation, and errors.

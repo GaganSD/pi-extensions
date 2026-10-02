@@ -17,7 +17,7 @@ import {
 export const DEFAULT_PROVIDER: ProviderKind = "exa";
 export const DEFAULT_FALLBACK: ProviderKind[] = ["parallel"];
 export const DEFAULT_CODE_PROVIDER: ProviderKind = "grep";
-export const DEFAULT_CODE_FALLBACK: ProviderKind[] = ["github"];
+export const DEFAULT_CODE_FALLBACK: ProviderKind[] = ["sourcegraph", "github"];
 export const DEFAULT_TIMEOUT_MS = 20000;
 export const DEFAULT_MAX_RESULTS = 8;
 
@@ -396,9 +396,6 @@ function applyJevConfig(
 		return value;
 	};
 	const model = jev.model;
-	if (jev.enabled === true && model === JEV_LEGACY_MODEL) {
-		notices.push("jev model jev-1.13.0 is a legacy direct-API ID; use /web-search-settings typesafe|vercel|openrouter to select its current Pi catalog ID.");
-	}
 	if (model !== undefined && (typeof model !== "string" || model.length === 0)) {
 		notices.push("Ignored jev.model: expected a non-empty string.");
 	}
@@ -408,7 +405,7 @@ function applyJevConfig(
 	}
 	return {
 		enabled: jev.enabled === true,
-		model: typeof model === "string" && model.length > 0
+		model: typeof model === "string" && model.length > 0 && model !== JEV_LEGACY_MODEL
 			? model
 			: DEFAULT_JEV_SETTINGS.model,
 		backend: backend === "auto" || isJevBackend(backend) ? backend : DEFAULT_JEV_SETTINGS.backend,

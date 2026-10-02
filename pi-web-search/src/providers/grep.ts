@@ -2,7 +2,7 @@ import type { FetchLike } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
 import { withMcpSession } from "./mcp.ts";
 import { sourcesFromResults } from "./results.ts";
-import type { SearchResultDetail, StreamResult } from "./types.ts";
+import { isProviderError, type SearchResultDetail, type StreamResult } from "./types.ts";
 
 export const GREP_MCP_URL = "https://mcp.grep.app";
 
@@ -40,15 +40,23 @@ export async function grepSearch(
 		args.language = parsed.languages;
 	}
 
-	const text = await withMcpSession(
-		{
-			url: GREP_MCP_URL,
-			fetchImpl: options.fetchImpl,
-			timeoutMs: req.settings.timeoutMs,
-			signal: req.signal,
-		},
-		(client) => client.callTool(SEARCH_TOOL, args),
-	);
+	let text: string;
+	try {
+		text = await withMcpSession(
+			{
+				url: GREP_MCP_URL,
+				fetchImpl: options.fetchImpl,
+				timeoutMs: req.settings.timeoutMs,
+				signal: req.signal,
+			},
+			(client) => client.callTool(SEARCH_TOOL, args),
+		);
+	} catch (error) {
+		if (isNoMatchToolError(error)) {
+			return emptyGrepResult(parsed, warnings);
+		}
+		throw error;
+	}
 
 	const results = parseGrepSearchText(text, req.settings.maxResults);
 	// Zero hits are a real answer, not a result to render: wrapping
@@ -79,6 +87,24 @@ export async function grepSearch(
 		searchResults: results,
 		requestId: "mcp",
 		...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
+	};
+}
+
+function isNoMatchToolError(error: unknown): boolean {
+	return isProviderError(error) && error.code === "tool_error" && /no results found/i.test(error.message);
+}
+
+function emptyGrepResult(parsed: ParsedCodeQuery, warnings: string[]): StreamResult {
+	const hint = parsed.repo !== undefined
+		? `grep.app found no matches in repo:${parsed.repo}. That repository may not be indexed; retry without the repo: qualifier, or with a shorter literal identifier.`
+		: "grep.app found no matches. Retry with a shorter literal identifier (not a sentence), or drop repo:/language: qualifiers.";
+	return {
+		text: "",
+		providerKind: "grep",
+		sources: [],
+		searchResults: [],
+		requestId: "mcp",
+		warnings: [...warnings, hint],
 	};
 }
 

@@ -16,6 +16,7 @@ import {
 	CREDENTIAL_ENV_ALIASES,
 	CREDENTIAL_PROVIDER_IDS,
 	enableStoredCredentials,
+	githubToken,
 	resolveCredential,
 } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
@@ -35,6 +36,7 @@ import {
 	WebSearchSchema,
 	webSearch,
 } from "./web_search.ts";
+import { maybeShowWelcome } from "./welcome.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
 export function assertSupportedPiVersion(version: string): void {
@@ -52,6 +54,13 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	// keeps a bare import of the tools, and the test suite, off the operator's
 	// secrets; every read still goes to the current file.
 	enableStoredCredentials();
+
+	pi.on("session_start", async (event, ctx) => {
+		if (event.reason === "fork") {
+			return;
+		}
+		await maybeShowWelcome(ctx);
+	});
 
 	pi.registerTool<typeof WebSearchSchema, WebSearchDetails>({
 		name: "web_search",
@@ -267,12 +276,17 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 	for (const id of CREDENTIAL_PROVIDER_IDS) {
 		const found = resolveCredential(id);
 		const aliases = CREDENTIAL_ENV_ALIASES[id].join(" or ");
+		const viaGh = id === "github" && found === undefined && githubToken() !== undefined;
 		lines.push(
 			found
 				? `- ${id}: present via ${found.source === "env" ? found.name : "auth.json"}`
-				: id === "parallel"
+				: viaGh
+					? `- github: present via gh auth`
+					: id === "parallel"
 					? `- parallel: anonymous MCP needs no key; ${aliases} or auth.json is optional for higher limits`
-					: `- ${id}: missing — set ${aliases}, or add "${id}" to auth.json`,
+					: id === "github"
+						? `- github: missing — set ${aliases}, run gh auth login, or add "github" to auth.json`
+						: `- ${id}: missing — set ${aliases}, or add "${id}" to auth.json`,
 		);
 	}
 	lines.push("", "Classifier authentication (Pi snapshot; not a live credential test):");
@@ -290,6 +304,7 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 		"- Enable optional Jev: /web-search-settings typesafe, vercel, or openrouter; then /reload.",
 		"- Disable judgment: /web-search-settings off. Nonsecret settings live in web-search.json.",
 		"- Gateways require explicit selection. auto uses TypeSafe only; no classifier provider fallback.",
+		"- Code search is keyless via grep.app and Sourcegraph. GitHub is optional (token or gh auth login).",
 		"- Parallel native MCP is keyless by default; check /mcp for connection status or a same-name mcp.json override.",
 		"- Run /reload after changing multi_search exposure or a Parallel credential (its MCP header is captured at registration).",
 		"- Install from a repository checkout: pi install ./pi-web-search",

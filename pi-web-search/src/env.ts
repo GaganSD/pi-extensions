@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
 	getAgentDir,
@@ -51,6 +52,8 @@ export interface CredentialResolverOptions {
 	readCredential?: CredentialReader;
 	/** auth.json path; read fresh on each call. Injected by tests. */
 	authPath?: string;
+	/** Last-resort GitHub CLI token. Injected by tests; never logged. */
+	readGhToken?: () => string | undefined;
 }
 
 let storedReader: CredentialReader | undefined;
@@ -109,7 +112,41 @@ export function parallelApiKey(
 export function githubToken(
 	options?: CredentialResolverOptions,
 ): string | undefined {
-	return resolveCredential("github", options)?.key;
+	const resolved = resolveCredential("github", options);
+	if (resolved !== undefined) {
+		return resolved.key;
+	}
+	if (options?.readGhToken) {
+		return trim(options.readGhToken());
+	}
+	// Explicit test resolvers must not spawn `gh` on the operator machine.
+	if (options !== undefined) {
+		return undefined;
+	}
+	return trim(readGhCliToken());
+}
+
+/**
+ * Uses an already-authenticated GitHub CLI login. Disabled under `node:test`
+ * so suite machines with `gh auth` do not silently change availability.
+ */
+export function readGhCliToken(): string | undefined {
+	if (process.env.NODE_TEST_CONTEXT) {
+		return undefined;
+	}
+	try {
+		const result = spawnSync("gh", ["auth", "token"], {
+			encoding: "utf8",
+			timeout: 2000,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		if (result.status !== 0 || typeof result.stdout !== "string") {
+			return undefined;
+		}
+		return result.stdout;
+	} catch {
+		return undefined;
+	}
 }
 
 function readerForPath(authPath: string): CredentialReader {

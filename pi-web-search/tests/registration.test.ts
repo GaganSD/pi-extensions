@@ -95,6 +95,7 @@ async function loadExtension(
 	const messages: Registration["messages"] = [];
 	const servers: Registration["servers"] = [];
 	const pi = {
+		on: () => () => {},
 		registerMcpServer: (name: string, config: Registration["servers"][number]["config"]) => servers.push({ name, config }),
 		sendMessage: (message: Registration["messages"][number]) => messages.push(message),
 		registerTool: (tool: RegisteredTool) => {

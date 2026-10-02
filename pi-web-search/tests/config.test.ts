@@ -23,7 +23,7 @@ test("missing file yields independent web/code defaults and research stays off",
 	const settings = await resolveSettings(path);
 	assert.ok(!("error" in settings));
 	assert.deepEqual(settings.web, { provider: "exa", fallback: ["parallel"] });
-	assert.deepEqual(settings.code, { provider: "grep", fallback: ["github"] });
+	assert.deepEqual(settings.code, { provider: "grep", fallback: ["sourcegraph", "github"] });
 	assert.equal(settings.timeoutMs, 20000);
 	assert.equal(settings.maxResults, 8);
 	assert.equal(settings.configPath, path);
@@ -133,7 +133,7 @@ test("maxResults is clamped to 1..20", async () => {
 test("explicit empty family fallbacks override defaults independently", () => {
 	const settings = applyConfig("/unused", { web: { fallback: [] } });
 	assert.deepEqual(settings.web.fallback, []);
-	assert.deepEqual(settings.code.fallback, ["github"]);
+	assert.deepEqual(settings.code.fallback, ["sourcegraph", "github"]);
 });
 
 test("PI_WEB_SEARCH_CONFIG overrides the config path", () => withConfig({ web: { provider: "parallel" }, timeoutMs: 1234 }, async (path) => {

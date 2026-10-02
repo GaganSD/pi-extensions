@@ -61,7 +61,8 @@ test("default and current catalog IDs do not emit a legacy migration notice", ()
 		assert.deepEqual(settings.notices, []);
 	}
 	const legacy = applyConfig("/unused", { jev: { enabled: true, model: JEV_LEGACY_MODEL } });
-	assert.match(legacy.notices.join(" "), /legacy direct-API ID.*web-search-settings typesafe/);
+	assert.equal(legacy.jev.model, JEV_NATIVE_MODEL);
+	assert.deepEqual(legacy.notices, []);
 	assert.equal(applyConfig("/unused", {}).notices.length, 0);
 	const explicit = applyConfig("/unused", { jev: { enabled: true, model: "unknown-catalog-id" } });
 	assert.equal(explicit.jev.model, "unknown-catalog-id");
