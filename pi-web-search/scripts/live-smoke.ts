@@ -40,13 +40,13 @@ if (process.argv[2] !== "--child") {
 		settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(root) });
 	try {
 		await session.bindExtensions({});
-		const cases: Array<{ name: string; tool: string; config: object; args: Record<string, string | string[]> }> = [
-			{ name: "default web and URL extraction", tool: "web_search", config: {},
+		const cases: Array<{ name: string; tool: string; provider?: string; config: object; args: Record<string, string | string[]> }> = [
+			{ name: "default web and URL extraction", tool: "web_search", provider: "exa", config: {},
 				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
-			{ name: "default code", tool: "code_search", config: {}, args: { query: "useSyncExternalStore" } },
-			{ name: "scoped Sourcegraph", tool: "code_search", config: { code: { provider: "sourcegraph", fallback: [] } },
+			{ name: "default code", tool: "code_search", provider: "grep", config: {}, args: { query: "useSyncExternalStore" } },
+			{ name: "scoped Sourcegraph", tool: "code_search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
 				args: { query: "createServer repo:nodejs/node" } },
-			{ name: "native Parallel search and extraction", tool: "web_search", config: { web: { provider: "parallel", fallback: [] } },
+			{ name: "native Parallel search and extraction", tool: "web_search", provider: "parallel", config: { web: { provider: "parallel", fallback: [] } },
 				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
 			{ name: "multi-source code", tool: "multi_search", config: { research: { enabled: true } },
 				args: { query: "useSyncExternalStore", scope: "code" } },
@@ -69,6 +69,7 @@ if (process.argv[2] !== "--child") {
 			console.log(JSON.stringify({ check: sample.name, ms: Date.now() - started, provider: data.provider,
 				count: data.resultCount, warnings: data.warnings, error: data.error }));
 			assert.equal(response.isError, false, `${sample.name} failed`);
+			if (sample.provider) assert.equal(data.provider, sample.provider, `${sample.name} used a fallback instead`);
 			assert.ok((data.resultCount ?? 0) > 0, `${sample.name} returned no evidence`);
 			if (Array.isArray(sample.args.urls)) {
 				const requested = sample.args.urls;

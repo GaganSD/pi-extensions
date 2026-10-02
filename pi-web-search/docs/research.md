@@ -30,7 +30,7 @@ Authenticate a classifier in Pi, then pin that exact catalog pair:
 /web-search-settings on
 ```
 
-`on` enables multi-source search and judgment. It keeps an existing provider/model pin without checking other accounts. Otherwise, it selects a pin only when Pi reports exactly one available classifier. Discovery stops after three seconds. If discovery fails, settings stay unchanged. Select an exact provider/model to avoid discovery:
+`on` enables multi-source search and judgment. It keeps an existing provider/model pin without checking other accounts. Otherwise, it selects a pin only when Pi reports exactly one available classifier. The command stops waiting after three seconds and requests cancellation. If discovery fails, settings stay unchanged. Select an exact provider/model to avoid discovery:
 
 ```text
 /web-search-settings typesafe/jev-latest

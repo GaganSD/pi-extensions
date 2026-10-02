@@ -6,9 +6,9 @@ Review date: 2026-10-02. These checks describe this release candidate, not a gua
 
 - Welcome state uses exclusive file creation. It cannot replace an existing file or follow a pre-existing file symlink.
 - A config named `web-search-welcome.json` uses a different marker path.
-- Fixed HTTP endpoints reject redirects, including MCP cleanup. Custom API keys and request bodies cannot follow redirects to another origin.
+- The extension's HTTP transport rejects redirects, including custom MCP cleanup. These requests cannot forward API keys or bodies through redirects.
 - Sourcegraph repository filters escape regular-expression characters and match the complete repository name.
-- Classifier discovery stops after three seconds. Existing pins do not trigger discovery.
+- The command stops waiting for classifier discovery after three seconds and requests cancellation. Existing pins do not trigger discovery.
 - Package checks reject install-time scripts, undeclared imports, runtime dependencies, and files outside the publication allowlist.
 
 The review covered credentials, process calls, HTTP/MCP transport, config writes, classifier boundaries, packaging, and dependency advisories.
@@ -47,6 +47,7 @@ npm run smoke:live -- /path/to/node_modules/@gagansd/pi-web-search
 ## Limits
 
 - No test simulated 1,000 devices against public services. Anonymous providers control availability, indexing, and rate limits.
+- Pi owns native Parallel and classifier transports. This review does not certify their redirect policies.
 - Authenticated GitHub, Exa REST, and hosted classifier tests use fixtures. This review did not make paid classifier requests.
 - Retrieved text remains untrusted. Classification does not prevent all prompt injection or establish truth.
 - Search queries, URLs, and optional classifier excerpts leave the device. Do not send secrets or private code.
