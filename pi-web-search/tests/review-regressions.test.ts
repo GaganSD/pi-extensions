@@ -7,7 +7,7 @@ import { parseGrepSearchText } from "../src/providers/grep.ts";
 import { hasGitHubToken, hasParallelKey, providerAvailability } from "../src/providers/index.ts";
 import type { SearchResultDetail } from "../src/providers/types.ts";
 import { providerError } from "../src/providers/types.ts";
-import type { JevAnswer, JevResponse } from "../src/jev/api.ts";
+import type { JudgeAnswer, JevResponse } from "../src/jev/api.ts";
 import { augmentResults } from "../src/jev/augment.ts";
 import { applyPolicy, type Candidate } from "../src/jev/judge.ts";
 import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../src/providers/config.ts";
@@ -19,18 +19,18 @@ const CANDS: Candidate[] = [
 ];
 
 function settingsWith(over: Partial<JevSettings> = {}): JevSettings {
-	return { ...DEFAULT_JEV_SETTINGS, enabled: true, ...over };
+	return { ...DEFAULT_JEV_SETTINGS, enabled: true, provider: "typesafe", model: "jev-latest", ...over };
 }
 
-const noul = (n: number): JevAnswer => ({ type: "noul", noul: n });
-const choice = (c: string, p: number): JevAnswer => ({
+const noul = (n: number): JudgeAnswer => ({ type: "bool", probability: n });
+const choice = (c: string, p: number): JudgeAnswer => ({
 	type: "choice",
 	choice: c,
 	probabilities: { [c]: p },
 	confidence: p,
 });
 
-function answer(over: Record<string, JevAnswer> = {}): JevResponse {
+function answer(over: Record<string, JudgeAnswer> = {}): JevResponse {
 	return {
 		answers: {
 			c0_answers: noul(0.9),

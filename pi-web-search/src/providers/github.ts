@@ -27,7 +27,7 @@ export async function githubSearch(
 ): Promise<StreamResult> {
 	const token = githubToken();
 	if (token === undefined) {
-		throw providerError("missing_credentials", "github: set GH_TOKEN or GITHUB_TOKEN to enable GitHub code search.");
+		throw providerError("missing_credentials", "github: set GH_TOKEN, GITHUB_TOKEN, or run gh auth login.");
 	}
 	const url = new URL(GITHUB_SEARCH_URL);
 	url.searchParams.set("q", req.query);

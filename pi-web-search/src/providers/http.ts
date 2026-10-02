@@ -17,6 +17,7 @@ export interface ResponseLike {
 
 export interface RequestInitLike {
 	method?: string;
+	redirect?: "error";
 	headers?: Record<string, string>;
 	body?: string;
 	signal?: AbortSignal;
@@ -61,6 +62,14 @@ export async function getJson<T>(
 	options: Omit<JsonRequestOptions, "body">,
 ): Promise<T> {
 	return send(url, { ...options, body: undefined }, (text) => parseJsonBody<T>(url, text), "GET");
+}
+
+/** GET a raw body (used for Sourcegraph's search stream). */
+export async function getText(
+	url: string,
+	options: Omit<JsonRequestOptions, "body">,
+): Promise<string> {
+	return send(url, { ...options, body: undefined }, (text) => text, "GET");
 }
 
 /**
@@ -240,6 +249,8 @@ async function send<T>(
 		if (composed.signal.aborted) throw reasonFrom(composed.signal);
 		const response = await awaitWithSignal(doFetch(url, {
 			method,
+			// Fixed provider endpoints must not forward keys or queries elsewhere.
+			redirect: "error",
 			headers: {
 				...(method === "POST" ? { "Content-Type": "application/json" } : {}),
 				Accept: "application/json, text/event-stream",
@@ -532,6 +543,9 @@ function summarizeBody(bodyText: string): string {
 	const collapsed = bodyText.replace(/\s+/g, " ").trim();
 	if (collapsed.length === 0) {
 		return "";
+	}
+	if (/<!doctype|<html|<title>/i.test(collapsed)) {
+		return "upstream returned an HTML error page";
 	}
 	return collapsed.length > 300
 		? `${collapsed.slice(0, 300)}…`

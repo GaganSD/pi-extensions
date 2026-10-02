@@ -38,7 +38,7 @@ export async function augmentResults(
 	const settings = req.settings.jev;
 	const judgeOptions: JevOptions = {
 		...options,
-		backend: options.backend ?? settings.backend,
+		provider: options.provider ?? settings.provider,
 		model: options.model ?? settings.model,
 	};
 	if (!settings.enabled) {
@@ -80,7 +80,8 @@ export async function augmentResults(
 			}
 			throw abortError(req.signal.reason);
 		}
-		return withWarning(result, `jev judging unavailable: ${describe(error)}`);
+		const detail = describe(error);
+		return withWarning(result, detail.startsWith("jev judging unavailable:") ? detail : `jev judging unavailable: ${detail}`);
 	}
 }
 

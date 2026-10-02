@@ -28,7 +28,7 @@ export const SOURCES_HEADING = "## Sources";
 export const WARNINGS_HEADING = "## Warnings";
 export const COVERAGE_HEADING = "## Coverage";
 
-const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("github")]);
+const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("sourcegraph"), Type.Literal("github")]);
 
 /** One declared data contract for renderers, scripts, and failure results. */
 const DetailsSchema = Type.Object({
@@ -181,7 +181,7 @@ function compactResult(result: StreamResult): StreamResult {
 			if (typeof value === "string") {
 				// Keep recognized provenance tags even if large titles consumed the
 				// metadata budget: code rendering depends on these fixed-size tags.
-				compact[key] = key === "source" && ["exa", "parallel", "grep", "github"].includes(value)
+				compact[key] = key === "source" && ["exa", "parallel", "grep", "sourcegraph", "github"].includes(value)
 					? value : metadata(value);
 			}
 		}
@@ -281,7 +281,7 @@ function buildExcerpt(result: SearchResultDetail): string {
 	if (!citedText) {
 		return "";
 	}
-	const isCode = result.source === "grep" || result.source === "github";
+	const isCode = result.source === "grep" || result.source === "sourcegraph" || result.source === "github";
 	if (isCode) {
 		const clipped = citedText.replace(/\s+$/u, "").slice(0, EXCERPT_MAX_CHARS);
 		return clipped.length > 0 ? `\`\`\`\n${clipped}\n\`\`\`` : "";

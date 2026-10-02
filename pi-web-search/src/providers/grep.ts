@@ -2,7 +2,7 @@ import type { FetchLike } from "./http.ts";
 import type { SearchRequest } from "./index.ts";
 import { withMcpSession } from "./mcp.ts";
 import { sourcesFromResults } from "./results.ts";
-import type { SearchResultDetail, StreamResult } from "./types.ts";
+import { isProviderError, type SearchResultDetail, type StreamResult } from "./types.ts";
 
 export const GREP_MCP_URL = "https://mcp.grep.app";
 
@@ -40,15 +40,23 @@ export async function grepSearch(
 		args.language = parsed.languages;
 	}
 
-	const text = await withMcpSession(
-		{
-			url: GREP_MCP_URL,
-			fetchImpl: options.fetchImpl,
-			timeoutMs: req.settings.timeoutMs,
-			signal: req.signal,
-		},
-		(client) => client.callTool(SEARCH_TOOL, args),
-	);
+	let text: string;
+	try {
+		text = await withMcpSession(
+			{
+				url: GREP_MCP_URL,
+				fetchImpl: options.fetchImpl,
+				timeoutMs: req.settings.timeoutMs,
+				signal: req.signal,
+			},
+			(client) => client.callTool(SEARCH_TOOL, args),
+		);
+	} catch (error) {
+		if (!isNoMatchToolError(error)) {
+			throw error;
+		}
+		text = "No results found";
+	}
 
 	const results = parseGrepSearchText(text, req.settings.maxResults);
 	// Zero hits are a real answer, not a result to render: wrapping
@@ -80,6 +88,10 @@ export async function grepSearch(
 		requestId: "mcp",
 		...(allWarnings.length > 0 ? { warnings: allWarnings } : {}),
 	};
+}
+
+function isNoMatchToolError(error: unknown): boolean {
+	return isProviderError(error) && error.code === "tool_error" && /no results found/i.test(error.message);
 }
 
 interface GrepHit {

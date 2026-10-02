@@ -41,9 +41,10 @@ test("each provider belongs to exactly one family", () => {
 	assert.equal(providerFamily("exa"), "web");
 	assert.equal(providerFamily("parallel"), "web");
 	assert.equal(providerFamily("grep"), "code");
+	assert.equal(providerFamily("sourcegraph"), "code");
 	assert.equal(providerFamily("github"), "code");
 	assert.deepEqual(DEFAULT_CHAIN.web, ["exa", "parallel"]);
-	assert.deepEqual(DEFAULT_CHAIN.code, ["grep", "github"]);
+	assert.deepEqual(DEFAULT_CHAIN.code, ["grep", "sourcegraph", "github"]);
 });
 
 test("a web fallback never resolves to a code provider", () => {

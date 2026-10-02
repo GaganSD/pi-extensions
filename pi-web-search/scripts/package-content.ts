@@ -15,7 +15,9 @@ export interface PackageManifest {
 	keywords: string[];
 	pi: { extensions: string[] };
 	dependencies?: Record<string, string>;
+	scripts?: Record<string, string>;
 	peerDependencies: Record<string, string>;
+	peerDependenciesMeta: Record<string, { optional?: boolean }>;
 }
 
 /** Checks the actual tarball, not npm's dry-run listing or a compiled substitute. */
@@ -27,8 +29,12 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	assert.deepEqual(manifest.files, packageAllowlist);
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
 	assert.deepEqual(manifest.dependencies ?? {}, {}, "This source-only extension has no runtime dependencies");
+	for (const hook of ["preinstall", "install", "postinstall", "prepare"]) {
+		assert.equal(manifest.scripts?.[hook], undefined, `Consumers must not run lifecycle hook ${hook}`);
+	}
 	for (const name of hostPeers) {
 		assert.equal(manifest.peerDependencies[name], "*", `${name} must be supplied by Pi, not bundled or version-resolved`);
+		assert.equal(manifest.peerDependenciesMeta?.[name]?.optional, true, `${name} must not install automatically for consumers`);
 	}
 	for (const required of ["package.json", "README.md", "LICENSE", "src/index.ts"]) {
 		assert.ok(files.has(required), `Missing required package file: ${required}`);
@@ -61,7 +67,10 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	}
 }
 
+const forbiddenNames = /(?:^|\/)(?:\.env(?:\..*)?|auth\.json|.*\.pem)$/i;
+
 export function isAllowedPackagePath(path: string): boolean {
+	if (forbiddenNames.test(path)) return false;
 	if (path.includes("\\") || path.split("/").some((part) => part === ".." || part.startsWith(".") || part === "node_modules")) return false;
 	if (["package.json", "README.md", "LICENSE", "llms.txt"].includes(path)) return true;
 	if (path.startsWith("src/")) return path.endsWith(".ts") && !path.endsWith(".d.ts");

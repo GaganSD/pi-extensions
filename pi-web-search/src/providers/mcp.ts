@@ -205,6 +205,7 @@ export function createMcpClient(options: McpClientOptions): McpClient {
 			try {
 				const response = await awaitWithSignal(doFetch(url, {
 					method: "DELETE",
+					redirect: "error",
 					headers,
 					signal: deadline.signal,
 				}), deadline.signal);

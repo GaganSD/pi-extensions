@@ -69,8 +69,8 @@ test("a missing PARALLEL_API_KEY retains the keyless native Parallel fallback", 
 		assert.deepEqual(providerAvailability(), {
 			exa: true,
 			parallel: true,
-			// grep.app is keyless; GitHub needs a token that is absent here.
 			grep: true,
+			sourcegraph: true,
 			github: false,
 		});
 		// Code sources are keyless/available but must never join a web chain.

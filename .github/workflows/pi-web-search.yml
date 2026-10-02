@@ -17,18 +17,25 @@ permissions:
 
 jobs:
   validate:
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - name: Linux
+            os: ubuntu-latest
             node: "22.19.0"
-          - os: ubuntu-latest
+            pi: "0.99.0"
+          - name: Windows
+            os: windows-latest
             node: "24.x"
-          - os: windows-latest
+            pi: "0.99.0"
+          - name: macOS
+            os: macos-latest
             node: "24.x"
+            pi: "1.0.0"
     defaults:
       run:
         working-directory: package validation workspace/pi-web-search
@@ -41,11 +48,16 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: package validation workspace/pi-web-search/package-lock.json
-      - name: Install locked development dependencies
+      - name: Install
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Offline regression tests (isolated config and credentials)
-        run: npm test
-      - name: Typecheck source, tests, and validation scripts
+      # npm 12 avoids Pi 1.0's vulnerable shrinkwrapped brace-expansion version.
+      - name: Install Pi 1.0
+        if: matrix.pi == '1.0.0'
+        run: npx --yes npm@12.0.0 install --ignore-scripts --no-audit --no-fund --save-dev @earendil-works/pi-coding-agent@1.0.0 @earendil-works/pi-ai@1.0.0 @earendil-works/pi-tui@1.0.0
+      - name: Audit
+        run: npm audit --audit-level=high
+      - name: Typecheck
         run: npm run typecheck
-      - name: Validate and install tarball, load Pi entrypoint, and test extracted source offline
-        run: npm run pack:check
+      # pack:check runs all runtime tests against the tarball. Do not run them twice.
+      - name: Test package and runtime
+        run: npm test -- tests/package && npm run pack:check

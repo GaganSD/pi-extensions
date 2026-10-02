@@ -1,12 +1,10 @@
 import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../providers/config.ts";
 import type { SearchResultDetail, StreamResult } from "../providers/types.ts";
 import {
-	type JevOptions,
-	type JevQuestion,
+	type JudgeQuestion,
 	type JevResponse,
+	readBool,
 	readChoice,
-	readNoul,
-	systemOne,
 } from "./api.ts";
 
 /** One safety outcome per result, so a suppression is explainable. */
@@ -71,13 +69,13 @@ export interface Candidate {
  */
 export function buildJudgeQuestions(
 	candidates: Candidate[],
-): Record<string, JevQuestion> {
-	const questions: Record<string, JevQuestion> = {};
+): Record<string, JudgeQuestion> {
+	const questions: Record<string, JudgeQuestion> = {};
 
 	for (const candidate of candidates) {
 		const ref = `candidates[${candidate.index}]`;
 		questions[`c${candidate.index}_answers`] = {
-			type: "noul",
+			type: "bool",
 			instructions:
 				`Does ${ref}.excerpt answer the request in \`query\`? Distinguish content that answers it from content that merely shares vocabulary with it.`,
 			criteria: {
@@ -86,7 +84,7 @@ export function buildJudgeQuestions(
 			},
 		};
 		questions[`c${candidate.index}_offtopic`] = {
-			type: "noul",
+			type: "bool",
 			instructions: `Is ${ref}.excerpt about a different subject than \`query\`?`,
 			criteria: {
 				true: "Different subject, product, language, or version than the one asked about.",
@@ -94,7 +92,7 @@ export function buildJudgeQuestions(
 			},
 		};
 		questions[`c${candidate.index}_selfcontained`] = {
-			type: "noul",
+			type: "bool",
 			instructions: `Is ${ref}.excerpt self-contained enough to use as the answer to \`query\` without missing context?`,
 			criteria: {
 				true: "Usable on its own; the needed meaning is present in the excerpt.",
@@ -116,7 +114,7 @@ export function buildJudgeQuestions(
 	}
 
 	questions.sufficient = {
-		type: "noul",
+		type: "bool",
 		instructions: `Taken together, do \`candidates\` contain enough to answer \`query\` without another search?`,
 		criteria: {
 			true: "At least one candidate substantively answers the query.",
@@ -176,7 +174,7 @@ export function applyPolicy(
 
 	// Fail closed. A truncated payload must not read as "these results are
 	// sufficient", which is the one conclusion that silently misleads the model.
-	const sufficientScore = readNoul(answers, "sufficient");
+	const sufficientScore = readBool(answers, "sufficient");
 	const modelSaysSufficient =
 		!Number.isNaN(sufficientScore) && sufficientScore >= 0.5;
 	// The global question saw every candidate, including any policy then removed.
@@ -226,9 +224,9 @@ function judgeOne(
 	threshold: number,
 ): Judgement {
 	const i = candidate.index;
-	const answersScore = readNoul(answers, `c${i}_answers`);
-	const offtopic = readNoul(answers, `c${i}_offtopic`);
-	const selfcontained = readNoul(answers, `c${i}_selfcontained`);
+	const answersScore = readBool(answers, `c${i}_answers`);
+	const offtopic = readBool(answers, `c${i}_offtopic`);
+	const selfcontained = readBool(answers, `c${i}_selfcontained`);
 	const safety = readChoice(answers, `c${i}_safety`);
 
 	// A missing judgment must not read as a perfect score.

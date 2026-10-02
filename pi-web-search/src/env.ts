@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import {
 	getAgentDir,
@@ -51,6 +52,8 @@ export interface CredentialResolverOptions {
 	readCredential?: CredentialReader;
 	/** auth.json path; read fresh on each call. Injected by tests. */
 	authPath?: string;
+	/** Last-resort GitHub CLI token. Injected by tests; never logged. */
+	readGhToken?: () => string | undefined;
 }
 
 let storedReader: CredentialReader | undefined;
@@ -109,7 +112,55 @@ export function parallelApiKey(
 export function githubToken(
 	options?: CredentialResolverOptions,
 ): string | undefined {
-	return resolveCredential("github", options)?.key;
+	const resolved = resolveCredential("github", options);
+	if (resolved !== undefined) {
+		return resolved.key;
+	}
+	if (options?.readGhToken) {
+		return trim(options.readGhToken());
+	}
+	// Explicit test resolvers must not spawn `gh` on the operator machine.
+	if (options !== undefined) {
+		return undefined;
+	}
+	return trim(readGhCliToken());
+}
+
+/** Always github.com — never the CLI default host, which may be Enterprise. */
+export const GH_CLI_TOKEN_ARGS = ["auth", "token", "--hostname", "github.com"] as const;
+
+let ghCliCache: { value: string | undefined; at: number } | undefined;
+const GH_CLI_CACHE_MS = 30_000;
+
+/**
+ * Uses an already-authenticated github.com CLI login. Disabled under `node:test`
+ * so suite machines with `gh auth` do not silently change availability.
+ */
+export function readGhCliToken(
+	spawn: typeof spawnSync = spawnSync,
+): string | undefined {
+	if (process.env.NODE_TEST_CONTEXT) {
+		return undefined;
+	}
+	const now = Date.now();
+	if (ghCliCache && now - ghCliCache.at < GH_CLI_CACHE_MS) {
+		return ghCliCache.value;
+	}
+	try {
+		const result = spawn("gh", [...GH_CLI_TOKEN_ARGS], {
+			encoding: "utf8",
+			timeout: 2000,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		const value = result.status === 0 && typeof result.stdout === "string"
+			? result.stdout
+			: undefined;
+		ghCliCache = { value, at: now };
+		return value;
+	} catch {
+		ghCliCache = { value: undefined, at: now };
+		return undefined;
+	}
 }
 
 function readerForPath(authPath: string): CredentialReader {

@@ -4,7 +4,6 @@ import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/pr
 import { dirname, join } from "node:path";
 
 import { getAgentDir, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { JEV_LEGACY_MODEL, JEV_NATIVE_MODEL, isJevBackend, resolveJevTarget, type JevBackend, type JevBackendSetting } from "../jev/model.ts";
 import {
 	PROVIDER_KINDS,
 	type ProviderError,
@@ -17,7 +16,7 @@ import {
 export const DEFAULT_PROVIDER: ProviderKind = "exa";
 export const DEFAULT_FALLBACK: ProviderKind[] = ["parallel"];
 export const DEFAULT_CODE_PROVIDER: ProviderKind = "grep";
-export const DEFAULT_CODE_FALLBACK: ProviderKind[] = ["github"];
+export const DEFAULT_CODE_FALLBACK: ProviderKind[] = ["sourcegraph", "github"];
 export const DEFAULT_TIMEOUT_MS = 20000;
 export const DEFAULT_MAX_RESULTS = 8;
 
@@ -39,10 +38,11 @@ export const CONFIG_PATH_ENV_VAR = "PI_WEB_SEARCH_CONFIG";
 
 export interface JevSettings {
 	enabled: boolean;
+	/** Exact Pi classifier provider. Empty when unpinned. */
+	provider: string;
+	/** Exact Pi classifier model id. Empty when unpinned. */
 	model: string;
-	/** Gateways require explicit selection; `auto` uses TypeSafe only. */
-	backend: JevBackendSetting;
-	/** Weights for the ranking nouls. Policy stays in code, tunable here. */
+	/** Weights for the ranking bools. Policy stays in code, tunable here. */
 	weights: { answers: number; offtopic: number; selfcontained: number };
 	/** Suppress below this safety probability; the mid-band is held, not passed. */
 	safetyThreshold: number;
@@ -76,8 +76,17 @@ export interface WebSearchConfig {
 	research?: { enabled?: boolean };
 	jev?: Partial<Omit<JevSettings, "weights">> & {
 		weights?: Partial<JevSettings["weights"]>;
+		/** Deprecated. Ignored; pin provider and model instead. */
+		backend?: unknown;
 	};
 }
+
+export interface AvailableClassifier {
+	provider: string;
+	id: string;
+}
+
+export type JudgmentAction = "on" | "off" | AvailableClassifier;
 
 export type WebSearchConfigResult =
 	| { status: "missing"; path: string }
@@ -89,13 +98,16 @@ const CONFIG_KEYS = new Set(["web", "code", "research", "jev", "timeoutMs", "max
 
 export const DEFAULT_JEV_SETTINGS: JevSettings = {
 	enabled: false,
-	// The default alias maps within the selected provider, never across providers.
-	model: JEV_NATIVE_MODEL,
-	backend: "auto",
+	provider: "",
+	model: "",
 	weights: { answers: 0.45, offtopic: -0.3, selfcontained: 0.25 },
 	safetyThreshold: 0.75,
 	maxStateChars: 24000,
 };
+
+const JEV_CONFIG_KEYS = new Set([
+	"enabled", "provider", "model", "backend", "weights", "safetyThreshold", "maxStateChars",
+]);
 
 export function defaultWebSearchConfigPath(): string {
 	const override = process.env[CONFIG_PATH_ENV_VAR];
@@ -251,13 +263,7 @@ export function parseWebSearchConfig(
 				error: invalidConfig(configPath, `"jev" must be an object.`),
 			};
 		}
-		if ("backend" in jev && jev.backend !== "auto" && !isJevBackend(jev.backend)) {
-			return {
-				status: "invalid", path: configPath,
-				error: invalidConfig(configPath, '"jev.backend" must be "typesafe", "vercel", "openrouter", or legacy "auto".'),
-			};
-		}
-		const unknown = Object.keys(jev).filter((key) => !Object.hasOwn(DEFAULT_JEV_SETTINGS, key));
+		const unknown = Object.keys(jev).filter((key) => !JEV_CONFIG_KEYS.has(key));
 		if (unknown.length > 0) {
 			return {
 				status: "invalid", path: configPath,
@@ -278,7 +284,10 @@ export function parseWebSearchConfig(
 }
 
 /** Explicit setup command: preserve settings, write no keys, refuse malformed config. */
-export async function configureJev(backend: JevBackend | "off"): Promise<string> {
+export async function configureJudgment(
+	action: JudgmentAction,
+	available: readonly AvailableClassifier[] | (() => Promise<readonly AvailableClassifier[]>) = [],
+): Promise<{ path: string; note?: string }> {
 	const configPath = defaultWebSearchConfigPath();
 	const targetPath = await realpath(configPath).catch((error) => {
 		if (isMissingFileError(error)) return configPath;
@@ -288,12 +297,31 @@ export async function configureJev(backend: JevBackend | "off"): Promise<string>
 		const result = await readWebSearchConfig(targetPath);
 		if (result.status === "invalid") throw result.error;
 		const config = result.status === "ok" ? result.config : {};
-		if (backend === "off") {
+		let note: string | undefined;
+		if (action === "off") {
 			config.jev = { ...config.jev, enabled: false };
+		} else if (action === "on") {
+			config.research = { ...config.research, enabled: true };
+			const existing = pinnedClassifier(config.jev);
+			if (existing) {
+				config.jev = { ...config.jev, enabled: true };
+			} else {
+				const candidates = typeof available === "function" ? await available() : available;
+				if (candidates.length === 1) {
+					const [only] = candidates;
+					config.jev = { ...config.jev, enabled: true, provider: only.provider, model: only.id };
+				} else {
+					config.jev = { ...config.jev, enabled: true };
+					note = candidates.length === 0
+						? "Judgment enabled without a pin. Authenticate a Pi classifier, then set jev.provider and jev.model."
+						: `Judgment enabled without a pin. Available: ${candidates.map((entry) => `${entry.provider}/${entry.id}`).join(", ")}.`;
+				}
+			}
 		} else {
 			config.research = { ...config.research, enabled: true };
-			config.jev = { ...config.jev, enabled: true, backend, model: resolveJevTarget({ backend }).model };
+			config.jev = { ...config.jev, enabled: true, provider: action.provider, model: action.id };
 		}
+		delete config.jev?.backend;
 		await mkdir(dirname(targetPath), { recursive: true });
 		const temporary = `${targetPath}.${randomUUID()}.tmp`;
 		try {
@@ -302,8 +330,35 @@ export async function configureJev(backend: JevBackend | "off"): Promise<string>
 		} finally {
 			await unlink(temporary).catch(() => {});
 		}
-		return configPath;
+		return { path: configPath, note };
 	});
+}
+
+export function parseJudgmentArgs(args: string): JudgmentAction | "status" | undefined {
+	const trimmed = args.trim();
+	if (trimmed.length === 0) {
+		return "status";
+	}
+	if (trimmed === "on" || trimmed === "off") {
+		return trimmed;
+	}
+	const parts = trimmed.split(/\s+/);
+	if (parts.length === 2 && parts[0] && parts[1]) {
+		return { provider: parts[0], id: parts[1] };
+	}
+	const slash = trimmed.indexOf("/");
+	if (slash > 0 && slash < trimmed.length - 1) {
+		return { provider: trimmed.slice(0, slash), id: trimmed.slice(slash + 1) };
+	}
+	return undefined;
+}
+
+function pinnedClassifier(
+	jev: WebSearchConfig["jev"],
+): { provider: string; model: string } | undefined {
+	const provider = typeof jev?.provider === "string" ? jev.provider.trim() : "";
+	const model = typeof jev?.model === "string" ? jev.model.trim() : "";
+	return provider.length > 0 && model.length > 0 ? { provider, model } : undefined;
 }
 
 export async function resolveSettings(
@@ -396,22 +451,25 @@ function applyJevConfig(
 		return value;
 	};
 	const model = jev.model;
-	if (jev.enabled === true && model === JEV_LEGACY_MODEL) {
-		notices.push("jev model jev-1.13.0 is a legacy direct-API ID; use /web-search-settings typesafe|vercel|openrouter to select its current Pi catalog ID.");
+	if (model !== undefined && typeof model !== "string") {
+		notices.push("Ignored jev.model: expected a string.");
 	}
-	if (model !== undefined && (typeof model !== "string" || model.length === 0)) {
-		notices.push("Ignored jev.model: expected a non-empty string.");
+	const provider = jev.provider;
+	if (provider !== undefined && typeof provider !== "string") {
+		notices.push("Ignored jev.provider: expected a string.");
 	}
-	const backend = jev.backend;
-	if (backend !== undefined && backend !== "auto" && !isJevBackend(backend)) {
-		notices.push(`Ignored jev.backend: expected "auto" | "typesafe" | "vercel" | "openrouter".`);
+	if (jev.backend !== undefined) {
+		notices.push("Ignored jev.backend: pin jev.provider and jev.model to a Pi classifier.");
+	}
+	const pinnedProvider = typeof provider === "string" ? provider.trim() : "";
+	const pinnedModel = typeof model === "string" ? model.trim() : "";
+	if (jev.enabled === true && (pinnedProvider.length === 0 || pinnedModel.length === 0)) {
+		notices.push("jev.enabled without provider/model: judgment stays unpinned until set.");
 	}
 	return {
 		enabled: jev.enabled === true,
-		model: typeof model === "string" && model.length > 0
-			? model
-			: DEFAULT_JEV_SETTINGS.model,
-		backend: backend === "auto" || isJevBackend(backend) ? backend : DEFAULT_JEV_SETTINGS.backend,
+		provider: pinnedProvider,
+		model: pinnedModel,
 		weights: {
 			answers: numericWeight(jev, "answers", notices),
 			offtopic: numericWeight(jev, "offtopic", notices),

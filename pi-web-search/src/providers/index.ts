@@ -44,12 +44,16 @@ export interface RunSearchOptions {
  * Capability knowledge at the registry level. Parallel's native MCP server
  * is anonymous by default; connection errors surface from the host call.
  */
-export function providerAvailability(): Record<ProviderKind, boolean> {
+export function providerAvailability(
+	family?: ProviderFamily,
+): Record<ProviderKind, boolean> {
+	const code = family !== "web";
 	return {
 		exa: true,
 		parallel: true,
-		grep: true,
-		github: hasGitHubToken(),
+		grep: code,
+		sourcegraph: code,
+		github: code && hasGitHubToken(),
 	};
 }
 
@@ -133,8 +137,11 @@ export async function runSearch(
 		chain[0],
 		`No transport registered for ${chain[0]}.`,
 	);
+	const notes: string[] = [];
+	let lastEmpty: StreamResult | undefined;
 
-	for (const kind of chain) {
+	for (let i = 0; i < chain.length; i++) {
+		const kind = chain[i];
 		if (isAborted(req.signal)) {
 			throw abortReason(req.signal?.reason);
 		}
@@ -147,7 +154,15 @@ export async function runSearch(
 			continue;
 		}
 		try {
-			return await runTransport(transport, req);
+			const result = await runTransport(transport, req);
+			const hits = result.searchResults?.length ?? 0;
+			const more = i < chain.length - 1 && options.family === "code";
+			if (hits === 0 && more) {
+				notes.push(...(result.warnings ?? []), `${kind} returned no results.`);
+				lastEmpty = withNotes(result, notes);
+				continue;
+			}
+			return notes.length > 0 ? withNotes(result, notes) : result;
 		} catch (error) {
 			if (isAborted(req.signal)) {
 				throw abortReason(req.signal?.reason);
@@ -157,10 +172,22 @@ export async function runSearch(
 				throw providerErr;
 			}
 			lastError = providerErr;
+			notes.push(`${kind} failed (${providerErr.code}): ${providerErr.message}`);
 		}
 	}
 
+	if (lastEmpty) {
+		return withNotes(lastEmpty, notes);
+	}
 	throw lastError;
+}
+
+function withNotes(result: StreamResult, notes: string[]): StreamResult {
+	const extra = notes.filter((note) => !(result.warnings ?? []).includes(note));
+	return extra.length === 0 ? result : {
+		...result,
+		warnings: [...(result.warnings ?? []), ...extra],
+	};
 }
 
 /** Loader failures skip transports, but operation cancellation must not degrade. */
@@ -335,7 +362,7 @@ export async function runParallelSearch(
 /** Names the credential that would actually unlock the family in question. */
 function describeNoCredentials(target: ProviderFamily = "web"): string {
 	const hint = target === "code"
-		? "Set GITHUB_TOKEN to enable the GitHub code-search fallback."
+		? "Set GITHUB_TOKEN or run gh auth login for GitHub; grep.app and Sourcegraph need no key."
 		: "Enable Parallel's native MCP server in Pi (/mcp), or configure Exa.";
 	return target === "web"
 		? `No web provider is available. ${hint}`
@@ -349,10 +376,11 @@ function describeNoCredentials(target: ProviderFamily = "web"): string {
  * so the chain skips that provider instead of failing the whole search.
  */
 async function loadDefaultTransports(): Promise<ProviderTransportMap> {
-	const [exa, parallel, grep, github] = await Promise.all([
+	const [exa, parallel, grep, sourcegraph, github] = await Promise.all([
 		import("./exa.ts").catch(() => undefined),
 		import("./parallel.ts").catch(() => undefined),
 		import("./grep.ts").catch(() => undefined),
+		import("./sourcegraph.ts").catch(() => undefined),
 		import("./github.ts").catch(() => undefined),
 	]);
 	const map: ProviderTransportMap = {};
@@ -364,6 +392,7 @@ async function loadDefaultTransports(): Promise<ProviderTransportMap> {
 	assign("exa", exa?.exaSearch);
 	assign("parallel", parallel?.parallelSearch);
 	assign("grep", grep?.grepSearch);
+	assign("sourcegraph", sourcegraph?.sourcegraphSearch);
 	assign("github", github?.githubSearch);
 	return map;
 }

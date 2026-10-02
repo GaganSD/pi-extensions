@@ -21,7 +21,7 @@ import { providerError, type StreamResult } from "../src/providers/types.ts";
 import { formatSearchError } from "../src/utils.ts";
 import { classifierRegistry } from "./fixtures/native-jev.ts";
 
-const settings = applyConfig("/unused.json", { jev: { enabled: true } });
+const settings = applyConfig("/unused.json", { jev: { enabled: true, provider: "typesafe", model: "jev-latest" } });
 const availability = { exa: true, parallel: true };
 const hit: StreamResult = {
 	text: "", providerKind: "exa",
@@ -173,7 +173,7 @@ for (const suppressAll of [false, true]) {
 		const choice = (unsafe: boolean) => ({ type: "choice" as const, choice: unsafe ? "prompt_injection" : "safe", probabilities: { [unsafe ? "prompt_injection" : "safe"]: 0.99 }, confidence: 0.99 });
 		const output = await augmentResults({ query: "q", settings }, input, {
 			modelRegistry: classifierRegistry({ answers: {
-				c0_safety: choice(suppressAll), c1_safety: choice(true), sufficient: { type: "noul", noul: 0.99 },
+				c0_safety: choice(suppressAll), c1_safety: choice(true), sufficient: { type: "bool", probability: 0.99 },
 			} }),
 		});
 		const formatted = formatWebSearchResult(output);
@@ -220,7 +220,7 @@ test("executeSearch preserves trusted config, URL and argument notices after sup
 
 	try {
 		await writeFile(configPath, JSON.stringify({
-			web: { provider: "exa", fallback: ["github"] }, jev: { enabled: true },
+			web: { provider: "exa", fallback: ["github"] }, jev: { enabled: true, provider: "typesafe", model: "jev-latest" },
 		}));
 		process.env[CONFIG_PATH_ENV_VAR] = configPath;
 		const context = { modelRegistry: classifierRegistry({ answers: {
