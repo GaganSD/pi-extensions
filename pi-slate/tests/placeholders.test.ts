@@ -367,6 +367,26 @@ test("editing away from the end and navigating during a drop preserve the caret"
   assert.deepEqual(editor.getCursor(), { line: 0, col: 0 });
 });
 
+test("does not emit legacy rewrite notices during ordinary typing or navigation", async (t) => {
+  const editor = new Editor({} as TUI, {} as EditorTheme);
+  const sidebar = attachSidebar();
+  const pi = { on() {}, registerMarkdownTransformer() {} } as unknown as ExtensionAPI;
+  const notices: string[] = [];
+  // Exercise the former callback argument to make this fail on the merged PR.
+  const placeholders = Reflect.apply(installImagePlaceholders, undefined, [
+    pi, sidebar, (notice: string) => notices.push(notice),
+  ]) as ReturnType<typeof installImagePlaceholders>;
+  placeholders.attachEditor(editor as unknown as CustomEditor);
+  t.after(() => placeholders.dispose());
+
+  for (const char of "ordinary typing without an image") editor.handleInput(char);
+  for (let i = 0; i < 20; i += 1) editor.handleInput("\x1b[D");
+  await new Promise((resolve) => setTimeout(resolve, 75));
+  assert.equal(editor.getText(), "ordinary typing without an image");
+  assert.equal(sidebar.currentViewId(), undefined);
+  assert.deepEqual(notices, []);
+});
+
 test("formats clipboard image location details", () => {
   const path = "/var/folders/T/pi-clipboard-a.png";
   const location = formatImageLocation(path, "/Users/gagan", "1");
