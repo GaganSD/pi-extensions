@@ -99,7 +99,7 @@ test("optional judging survives an otherwise idle operation deadline with its ev
 		try {
 			const result = await augmentResults({
 				query: "q", signal: deadline.signal,
-				settings: { jev: { enabled: true, backend: "typesafe", model: "jev-1.13.0", maxStateChars: 20000 } },
+				settings: { jev: { enabled: true, backend: "typesafe", model: "jev-latest", maxStateChars: 20000 } },
 			}, input, {
 				timeoutMs: ${CLEANUP_FIXTURE_DEADLINE_MS},
 				modelRegistry: {
