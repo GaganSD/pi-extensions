@@ -42,7 +42,8 @@ npm run smoke:live
 - Live checks cover Exa, grep.app, scoped Sourcegraph, native Parallel, URL extraction, and multi-source code search through Pi's SDK.
 - Live checks send public test queries. They require network access and can fail when a provider is unavailable.
 - A terminal rehearsal checked local installation, first-run setup, settings display, and a second launch without the welcome prompt.
-- CI covers Node 22.19.0 and 24 on Linux, macOS, and Windows. An additional job checks Pi 1.0.0 with npm 12.
+- CI has three jobs: Linux (Node 22.19.0, Pi 0.99), Windows (Node 24, Pi 0.99), and macOS (Node 24, Pi 1.0).
+- Each job runs audits, typechecks, and package tests. Runtime tests run once, against the tarball. Pi 1.0 installation uses npm 12.
 
 To test an installed candidate with the live smoke, supply its package directory:
 
