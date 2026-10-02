@@ -2,10 +2,10 @@
 
 **Web and public-code search for Pi: `web_search`, `code_search`, and opt-in `multi_search`.**
 
-- **Keyless by default:** Exa, Parallel, and grep.app; optional GitHub search and Jev filtering with token.
+- **Keyless by default:** Exa, Parallel, and grep.app. Optional Jev filtering reuses your Pi login/key.
 - You configure providers in settings; Agent only sees small, task-focused tools for minimal context bloat.
 - Opt-in search across multiple sources, scoped to web, code, or both.
-- Optional Jev ranking, filtering, and safety classification through Pi's classifier API. Off by default.
+- Optional Jev ranking, filtering, and safety classification via TypeSafe, Vercel AI Gateway, or OpenRouter. Off by default.
 
 ## Installation
 
@@ -31,26 +31,31 @@ The classifier receives the query and candidate titles, URLs, and excerpts as st
 
 | Classifier | Support |
 | --- | --- |
-| **Jev** via TypeSafe or Vercel AI Gateway | Available now. |
+| **Jev** via TypeSafe, Vercel AI Gateway, or OpenRouter | Available now; reuses Pi authentication. |
 | **Your own local classifier** via llama.cpp or a custom Pi provider | Pi supports it; selecting it in this extension is planned. |
 | **OpenAI Decisions API** | Planned adapter; official API contract and access still need verification. Not available today. |
 
-The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. The current model selector is restricted to TypeSafe and Vercel; see the [implementation plan](docs/classifier-plan.md) for lifting that restriction.
+The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. The current model selector supports TypeSafe, Vercel, and OpenRouter; see the [implementation plan](docs/classifier-plan.md) for lifting that restriction.
 
-### Enable Jev now
+### Try Jev with your existing Pi login
 
-Merge into `web-search.json`, configure `TYPESAFE_API_KEY` or Pi's stored TypeSafe authentication, then `/reload`:
+For OpenRouter:
 
-```json
-{
-  "research": { "enabled": true },
-  "jev": { "enabled": true, "backend": "typesafe", "model": "jev-latest" }
-}
-```
+1. Run `/login openrouter` **only if Pi isn't already authenticated**.
+2. Run `/web-search-settings openrouter`, then `/reload`.
+3. Ask: “Use multi_search to search the web for AbortSignal.timeout.”
 
-For Vercel, use `backend: "vercel"`, `model: "typesafe-ai/jev"`, and Pi's Vercel authentication (`AI_GATEWAY_API_KEY` or stored auth). `research.enabled` remains the configuration switch for `multi_search`.
+| Use | Setup command | Default model |
+| --- | --- | --- |
+| TypeSafe | `/web-search-settings typesafe` | `jev-latest` |
+| Vercel AI Gateway | `/web-search-settings vercel` | `typesafe-ai/jev` |
+| OpenRouter | `/web-search-settings openrouter` | `~typesafe/jev-latest` |
 
-Classification is **off by default**. Provider failures, malformed answers, or judgment timeouts keep the retrieved evidence with warnings. Excerpts go to the selected hosted classifier before output clipping; a future local classifier would keep judgment local, **not web retrieval**. Safety classification is a heuristic, not a security boundary. See [all settings and limits](docs/research.md).
+The command enables multi-source search and judgment in `web-search.json`, preserving your other settings. **No second API key is needed.** Pi reuses its stored, environment, runtime, or model authentication. If needed, use Pi's `/login vercel-ai-gateway` or `/login typesafe` for the other providers.
+
+`/web-search-settings` shows status; `/web-search-settings off` disables judgment but keeps search enabled. Gateways require explicit selection: `auto` now uses TypeSafe only, with **no classifier provider fallback**. Hosted classification is billed to the selected account.
+
+Classification is off by default. Failures keep retrieved evidence with warnings. Hosted classifiers receive excerpts before output clipping; safety judgments are not a security boundary. See [all settings and limits](docs/research.md).
 
 ## Tools and Examples
 
@@ -123,7 +128,7 @@ To expose `multi_search`, merge this into the config path printed by `/web-searc
 
 Research sends the same query to all eligible sources in the chosen scope, concurrently. It is not an autonomous research agent, agreement checker, or automatic follow-up search. It merges successful responses while the operation deadline remains live. Ordinary web/code searches do not run Jev.
 
-Optional Jev ranking, safety classification, and sufficiency judgment additionally require `jev.enabled: true` and an available Pi classifier model (TypeSafe or Vercel AI Gateway). Pi owns classifier authentication through `TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`, or Pi-supported stored/runtime/model auth; anonymous Parallel search does not depend on it. Before enabling it, read [research and Jev settings](docs/research.md) for every setting/default, backend precedence, data sent externally, and fail-open behavior. Judgment is an optional heuristic, **not a security boundary**.
+For optional ranking and safety classification, choose a provider with `/web-search-settings typesafe`, `vercel`, or `openrouter`. Pi handles authentication; anonymous search does not depend on classifier credentials. See [settings and limits](docs/research.md).
 
 ## Credentials
 
@@ -131,15 +136,13 @@ Optional Jev ranking, safety classification, and sufficiency judgment additional
 
 Default Exa web search, native Parallel MCP web fallback, and grep.app code search need no search-provider key. Parallel anonymous access has lower server-controlled rate limits; an already configured key is optional for higher limits. An Exa key selects REST instead of keyless MCP; GitHub requires a token. Jev is independently opt-in and uses Pi classifier authentication. Additional providers do not guarantee more results or availability.
 
-For retrieval IDs, the first nonblank environment alias below overrides the current stored key in `<agent-dir>/auth.json`, as defined by the [credential resolver](src/env.ts). The classifier rows report package-visible key presence only; Pi independently resolves classifier authentication:
+For search credentials, the first nonblank environment alias overrides the stored key in `<agent-dir>/auth.json`. Classifier credentials are resolved exclusively by Pi—no extension key store or separate Jev key.
 
 | Stored ID | Environment aliases, in precedence order | Enables |
 | --- | --- | --- |
 | `exa` | `EXA_API_KEY` | Exa REST instead of keyless MCP. |
 | `parallel` | `PARALLEL_API_KEY` | Optional Bearer header for Parallel native MCP (anonymous without it). |
 | `github` | `GITHUB_TOKEN`, `GH_TOKEN` | Authenticated GitHub search; only verified public results are returned. |
-| `typesafe` | `TYPESAFE_API_KEY`, legacy `JEV_API_KEY` | Diagnostic only. Pi uses `TYPESAFE_API_KEY` or its stored/runtime/model auth; `JEV_API_KEY` alone does not authenticate Pi's classifier. |
-| `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | Diagnostic only. Pi uses `AI_GATEWAY_API_KEY` or its stored/runtime/model auth; Pi owns availability. |
 
 Set environment variables **before starting Pi**. A new export in another shell cannot change a running Pi process; restart Pi with that environment. Exa/GitHub stored keys are read each operation; the Parallel Bearer header is captured when its MCP server is registered, so changing its key requires `/reload`. Pi, not this package, resolves classifier credentials at judgment time.
 
@@ -151,7 +154,7 @@ To store a key, merge an entry of this form into Pi's existing `auth.json` (repl
 
 For retrieval keys, this extension reads literal `.key` strings; it does not resolve shell commands, environment references inside those strings, or OAuth refresh credentials. Pi owns classifier credential resolution, including its other supported auth sources. Unreadable/malformed retrieval auth is treated as no stored key. This extension does not write credentials. Keep auth files out of version control and use narrowly scoped keys/tokens. Additional sources have their own quotas and billing; no price or quota increase is promised here.
 
-`/web-search-settings` does not echo resolved key values. **That is not a general secret-redaction guarantee**: tool queries, URLs, upstream errors, warnings, and excerpts may contain sensitive text. See [data handling](#data-handling).
+`/web-search-settings` reports Pi's classifier authentication snapshot, not a live key-validity test. It never displays keys. Queries, URLs, errors, and excerpts can still contain sensitive text; see [data handling](#data-handling).
 
 ## Provider behavior and limits
 

@@ -3,11 +3,12 @@ import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { applyConfig } from "../src/providers/config.ts";
 import { systemOne } from "../src/jev/api.ts";
-import { JEV_LEGACY_MODEL, JEV_NATIVE_MODEL, JEV_VERCEL_MODEL, selectJevModel } from "../src/jev/model.ts";
+import { JEV_BACKENDS, JEV_LEGACY_MODEL, JEV_NATIVE_MODEL, JEV_OPENROUTER_MODEL, JEV_VERCEL_MODEL, resolveJevTarget, selectJevModel } from "../src/jev/model.ts";
 
 type Registry = ExtensionContext["modelRegistry"];
 const typesafe = { provider: "typesafe", id: JEV_NATIVE_MODEL };
 const vercel = { provider: "vercel-ai-gateway", id: JEV_VERCEL_MODEL };
+const openrouter = { provider: "openrouter", id: JEV_OPENROUTER_MODEL };
 function registry(models: { provider: string; id: string }[], classify?: (args: unknown) => Promise<unknown>): Registry {
 	return {
 		findOfType: (_type: string, provider: string, id: string) => models.find((model) => model.provider === provider && model.id === id),
@@ -22,29 +23,35 @@ const questions = {
 const state = { query: "query", candidates: [{ index: 0, title: "A", url: "https://a.example", excerpt: "A" }] };
 
 // No environment mutation: credentials, including runtime-only/OAuth sources, belong to Pi.
-test("current default prefers TypeSafe and maps to Vercel when needed", async () => {
-	assert.equal((await selectJevModel(registry([typesafe, vercel]), {}))?.provider, "typesafe");
-	assert.equal((await selectJevModel(registry([vercel]), {}))?.id, JEV_VERCEL_MODEL);
-	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_NATIVE_MODEL, backend: "vercel" }))?.id, JEV_VERCEL_MODEL);
-	assert.equal(await selectJevModel(registry([vercel]), { model: JEV_NATIVE_MODEL, backend: "typesafe" }), undefined);
+test("default and auto never select a gateway without explicit opt-in", async () => {
+	assert.equal((await selectJevModel(registry([typesafe, vercel, openrouter]), {}))?.provider, "typesafe");
+	assert.equal(await selectJevModel(registry([vercel, openrouter]), {}), undefined);
+	assert.equal(await selectJevModel(registry([vercel, openrouter]), { backend: "auto" }), undefined);
 	const unavailableTypeSafe = {
-		...registry([typesafe, vercel]),
-		getAvailableOfType: async (_type: string, provider: string) => provider === "typesafe" ? [] : [vercel],
+		...registry([typesafe, vercel, openrouter]),
+		getAvailableOfType: async () => [vercel, openrouter],
 	} as unknown as Registry;
-	assert.equal((await selectJevModel(unavailableTypeSafe, {}))?.provider, "vercel-ai-gateway");
+	assert.equal(await selectJevModel(unavailableTypeSafe, {}), undefined);
 });
 
-test("legacy alias maps to installed catalog IDs and prefers available TypeSafe", async () => {
-	assert.equal((await selectJevModel(registry([typesafe, vercel]), { model: JEV_LEGACY_MODEL }))?.provider, "typesafe");
-	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_LEGACY_MODEL }))?.id, JEV_VERCEL_MODEL);
-	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_LEGACY_MODEL, backend: "typesafe" })), undefined);
+test("explicit backends map default and legacy aliases to their own Pi models", async () => {
+	for (const backend of JEV_BACKENDS) {
+		const expected = resolveJevTarget({ backend });
+		for (const model of [undefined, JEV_NATIVE_MODEL, JEV_LEGACY_MODEL]) {
+			const selected = await selectJevModel(registry([typesafe, vercel, openrouter]), { backend, model });
+			assert.equal(selected?.provider, expected.provider);
+			assert.equal(selected?.id, expected.model);
+		}
+	}
 });
 
-test("explicit catalog models honor backend and never switch to an arbitrary fallback", async () => {
-	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_VERCEL_MODEL, backend: "auto" }))?.provider, "vercel-ai-gateway");
-	assert.equal((await selectJevModel(registry([vercel]), { model: JEV_NATIVE_MODEL, backend: "auto" }))?.id, JEV_VERCEL_MODEL);
-	assert.equal(await selectJevModel(registry([typesafe, vercel]), { model: JEV_VERCEL_MODEL, backend: "typesafe" }), undefined);
-	assert.equal(await selectJevModel(registry([typesafe, vercel]), { model: "unknown", backend: "auto" }), undefined);
+test("explicit catalog models are exact and never switch providers", async () => {
+	const pinned = { provider: "openrouter", id: "typesafe/jev-1.13" };
+	assert.equal((await selectJevModel(registry([pinned]), { backend: "openrouter", model: pinned.id }))?.id, pinned.id);
+	assert.equal(await selectJevModel(registry([typesafe, vercel]), { backend: "openrouter" }), undefined);
+	assert.equal(await selectJevModel(registry([typesafe, openrouter]), { backend: "vercel" }), undefined);
+	assert.equal(await selectJevModel(registry([vercel]), { model: JEV_VERCEL_MODEL, backend: "auto" }), undefined);
+	assert.equal(await selectJevModel(registry([typesafe, vercel, openrouter]), { model: "unknown", backend: "openrouter" }), undefined);
 });
 
 test("default and current catalog IDs do not emit a legacy migration notice", () => {
@@ -54,7 +61,7 @@ test("default and current catalog IDs do not emit a legacy migration notice", ()
 		assert.deepEqual(settings.notices, []);
 	}
 	const legacy = applyConfig("/unused", { jev: { enabled: true, model: JEV_LEGACY_MODEL } });
-	assert.match(legacy.notices.join(" "), /legacy direct-API ID.*typesafe\/jev-latest/);
+	assert.match(legacy.notices.join(" "), /legacy direct-API ID.*web-search-settings typesafe/);
 	assert.equal(applyConfig("/unused", {}).notices.length, 0);
 	const explicit = applyConfig("/unused", { jev: { enabled: true, model: "unknown-catalog-id" } });
 	assert.equal(explicit.jev.model, "unknown-catalog-id");

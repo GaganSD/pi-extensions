@@ -1,9 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, realpath, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { JEV_LEGACY_MODEL, JEV_NATIVE_MODEL, type JevBackendSetting } from "../jev/model.ts";
+import { getAgentDir, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { JEV_LEGACY_MODEL, JEV_NATIVE_MODEL, isJevBackend, resolveJevTarget, type JevBackend, type JevBackendSetting } from "../jev/model.ts";
 import {
 	PROVIDER_KINDS,
 	type ProviderError,
@@ -39,7 +40,7 @@ export const CONFIG_PATH_ENV_VAR = "PI_WEB_SEARCH_CONFIG";
 export interface JevSettings {
 	enabled: boolean;
 	model: string;
-	/** `auto` prefers TypeSafe, then Vercel for the default Jev model and legacy alias. */
+	/** Gateways require explicit selection; `auto` uses TypeSafe only. */
 	backend: JevBackendSetting;
 	/** Weights for the ranking nouls. Policy stays in code, tunable here. */
 	weights: { answers: number; offtopic: number; selfcontained: number };
@@ -88,7 +89,7 @@ const CONFIG_KEYS = new Set(["web", "code", "research", "jev", "timeoutMs", "max
 
 export const DEFAULT_JEV_SETTINGS: JevSettings = {
 	enabled: false,
-	// Current Pi catalog ID; auto maps it to Vercel's equivalent when needed.
+	// The default alias maps within the selected provider, never across providers.
 	model: JEV_NATIVE_MODEL,
 	backend: "auto",
 	weights: { answers: 0.45, offtopic: -0.3, selfcontained: 0.25 },
@@ -250,6 +251,12 @@ export function parseWebSearchConfig(
 				error: invalidConfig(configPath, `"jev" must be an object.`),
 			};
 		}
+		if ("backend" in jev && jev.backend !== "auto" && !isJevBackend(jev.backend)) {
+			return {
+				status: "invalid", path: configPath,
+				error: invalidConfig(configPath, '"jev.backend" must be "typesafe", "vercel", "openrouter", or legacy "auto".'),
+			};
+		}
 		const unknown = Object.keys(jev).filter((key) => !Object.hasOwn(DEFAULT_JEV_SETTINGS, key));
 		if (unknown.length > 0) {
 			return {
@@ -268,6 +275,35 @@ export function parseWebSearchConfig(
 	}
 
 	return { status: "ok", path: configPath, config };
+}
+
+/** Explicit setup command: preserve settings, write no keys, refuse malformed config. */
+export async function configureJev(backend: JevBackend | "off"): Promise<string> {
+	const configPath = defaultWebSearchConfigPath();
+	const targetPath = await realpath(configPath).catch((error) => {
+		if (isMissingFileError(error)) return configPath;
+		throw error;
+	});
+	return withFileMutationQueue(targetPath, async () => {
+		const result = await readWebSearchConfig(targetPath);
+		if (result.status === "invalid") throw result.error;
+		const config = result.status === "ok" ? result.config : {};
+		if (backend === "off") {
+			config.jev = { ...config.jev, enabled: false };
+		} else {
+			config.research = { ...config.research, enabled: true };
+			config.jev = { ...config.jev, enabled: true, backend, model: resolveJevTarget({ backend }).model };
+		}
+		await mkdir(dirname(targetPath), { recursive: true });
+		const temporary = `${targetPath}.${randomUUID()}.tmp`;
+		try {
+			await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+			await rename(temporary, targetPath);
+		} finally {
+			await unlink(temporary).catch(() => {});
+		}
+		return configPath;
+	});
 }
 
 export async function resolveSettings(
@@ -361,29 +397,21 @@ function applyJevConfig(
 	};
 	const model = jev.model;
 	if (jev.enabled === true && model === JEV_LEGACY_MODEL) {
-		notices.push("jev model jev-1.13.0 is a legacy direct-API ID; Pi uses typesafe/jev-latest or vercel-ai-gateway/typesafe-ai/jev instead. Set jev.model to a catalog ID to pin an available classifier.");
+		notices.push("jev model jev-1.13.0 is a legacy direct-API ID; use /web-search-settings typesafe|vercel|openrouter to select its current Pi catalog ID.");
 	}
 	if (model !== undefined && (typeof model !== "string" || model.length === 0)) {
 		notices.push("Ignored jev.model: expected a non-empty string.");
 	}
 	const backend = jev.backend;
-	if (
-		backend !== undefined &&
-		backend !== "auto" &&
-		backend !== "typesafe" &&
-		backend !== "vercel"
-	) {
-		notices.push(`Ignored jev.backend: expected "auto" | "typesafe" | "vercel".`);
+	if (backend !== undefined && backend !== "auto" && !isJevBackend(backend)) {
+		notices.push(`Ignored jev.backend: expected "auto" | "typesafe" | "vercel" | "openrouter".`);
 	}
 	return {
 		enabled: jev.enabled === true,
 		model: typeof model === "string" && model.length > 0
 			? model
 			: DEFAULT_JEV_SETTINGS.model,
-		backend:
-			backend === "auto" || backend === "typesafe" || backend === "vercel"
-				? backend
-				: DEFAULT_JEV_SETTINGS.backend,
+		backend: backend === "auto" || isJevBackend(backend) ? backend : DEFAULT_JEV_SETTINGS.backend,
 		weights: {
 			answers: numericWeight(jev, "answers", notices),
 			offtopic: numericWeight(jev, "offtopic", notices),

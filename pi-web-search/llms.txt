@@ -8,7 +8,8 @@ This file is a navigation index for agents, not an API specification or a retrie
 
 - [Package README](README.md): requirements, release status, isolated-subfolder installation, first search, and tool payloads.
 - [Configuration](README.md#full-configuration): retrieval defaults, normalization, config location, and reload behavior.
-- [Credentials](README.md#credentials): environment precedence, literal auth.json format, and settings-report limits.
+- [Credentials](README.md#credentials): retrieval key precedence and Pi-owned classifier authentication.
+- [Try Jev](README.md#try-jev-with-your-existing-pi-login): explicit TypeSafe/Vercel/OpenRouter setup using existing Pi credentials.
 - [Code qualifiers](README.md#code-qualifiers): repo:/language: translation, provider differences, and inconclusive zero hits.
 - [Provider behavior and limits](README.md#provider-behavior-and-limits): eligibility, excerpt/citation limits, and fallback scope.
 - [Timeouts, fallback, and errors](README.md#timeouts-fallback-and-errors): deadline and partial-result semantics; troubleshooting.

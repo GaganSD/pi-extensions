@@ -1,10 +1,10 @@
 # Classifier provider support plan
 
-**Status:** planned, not implemented. `multi_search` is the renamed tool; its existing `research.enabled` opt-in remains unchanged.
+**Status:** OpenRouter support, explicit gateway selection, Pi-owned authentication, and setup commands are implemented. Local/custom selection and the conditional OpenAI adapter below remain planned. `multi_search` retains its existing `research.enabled` opt-in.
 
 ## Current architecture
 
-- `src/jev/model.ts` selects only TypeSafe and Vercel models.
+- `src/jev/model.ts` selects TypeSafe, Vercel, or OpenRouter through Pi. Gateways require explicit selection; there is no classifier provider fallback.
 - `src/jev/api.ts` calls Pi's `modelRegistry.classify()` with typed boolean/choice questions and validates the answers.
 - `src/jev/judge.ts` owns ranking weights, suppression thresholds, and sufficiency policy. Search providers do not own classification.
 - `src/jev/augment.ts` preserves retrieved evidence when optional judgment fails; caller cancellation remains fatal.
@@ -28,10 +28,10 @@ Add a preferred `classifier` configuration block:
 
 - Normalize this block into the existing judgment settings. Carry over `weights`, `safetyThreshold`, and `maxStateChars`; keep judgment disabled by default.
 - Continue accepting existing `jev` configuration. Reject simultaneous `classifier` and `jev` blocks with an actionable `invalid_config` error rather than silently choosing one.
-- With no explicit provider/model, retain today's TypeSafe-first, Vercel-second default mapping. An explicit provider requires an exact model ID.
+- Preserve the TypeSafe-only default and explicit gateway selection. An explicit local/custom provider requires an exact model ID; never introduce a cloud fallback.
 - Resolve explicit selections through `findOfType("classifier", provider, model)` and `getAvailableOfType()`. Never select a chat model by mistake or silently change providers.
 - In particular, an unavailable local model must not fall back to a cloud classifier. Return unjudged evidence with a warning.
-- Update `/web-search-settings` to report configured classifier selection and setup guidance without secrets or network calls; presence is not proof of availability.
+- Extend the existing `/web-search-settings` selection and Pi auth snapshot diagnostics to local/custom providers. Do not add credential resolution or new provider clients; presence is not proof of availability.
 - Retain existing `jev`/`jevStatus` result fields for compatibility in this change; document them as legacy names for judgment metadata.
 
 ## 2. Enable local and custom classifiers

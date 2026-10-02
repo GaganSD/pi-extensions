@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-	applyConfig, clampMaxResults, defaultWebSearchConfigPath,
+	applyConfig, clampMaxResults, configureJev, defaultWebSearchConfigPath,
 	readWebSearchConfig, resolveSettings, resolveSettingsSync,
 } from "../src/providers/config.ts";
 import { isProviderError } from "../src/providers/types.ts";
@@ -103,6 +103,7 @@ test("malformed family and research blocks fail instead of silently defaulting",
 test("misspelled judgment settings and weights fail explicitly", async () => {
 	for (const jev of [
 		{ enabled: true, safetyTreshold: 0.95 }, { enabled: true, constructor: "not a setting" },
+		{ enabled: true, backend: "open-router" }, { enabled: true, backend: null },
 		{ weights: { answer: 1 } }, { weights: { __unknown: 1 } }, { weights: [] },
 	]) {
 		await withConfig({ jev }, async (path) => {
@@ -160,3 +161,36 @@ test("only research.enabled opts in, and both resolvers agree", async () => {
 		});
 	}
 });
+
+test("openrouter configuration works without a separately configured model", () => withConfig({
+	research: { enabled: true }, jev: { enabled: true, backend: "openrouter" },
+}, async (path) => {
+	const settings = await resolveSettings(path);
+	assert.ok(!("error" in settings));
+	assert.equal(settings.jev.backend, "openrouter");
+	assert.deepEqual(settings.notices, []);
+}));
+
+test("concurrent setup preserves settings and existing config symlinks", () => withConfig({
+	maxResults: 3, jev: { weights: { answers: 0.9 }, safetyThreshold: 0.8 },
+}, async (path) => {
+	// Windows file symlinks need elevated privileges; still exercise concurrent writes there.
+	const alias = process.platform === "win32" ? path : `${path}.link`;
+	if (alias !== path) await symlink(path, alias);
+	const previous = process.env.PI_WEB_SEARCH_CONFIG;
+	process.env.PI_WEB_SEARCH_CONFIG = alias;
+	try {
+		await Promise.all([configureJev("openrouter"), configureJev("vercel")]);
+		if (alias !== path) assert.equal((await lstat(alias)).isSymbolicLink(), true);
+		const saved = JSON.parse(await readFile(path, "utf8"));
+		assert.equal(saved.maxResults, 3);
+		assert.equal(saved.research.enabled, true);
+		assert.deepEqual(saved.jev.weights, { answers: 0.9 });
+		assert.equal(saved.jev.safetyThreshold, 0.8);
+		assert.ok(["openrouter", "vercel"].includes(saved.jev.backend));
+		assert.equal(saved.jev.model, saved.jev.backend === "openrouter" ? "~typesafe/jev-latest" : "typesafe-ai/jev");
+	} finally {
+		if (previous === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
+		else process.env.PI_WEB_SEARCH_CONFIG = previous;
+	}
+}));

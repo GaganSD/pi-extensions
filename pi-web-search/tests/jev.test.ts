@@ -307,7 +307,7 @@ test("unavailable Pi classifier fails open with actionable catalog/auth guidance
 	const unavailable = await augmentResults(request(settingsWith()), input, { modelRegistry: emptyRegistry });
 	assert.equal(unavailable.jevStatus, "unavailable");
 	assert.deepEqual(unavailable.searchResults, input.searchResults);
-	assert.match(unavailable.warnings?.join(" ") ?? "", /Pi has no available classifier.*TYPESAFE_API_KEY or AI_GATEWAY_API_KEY/);
+	assert.match(unavailable.warnings?.join(" ") ?? "", /Pi has no available classifier.*\/login typesafe/);
 });
 
 test("classifier error fails open with warning", async () => {
