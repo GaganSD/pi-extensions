@@ -242,6 +242,7 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("theme pantera"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme latte quiet"), { ok: false });
   assert.deepEqual(parseSlateArgs("flavor mocha"), { ok: false });
+  assert.deepEqual(parseSlateArgs("diff"), { ok: false });
   assert.deepEqual(parseSlateArgs("style sapphire"), { ok: true, kind: "style", value: "sapphire" });
   assert.deepEqual(parseSlateArgs("theme nope"), { ok: false });
   assert.deepEqual(parseSlateArgs("theme mocha mauve extra"), { ok: false });

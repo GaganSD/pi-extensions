@@ -18,6 +18,8 @@ pi install npm:@gagansd/pi-ask
 
 Then `/reload`.
 
+Releases: [CHANGELOG](CHANGELOG.md).
+
 From a clone of this repo: `pi install .` at the repo or package root.
 
 ## Everyday use

@@ -1,12 +1,15 @@
 # pi-slate
 
-> Quiet vertical-first TUI for the Pi coding agent. Adds no tools, prompts, or model calls.
+> Quiet vertical-first TUI for the Pi coding agent. Adds no new model-facing tools, prompts, or model calls.
 
-Replaces Pi's header, footer, and editor. Other UI extensions that replace the same surfaces may conflict.
+Replaces Pi's header, footer, editor, and edit/write result rendering. Other extensions that replace the same surfaces or tool implementations may conflict.
+
+Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow `/slate theme`. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
 ## Documentation
 
 - [README](README.md): install, features, commands, themes, composer keys
 - [Extension entry](extensions/pi-slate/index.ts): TUI replacement
+- [Diff](extensions/pi-slate/diff.ts): edit/write rendering
 - [Default theme](themes/black-metal.json): install default
 - [Package manifest](package.json): `npm:pi-slate`

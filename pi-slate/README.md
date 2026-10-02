@@ -1,7 +1,7 @@
 <h1 align="center">Slate 🌱</h1>
 
 <p align="center">
-  A minimal terminal UI/UX for Pi Coding Agent with a vertical-first workspace, contextual sidebar, rich media, and quiet update notices.
+  A minimal terminal UI/UX for Pi Coding Agent with a vertical-first workspace, contextual sidebar, rich diffs, rich media, and quiet update notices.
 </p>
 
 <p align="center">
@@ -25,11 +25,11 @@ pi install npm:pi-slate
 pi --tui-mode fullscreen
 ```
 
-Explore extension settings using `/slate` after installation.
+Explore extension settings using `/slate` after installation. Releases: [CHANGELOG](CHANGELOG.md).
 
 ## Features
 
-Slate renders cleanly into your terminal and stays customizable without adding tools, prompts, model calls, or context bloat.
+Slate renders cleanly into your terminal and stays customizable without adding new model-facing tools, prompts, or model calls.
 
 ### Vertical-first Workspace
 
@@ -46,6 +46,26 @@ The tall vertical screenshot is constrained so it does not dominate the page:
 <p align="center">
   <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-vertical.png" alt="Slate vertical mode with the sidebar unmounted" height="420" />
 </p>
+
+### Diff
+
+`edit` and `write` results are syntax-highlighted in the transcript. Enabled by default.
+
+- Split edits (before/after) at 100+ columns; unified below that, and for every write.
+- Word-level emphasis on paired lines. 190+ languages via Shiki; unknown types stay plain text.
+- Compact until you expand the tool card. Long lines clip to the pane.
+
+Native schemas, mutation queue, errors, and model-facing text are unchanged. Write snapshots stay in `slateDiff` result details for session restore. RPC, JSON, and print keep native results. `/slate theme` styles the whole UI, including diffs — there is no separate diff theme.
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-yaml.png" alt="Split YAML edit with word-level emphasis" />
+</p>
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-rust.png" alt="Split Rust edit with syntax highlighting" />
+</p>
+
+Previews are bounded: 256 KiB snapshots, 2,000 parsed rows, 16 collapsed / 400 expanded. Binary or oversized previous content shows a notice, not a fake overwrite.
 
 ### Rich Media Rendering
 
@@ -148,7 +168,7 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 ## Minimal By Design
 
-Slate adds no context bloat; no tools, prompts, or model calls. It's entirely deterministic and made to be customizable and improve your Pi experience while your Pi remains yours.
+Slate adds no new model-facing tools, prompts, or model calls. Highlighted `edit` and `write` results keep the native response text. It's entirely deterministic and made to be customizable and improve your Pi experience while your Pi remains yours.
 
 ## Requirements
 

@@ -26,8 +26,6 @@ function strip(line: string): string {
     .replace(/^─\s?/, "")
     .replace(/\s─+$/, "")
     .replace(/\s+$/, "");
-  if (/^─+$/.test(s)) return "─";
-  return s.replace(/─+$/, "");
 }
 
 function actionX(line: string, label: string): number {

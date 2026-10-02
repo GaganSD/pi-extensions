@@ -1,0 +1,18 @@
+# Changelog
+
+## 0.1.2
+
+- README screenshots served from the npm CDN
+
+## 0.1.1
+
+- Document single, multi, and text modes in the README
+
+## 0.1.0
+
+First public release as `@gagansd/pi-ask`.
+
+- `ask_user` interviews: one question at a time
+- Single-select, multi-select, and free-text
+- `/answer` turns the latest assistant message into a form
+- `/ask-settings` for the settings overlay

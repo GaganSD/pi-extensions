@@ -17,6 +17,7 @@ import {
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
+import { installDiff } from "./diff.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
 import { GitDiffPreviewLoader } from "./git-diff.ts";
@@ -151,6 +152,7 @@ function withMessageLength(current: SlateConfig, messageLength: number | "all" |
   return next;
 }
 
+
 function saveConfig(config: SlateConfig): void {
   const temporaryPath = `${CONFIG_PATH}.${process.pid}.tmp`;
   writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -191,6 +193,8 @@ class BranchFooter implements Component {
 }
 
 export default function piSlate(pi: ExtensionAPI): void {
+  let config = loadConfig();
+  installDiff(pi);
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
   const selection = new ComposerSelectionController();
@@ -205,7 +209,6 @@ export default function piSlate(pi: ExtensionAPI): void {
     void files.refresh();
   };
   const turnImpact = new TurnImpactTracker();
-  let config = loadConfig();
   let currentContext: ExtensionContext | undefined;
   let activeEditor: CustomEditor | undefined;
   let gitBranch: string | null = null;
@@ -565,6 +568,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       return;
     }
     persistTheme(ctx.cwd, name);
+    requestRender(true);
     ctx.ui.notify(message, "info");
   };
 

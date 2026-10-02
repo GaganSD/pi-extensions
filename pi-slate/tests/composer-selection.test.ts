@@ -144,6 +144,27 @@ test("Backspace and printable input replace a select-all range", async (t) => {
   });
 });
 
+test("Kitty and xterm printable keys replace selection using the public TUI API", () => {
+  for (const key of ["\x1b[120u", "\x1b[27;1;120~", "\x1b[27;2;88~", "\x1b[27;65;120~", "\x1b[27;1;128512~"]) {
+    const editor = new FakeEditor("replace me");
+    const selection = attach(editor);
+    editor.handleInput(SELECT_ALL);
+    editor.handleInput(key);
+    assert.deepEqual(editor.setTextCalls, [""], JSON.stringify(key));
+    assert.deepEqual(editor.inputCalls, [key]);
+    selection.dispose();
+  }
+  for (const key of ["\x1b[27;5;120~", "\x1b[27;3;120~", "\x1b[27;9;120~"]) {
+    const editor = new FakeEditor("keep me");
+    const selection = attach(editor);
+    editor.handleInput(SELECT_ALL);
+    editor.handleInput(key);
+    assert.deepEqual(editor.setTextCalls, [], JSON.stringify(key));
+    assert.equal(editor.getText(), "keep me");
+    selection.dispose();
+  }
+});
+
 test("Ctrl+C and Ctrl+X pass through to Pi", () => {
   const editor = new FakeEditor("hello");
   attach(editor);
