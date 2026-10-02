@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 
 import {
@@ -25,10 +25,8 @@ async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
 }
 
 test("welcome state is a sidecar file next to the config", () => {
-	assert.equal(
-		welcomeStatePath("/tmp/agent/web-search.json"),
-		"/tmp/agent/web-search-welcome.json",
-	);
+	const configPath = join("tmp", "agent", "web-search.json");
+	assert.equal(welcomeStatePath(configPath), join(dirname(configPath), "web-search-welcome.json"));
 });
 
 test("maybeShowWelcome is once-only and can persist TypeSafe setup", async () => {
