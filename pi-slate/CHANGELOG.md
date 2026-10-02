@@ -10,6 +10,7 @@ Syntax-highlighted `edit` and `write` results in the transcript.
 - Colors follow `/slate theme` — Black Metal or Catppuccin Mocha styles
 - Compact until you expand the tool card
 - Host Pi packages are optional peers, so `pi install` does not pull a second, auditable copy of the agent
+- Dev pin is Pi 0.99.0 so `npm ci` is audit-clean
 
 ## 0.1.7
 

@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import test from "node:test";
-import { discoverAndLoadExtensions, initTheme, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { discoverAndLoadExtensions, initTheme, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { ToolExecutionComponent } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/tool-execution.js";
 
@@ -24,7 +24,7 @@ test("Slate loads through Pi's real extension loader and renders completed tools
   });
   assert.deepEqual([...extension.tools.keys()].sort(), ["edit", "write"]);
   initTheme("dark", false);
-  const ctx = { cwd, mode: "tui" } as ExtensionContext;
+  const ctx = { cwd, mode: "tui", tools: [], executeTool: async () => { throw new Error("unused"); } } as unknown as ExtensionToolContext;
   const ui = { requestRender() {} } as TUI;
   const args = {
     path: "demo.ts", content: "const port = 3000;\n",

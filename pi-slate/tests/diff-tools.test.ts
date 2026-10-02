@@ -7,7 +7,7 @@ import { stripVTControlCharacters } from "node:util";
 import { applyPatch } from "diff";
 import {
   createEditToolDefinition, createWriteToolDefinition, withFileMutationQueue,
-  type ExtensionAPI, type ExtensionContext, type Theme,
+  type ExtensionAPI, type ExtensionContext, type ExtensionToolContext, type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text, type Component } from "@earendil-works/pi-tui";
 import { DIFF_MAX_BYTES, readDiffConfig } from "../extensions/pi-slate/diff-config.ts";
@@ -21,9 +21,10 @@ const plain = (component: Component) => component.render(120).map((line) => stri
 const unused = (): never => { throw new Error("Unexpected use of a session service in a tool test"); };
 
 // Real tools need only cwd/mode; fail loudly if they begin using session services.
-function context(cwd: string, mode: ExtensionContext["mode"] = "tui"): ExtensionContext {
+function context(cwd: string, mode: ExtensionContext["mode"] = "tui"): ExtensionToolContext {
   return {
     cwd, mode, hasUI: mode === "tui" || mode === "rpc", model: undefined, scopedModels: [], signal: undefined,
+    tools: [], executeTool: unused,
     get ui() { return unused(); },
     get sessionManager() { return unused(); },
     get modelRegistry() { return unused(); },
@@ -436,7 +437,7 @@ test("installDiff always registers edit and write", () => {
   let hooks = 0;
   const api: Pick<ExtensionAPI, "registerTool" | "on"> = {
     registerTool(tool) { names.push(tool.name); },
-    on() { hooks++; },
+    on() { hooks++; return () => {}; },
   };
   installDiff(api as ExtensionAPI);
   assert.deepEqual(names.sort(), ["edit", "write"]);
