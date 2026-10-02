@@ -43,7 +43,7 @@ export interface ExecuteSearchParams {
 	rawParams: object;
 	/** The parameter names this tool declares; anything else is reported, not used. */
 	acceptedParams: readonly string[];
-	/** `research_search` requires an explicit opt-in in the resolved settings. */
+	/** `multi_search` requires an explicit opt-in in the resolved settings. */
 	requireResearch?: boolean;
 }
 
@@ -138,7 +138,7 @@ export async function executeSearch(
 		if (params.requireResearch && !resolved.researchEnabled) {
 			throw providerError(
 				"invalid_config",
-				`research_search is disabled. Set "research": { "enabled": true } in ${resolved.configPath} and run /reload.`,
+				`multi_search is disabled. Set "research": { "enabled": true } in ${resolved.configPath} and run /reload.`,
 			);
 		}
 

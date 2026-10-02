@@ -96,7 +96,7 @@ test("validation isolates Pi/npm configuration and excludes inherited credential
 		}
 		assert.ok(existsSync(env.npm_config_userconfig!));
 		assert.equal(env.npm_config_offline, "true");
-		for (const name of ["EXA_API_KEY", "PARALLEL_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "TYPESAFE_API_KEY", "JEV_API_KEY", "AI_GATEWAY_API_KEY", "NODE_OPTIONS", "NPM_TOKEN"]) {
+		for (const name of ["EXA_API_KEY", "PARALLEL_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "TYPESAFE_API_KEY", "JEV_API_KEY", "AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY", "NODE_OPTIONS", "NPM_TOKEN"]) {
 			assert.equal(env[name], undefined, name);
 		}
 	});

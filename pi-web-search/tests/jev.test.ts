@@ -88,8 +88,8 @@ function request(settings: JevSettings): SearchRequest {
 
 // --- api --------------------------------------------------------------------
 
-test("the old default is recognizable for explicit catalog mapping", () => {
-	assert.equal(JEV_DEFAULT_MODEL, "jev-1.13.0");
+test("the default uses the current Pi Jev catalog ID", () => {
+	assert.equal(JEV_DEFAULT_MODEL, "jev-latest");
 });
 
 test("noul and choice reads tolerate malformed answers", () => {
@@ -307,7 +307,7 @@ test("unavailable Pi classifier fails open with actionable catalog/auth guidance
 	const unavailable = await augmentResults(request(settingsWith()), input, { modelRegistry: emptyRegistry });
 	assert.equal(unavailable.jevStatus, "unavailable");
 	assert.deepEqual(unavailable.searchResults, input.searchResults);
-	assert.match(unavailable.warnings?.join(" ") ?? "", /Pi has no available classifier.*TYPESAFE_API_KEY or AI_GATEWAY_API_KEY/);
+	assert.match(unavailable.warnings?.join(" ") ?? "", /Pi has no available classifier.*\/login typesafe/);
 });
 
 test("classifier error fails open with warning", async () => {

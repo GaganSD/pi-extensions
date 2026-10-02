@@ -4,13 +4,8 @@ import {
 	readStoredCredential,
 } from "@earendil-works/pi-coding-agent";
 
-/** Credential ids that Pi's auth.json uses for search and judgment keys. */
-export type CredentialProviderId =
-	| "exa"
-	| "parallel"
-	| "github"
-	| "typesafe"
-	| "vercel-ai-gateway";
+/** Retrieval credentials only. Pi owns all classifier authentication. */
+export type CredentialProviderId = "exa" | "parallel" | "github";
 
 /**
  * Environment aliases per credential, highest precedence first. Every nonblank
@@ -24,8 +19,6 @@ export const CREDENTIAL_ENV_ALIASES: Record<
 	exa: ["EXA_API_KEY"],
 	parallel: ["PARALLEL_API_KEY"],
 	github: ["GITHUB_TOKEN", "GH_TOKEN"],
-	typesafe: ["TYPESAFE_API_KEY", "JEV_API_KEY"],
-	"vercel-ai-gateway": ["AI_GATEWAY_API_KEY"],
 };
 
 export const CREDENTIAL_PROVIDER_IDS = Object.keys(

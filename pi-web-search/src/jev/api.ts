@@ -1,10 +1,10 @@
 import type { ClassifierAnswer, ClassifierQuestion, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { awaitWithSignal } from "../providers/http.ts";
-import { JEV_LEGACY_MODEL, jevUnavailableMessage, selectJevModel, type JevModelOptions } from "./model.ts";
+import { JEV_NATIVE_MODEL, jevUnavailableMessage, selectJevModel, type JevModelOptions } from "./model.ts";
 import type { Candidate } from "./judge.ts";
 
-export const JEV_DEFAULT_MODEL = JEV_LEGACY_MODEL;
+export const JEV_DEFAULT_MODEL = JEV_NATIVE_MODEL;
 /** Optional judging should not hold up a completed search. */
 export const JEV_TIMEOUT_MS = 8000;
 

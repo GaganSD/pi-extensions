@@ -1,6 +1,7 @@
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { VERSION } from "@earendil-works/pi-coding-agent";
@@ -19,14 +20,16 @@ import {
 } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
 import {
+	configureJev,
 	resolveSettings,
 	resolveSettingsSync,
 } from "./providers/config.ts";
+import { JEV_BACKENDS, isJevBackend, resolveJevTarget } from "./jev/model.ts";
 import {
-	type ResearchSearchInput,
-	ResearchSearchSchema,
-	researchSearch,
-} from "./research_search.ts";
+	type MultiSearchInput,
+	MultiSearchSchema,
+	multiSearch,
+} from "./multi_search.ts";
 import {
 	type WebSearchInput,
 	WebSearchSchema,
@@ -126,27 +129,27 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 
 	// Tool exposure and execution use the same research.enabled switch.
 	if (!("error" in registered) && registered.researchEnabled) {
-		pi.registerTool<typeof ResearchSearchSchema, WebSearchDetails>({
-			name: "research_search",
-			label: "Research Search",
+		pi.registerTool<typeof MultiSearchSchema, WebSearchDetails>({
+			name: "multi_search",
+			label: "Multi Search",
 			description:
-				"Cross-check a query across available sources in an explicit scope. Slower than ordinary search; may apply optional ranking and safety judgments.",
+				"Search multiple available sources concurrently in an explicit scope. May apply optional ranking and safety classification.",
 			promptSnippet:
-				"Opt-in cross-source research over web and/or code with an explicit scope; applies optional ranking and safety judgments.",
+				"Opt-in multi-source search over web and/or code with an explicit scope; optional ranking and safety classification.",
 			promptGuidelines: [
-				"Use `research_search` only when a question genuinely needs cross-source checking; it is slower than `web_search`.",
-				"`research_search` takes an explicit `scope`: `web`, `code`, or `both`.",
+				"Use `multi_search` when you need retrieval from multiple sources; it is slower than `web_search`.",
+				"`multi_search` takes an explicit `scope`: `web`, `code`, or `both`.",
 			],
-			parameters: ResearchSearchSchema,
+			parameters: MultiSearchSchema,
 			outputSchema: SearchOutputSchema,
 			namespace: { name: "search", description: "Cited public web and code retrieval." },
 			annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 			execute: (toolCallId, params, signal, onUpdate, ctx) =>
-				researchSearch(toolCallId, params, signal, onUpdate, ctx),
-			renderCall(args: ResearchSearchInput, theme) {
+				multiSearch(toolCallId, params, signal, onUpdate, ctx),
+			renderCall(args: MultiSearchInput, theme) {
 				const query = `${args.query || "…"} [${args.scope}]`;
 				return new Text(
-					`${theme.fg("toolTitle", theme.bold("research_search"))} ${theme.fg("accent", query)}`,
+					`${theme.fg("toolTitle", theme.bold("multi_search"))} ${theme.fg("accent", query)}`,
 					0,
 					0,
 				);
@@ -156,10 +159,23 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("web-search-settings", {
-		description:
-			"Show pi-web-search config path, credential presence, research/Jev state, and setup guidance",
-		handler: async (_args, ctx) => {
-			const report = await buildSettingsReport();
+		description: "Show search settings; use typesafe, vercel, openrouter, or off to configure optional Jev",
+		getArgumentCompletions: (prefix) => [...JEV_BACKENDS, "off"].filter((value) => value.startsWith(prefix))
+			.map((value) => ({ value, label: value })),
+		handler: async (args, ctx) => {
+			const selection = args.trim();
+			let report: string;
+			if (selection && selection !== "off" && !isJevBackend(selection)) {
+				report = "Usage: /web-search-settings [typesafe|vercel|openrouter|off]. No keys belong in this command.";
+			} else {
+				try {
+					const saved = isJevBackend(selection) || selection === "off" ? await configureJev(selection) : undefined;
+					report = (saved ? `Saved search settings to ${saved}. Run /reload to apply tool exposure changes.\n\n` : "") +
+						await buildSettingsReport(ctx.modelRegistry);
+				} catch {
+					report = "Could not update search settings. Check the config file and permissions; malformed configuration is never overwritten.";
+				}
+			}
 			if (ctx.hasUI) {
 				ctx.ui.notify(report, "info");
 			} else {
@@ -221,10 +237,10 @@ function compactSummary(details: WebSearchDetails | undefined): string {
 }
 
 /**
- * `/web-search-settings`: one offline status view. It reports credential
- * presence and source only, never a key, and performs no network calls.
+ * Report retrieval credential presence and Pi's classifier auth snapshot, never keys.
+ * No classifier requests or credential re-resolution are made here.
  */
-async function buildSettingsReport(): Promise<string> {
+async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] | undefined): Promise<string> {
 	const resolved = await resolveSettings();
 	if ("error" in resolved) {
 		return [
@@ -235,6 +251,7 @@ async function buildSettingsReport(): Promise<string> {
 		].join("\n");
 	}
 
+	const selected = resolveJevTarget(resolved.jev);
 	const list = (kinds: readonly string[]) =>
 		kinds.length > 0 ? kinds.join(", ") : "none";
 	const lines: string[] = [
@@ -242,22 +259,14 @@ async function buildSettingsReport(): Promise<string> {
 		`config: ${resolved.configPath}`,
 		`web_search: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
 		`code_search: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
-		`research_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
-		`jev: ${resolved.jev.enabled ? `enabled (${resolved.jev.backend}, ${resolved.jev.model})` : "disabled"}`,
+		`multi_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
+		`jev: ${resolved.jev.enabled ? `enabled (${selected.provider}/${selected.model})` : "disabled"}`,
 		"",
-		"Credentials (presence only; keys are never shown):",
+		"Search credentials (presence only; keys are never shown):",
 	];
 	for (const id of CREDENTIAL_PROVIDER_IDS) {
 		const found = resolveCredential(id);
 		const aliases = CREDENTIAL_ENV_ALIASES[id].join(" or ");
-		if (id === "typesafe" || id === "vercel-ai-gateway") {
-			const visibility = found
-				? `package-visible key via ${found.source === "env" ? found.name : "auth.json"}`
-				: "no package-visible key";
-			const providerEnv = id === "typesafe" ? "TYPESAFE_API_KEY" : "AI_GATEWAY_API_KEY";
-			lines.push(`- ${id}: ${visibility} — Pi owns classifier auth: ${providerEnv} or Pi stored/runtime/model auth. JEV_API_KEY alone is not Pi classifier authentication.`);
-			continue;
-		}
 		lines.push(
 			found
 				? `- ${id}: present via ${found.source === "env" ? found.name : "auth.json"}`
@@ -266,13 +275,23 @@ async function buildSettingsReport(): Promise<string> {
 					: `- ${id}: missing — set ${aliases}, or add "${id}" to auth.json`,
 		);
 	}
+	lines.push("", "Classifier authentication (Pi snapshot; not a live credential test):");
+	for (const backend of JEV_BACKENDS) {
+		const target = resolveJevTarget({ backend });
+		if (target.provider === selected.provider) target.model = selected.model;
+		const auth = registry?.getProviderAuthStatus(target.provider);
+		const registered = registry?.findOfType("classifier", target.provider, target.model);
+		lines.push(`- ${target.provider}: ${auth?.configured ? "Pi auth configured" : registry ? "Pi auth not configured" : "Pi auth status unavailable"}; ${registered ? "classifier registered" : "classifier not registered"}. /login ${target.provider} if needed.`);
+	}
 	lines.push(
 		"",
 		"Setup:",
-		"- Retrieval secrets can live in Pi's <agent-dir>/auth.json or env; Pi separately resolves classifier credentials from supported provider env, stored, runtime or model auth.",
-		"- Nonsecret settings live in web-search.json; see the repo README for the full example.",
+		"- Reuse your existing Pi classifier login/key. No separate Jev key is needed; provider billing applies.",
+		"- Enable optional Jev: /web-search-settings typesafe, vercel, or openrouter; then /reload.",
+		"- Disable judgment: /web-search-settings off. Nonsecret settings live in web-search.json.",
+		"- Gateways require explicit selection. auto uses TypeSafe only; no classifier provider fallback.",
 		"- Parallel native MCP is keyless by default; check /mcp for connection status or a same-name mcp.json override.",
-		"- Run /reload after changing research_search exposure or a Parallel credential (its MCP header is captured at registration).",
+		"- Run /reload after changing multi_search exposure or a Parallel credential (its MCP header is captured at registration).",
 		"- Install from a repository checkout: pi install ./pi-web-search",
 		"- After an npm release is available: pi install npm:@gagansd/pi-web-search",
 	);

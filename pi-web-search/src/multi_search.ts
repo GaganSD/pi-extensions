@@ -9,7 +9,7 @@ import { executeSearch } from "./execute.ts";
 import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
 
-export const ResearchSearchSchema = Type.Object({
+export const MultiSearchSchema = Type.Object({
 	query: Type.String({
 		minLength: 1,
 		maxLength: MAX_QUERY_CHARS,
@@ -20,15 +20,15 @@ export const ResearchSearchSchema = Type.Object({
 	}),
 });
 
-export type ResearchSearchInput = Static<typeof ResearchSearchSchema>;
+export type MultiSearchInput = Static<typeof MultiSearchSchema>;
 
 /**
- * Opt-in cross-check. Parallel retrieval in the requested scope, then at most
+ * Opt-in multi-source search. Parallel retrieval in the requested scope, then at most
  * one Jev judgment when that layer is enabled and authenticated.
  */
-export async function researchSearch(
+export async function multiSearch(
 	_toolCallId: string,
-	params: ResearchSearchInput,
+	params: MultiSearchInput,
 	signal: AbortSignal | undefined,
 	onUpdate: AgentToolUpdateCallback<WebSearchDetails> | undefined,
 	ctx: ExtensionContext,
@@ -40,11 +40,11 @@ export async function researchSearch(
 			scope: params.scope,
 			parallel: true,
 			judge: true,
-			tool: "research_search",
+			tool: "multi_search",
 			rawParams: params,
 			acceptedParams: ["query", "scope"],
 			requireResearch: true,
-			progress: `Researching "${params.query}" (${params.scope})...`,
+			progress: `Searching multiple sources for "${params.query}" (${params.scope})...`,
 		},
 		signal,
 		onUpdate,

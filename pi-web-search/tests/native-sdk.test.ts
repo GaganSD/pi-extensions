@@ -85,26 +85,47 @@ test("Pi SDK permission-hook reasons never retry Parallel through Exa, even when
 	}
 });
 
-for (const judge of [false, true]) {
-	test(`Pi SDK local MCP override runs package search/fetch${judge ? " and optional classifier" : " anonymously"}`, { timeout: 20000 }, async () => {
+for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtime", "vercel-stored"] as const) {
+	const judge = mode !== "anonymous";
+	const nativeClassifier = mode !== "anonymous" && mode !== "stub";
+	const backend = mode === "vercel-stored" ? "vercel" : "openrouter";
+	const provider = backend === "vercel" ? "vercel-ai-gateway" : "openrouter";
+	const key = "isolated-harness-classifier-key";
+	test(`Pi SDK local MCP search/fetch with ${mode} classifier authentication`, { timeout: 20000 }, async () => {
 		const root = await mkdtemp(join(tmpdir(), "pi-native-sdk-search-"));
 		const configPath = join(root, "web-search.json");
 		const callsPath = join(root, "mcp-calls.jsonl");
 		const prior = { agent: process.env.PI_CODING_AGENT_DIR, config: process.env.PI_WEB_SEARCH_CONFIG, fetch: globalThis.fetch };
-		// Research appends Exa even with fallback: []; fail offline rather than reaching a live endpoint.
-		globalThis.fetch = async () => { throw new Error("offline MCP fixture"); };
+		let classifyCalls = 0;
+		// Only the native classifier transport is faked; Pi selects the model and resolves its real auth pipeline.
+		globalThis.fetch = async (input, init) => {
+			const url = String(input);
+			const origin = backend === "vercel" ? "https://ai-gateway.vercel.sh/" : "https://openrouter.ai/";
+			if (!nativeClassifier || !url.startsWith(origin) || !url.endsWith("/systemone")) throw new Error("offline MCP fixture");
+			assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${key}`);
+			const body = JSON.parse(String(init?.body));
+			assert.equal(body.model, backend === "vercel" ? "typesafe-ai/jev" : "~typesafe/jev-latest");
+			assert.equal(body.state.query, "fixture question");
+			classifyCalls++;
+			const answers = Object.fromEntries(Object.entries(body.questions as Record<string, { type: string; criteria: Record<string, string> }>).map(([id, question]) => [id,
+				question.type === "choice" ? { type: "choice", choice: "safe", confidence: 1,
+					probabilities: Object.fromEntries(Object.keys(question.criteria).map((choice) => [choice, choice === "safe" ? 1 : 0])) }
+					: { type: "noul", noul: 0.9 },
+			]));
+			return new Response(JSON.stringify({ answers, usage: { input_tokens: 11, output_tokens: 0 } }), { headers: { "content-type": "application/json" } });
+		};
 		process.env.PI_CODING_AGENT_DIR = root;
 		process.env.PI_WEB_SEARCH_CONFIG = configPath;
 		let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
 		try {
-			await writeFile(join(root, "auth.json"), "{}");
+			await writeFile(join(root, "auth.json"), JSON.stringify(mode.endsWith("stored") ? { [provider]: { type: "api_key", key } } : {}));
 			await writeFile(configPath, JSON.stringify({ web: { provider: "parallel", fallback: [] },
-				research: { enabled: judge }, jev: { enabled: judge }, timeoutMs: 5000, maxResults: 2 }));
+				research: { enabled: judge }, jev: { enabled: judge, ...(nativeClassifier ? { backend } : {}) }, timeoutMs: 5000, maxResults: 2 }));
 			// The explicit same-name user config wins over the extension's remote registration.
 			await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
 				command: process.execPath, args: [fixture, callsPath], exposure: "codemode-deferred",
 			} } }));
-			const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", ...(judge ? ["research_search"] : [])],
+			const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", ...(judge ? ["multi_search"] : [])],
 				compaction: { enabled: false }, retry: { enabled: false } });
 			const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
 				noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
@@ -114,6 +135,7 @@ for (const judge of [false, true]) {
 			await loader.reload();
 			assert.deepEqual(loader.getExtensions().errors, []);
 			const modelRuntime = await ModelRuntime.create({ authPath: join(root, "auth.json"), modelsPath: join(root, "models.json") });
+			if (mode === "openrouter-runtime") await modelRuntime.setRuntimeApiKey(provider, key);
 			({ session } = await createAgentSession({ cwd: root, agentDir: root, resourceLoader: loader,
 				settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(root) }));
 			await session.bindExtensions({});
@@ -130,8 +152,7 @@ for (const judge of [false, true]) {
 				api: "openai-responses", provider: "openai", model: "fixture", usage: zeroUsage, stopReason: "toolUse", timestamp: Date.now() });
 			session.refreshContext();
 			const ctx = session.extensionRunner.createToolContext("fixture-call", AbortSignal.timeout(6000));
-			let classifyCalls = 0;
-			if (judge) {
+			if (mode === "stub") {
 				const stub = classifierRegistry({ answers: {} });
 				ctx.modelRegistry.findOfType = stub.findOfType.bind(stub);
 				ctx.modelRegistry.getAvailableOfType = stub.getAvailableOfType.bind(stub);
@@ -149,7 +170,7 @@ for (const judge of [false, true]) {
 				hit.type === "extract" && hit.url === args.urls[0]));
 			assert.equal(classifyCalls, 0, "ordinary search never judges");
 			if (judge) {
-				const judged = await ctx.executeTool("research_search", { query, scope: "web" });
+				const judged = await ctx.executeTool("multi_search", { query, scope: "web" });
 				assert.equal(judged.isError, false, JSON.stringify(judged.result));
 				assert.equal((judged.result.structuredContent as { jevStatus?: string }).jevStatus, "ran");
 				assert.equal(judged.result.usage?.totalTokens, 11, "own classifier usage reaches AgentToolResult");
@@ -158,7 +179,7 @@ for (const judge of [false, true]) {
 			const calls = (await readFile(callsPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
 			assert.deepEqual(calls.slice(0, 2).map((call) => call.name), ["web_search", "web_fetch"]);
 			assert.equal(calls[0].args.session_id, calls[1].args.session_id);
-			assert.equal(calls[0].args.model_name, undefined, "Pi fallback model is not an analytics identity");
+			assert.equal(calls[0].args.model_name, nativeClassifier ? ctx.model?.id : undefined, "analytics uses only the known runtime model ID, not the seeded transcript model");
 			assert.equal(calls[1].args.full_content, false);
 		} finally {
 			if (session) { await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); session.dispose(); }

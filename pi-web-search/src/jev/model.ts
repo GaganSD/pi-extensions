@@ -3,57 +3,54 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 type ModelRegistry = ExtensionContext["modelRegistry"];
 
-export type JevBackend = "typesafe" | "vercel";
+export const JEV_BACKENDS = ["typesafe", "vercel", "openrouter"] as const;
+export type JevBackend = (typeof JEV_BACKENDS)[number];
+/** Compatibility setting: auto uses TypeSafe only, never a paid gateway fallback. */
 export type JevBackendSetting = "auto" | JevBackend;
 
-/** Former direct-API default; only this legacy ID is translated across catalogs. */
+/** Former direct-API default, retained as a compatibility alias. */
 export const JEV_LEGACY_MODEL = "jev-1.13.0";
 export const JEV_NATIVE_MODEL = "jev-latest";
 export const JEV_VERCEL_MODEL = "typesafe-ai/jev";
+export const JEV_OPENROUTER_MODEL = "~typesafe/jev-latest";
 
-/** The catalog uses a different ID and provider name for each backend. */
-const PROVIDERS = { typesafe: "typesafe", vercel: "vercel-ai-gateway" } as const;
+const PROVIDERS = { typesafe: "typesafe", vercel: "vercel-ai-gateway", openrouter: "openrouter" } as const;
+const DEFAULT_MODELS = { typesafe: JEV_NATIVE_MODEL, vercel: JEV_VERCEL_MODEL, openrouter: JEV_OPENROUTER_MODEL } as const;
 
 export interface JevModelOptions {
 	backend?: JevBackendSetting;
 	model?: string;
 }
 
-/**
- * Auto prefers TypeSafe, then Vercel only for the legacy package default.
- * An explicit catalog ID never silently changes to a different model/provider.
- * Pi, not the package, decides availability and resolves authentication.
- */
+export function isJevBackend(value: unknown): value is JevBackend {
+	return JEV_BACKENDS.some((backend) => backend === value);
+}
+
+/** Resolve one explicitly selected provider; credentials and execution stay in Pi. */
+export function resolveJevTarget(options: JevModelOptions) {
+	const backend = options.backend === undefined || options.backend === "auto" ? "typesafe" : options.backend;
+	const requested = options.model?.trim() || JEV_NATIVE_MODEL;
+	return {
+		provider: PROVIDERS[backend],
+		model: requested === JEV_NATIVE_MODEL || requested === JEV_LEGACY_MODEL ? DEFAULT_MODELS[backend] : requested,
+	};
+}
+
+/** No cross-provider fallback: missing auth or model leaves retrieved evidence unjudged. */
 export async function selectJevModel(
 	registry: ModelRegistry,
 	options: JevModelOptions,
 	signal?: AbortSignal,
 ): Promise<ClassifierModel<ClassifierApi> | undefined> {
-	const requested = options.model?.trim() || JEV_LEGACY_MODEL;
-	const backend = options.backend ?? "auto";
-	const order: JevBackend[] = backend === "auto"
-		? requested === JEV_LEGACY_MODEL
-			? ["typesafe", "vercel"]
-			: requested === JEV_VERCEL_MODEL ? ["vercel"] : ["typesafe"]
-		: [backend];
-	for (const candidate of order) {
-		const id = requested === JEV_LEGACY_MODEL
-			? candidate === "typesafe" ? JEV_NATIVE_MODEL : JEV_VERCEL_MODEL
-			: requested;
-		const provider = PROVIDERS[candidate];
-		const model = registry.findOfType("classifier", provider, id);
-		if (!model) continue;
-		const available = await registry.getAvailableOfType("classifier", provider, { signal });
-		if (available.some((entry) => entry.provider === provider && entry.id === id)) {
-			return model;
-		}
-	}
-	return undefined;
+	const target = resolveJevTarget(options);
+	const model = registry.findOfType("classifier", target.provider, target.model);
+	if (!model) return undefined;
+	const available = await registry.getAvailableOfType("classifier", target.provider, { signal });
+	return available.some((entry) => entry.provider === target.provider && entry.id === target.model) ? model : undefined;
 }
 
-/** User-facing diagnostic; never exposes credentials or falls back to an arbitrary model. */
+/** User-facing diagnostic; never resolves or exposes a key. */
 export function jevUnavailableMessage(options: JevModelOptions): string {
-	const backend = options.backend ?? "auto";
-	const id = options.model?.trim() || JEV_LEGACY_MODEL;
-	return `jev judging unavailable: Pi has no available classifier for jev.backend=${backend}, jev.model=${id}. Check the Pi classifier model catalog and configure TYPESAFE_API_KEY or AI_GATEWAY_API_KEY (or Pi stored/runtime/model auth).`;
+	const target = resolveJevTarget(options);
+	return `jev judging unavailable: Pi has no available classifier for ${target.provider}/${target.model}. Run /login ${target.provider} if needed; existing Pi authentication is reused. Check /web-search-settings or select a provider with /web-search-settings typesafe|vercel|openrouter. No other classifier provider is tried.`;
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -60,7 +60,7 @@ interface RegisteredCommand {
 	name: string;
 	handler: (
 		args: string,
-		ctx: { hasUI: boolean; ui: { notify: (message: string) => void } },
+		ctx: { hasUI: boolean; ui: { notify: (message: string) => void }; modelRegistry?: ExtensionContext["modelRegistry"] },
 	) => Promise<void>;
 }
 
@@ -126,7 +126,7 @@ function names(registration: Pick<Registration, "tools" | "commands">): string[]
 
 const ctx = {} as unknown as ExtensionContext;
 
-test("a missing config registers web_search and code_search, not research_search", async () => {
+test("a missing config registers web_search and code_search, not multi_search", async () => {
 	await loadExtension(undefined, ({ tools, commands, servers }) => {
 		assert.equal(servers[0]?.name, PARALLEL_MCP_SERVER);
 		assert.deepEqual(names({ tools, commands }), ["web_search", "code_search"]);
@@ -158,14 +158,14 @@ test("all tools declare the modern Pi data and permission contracts", async () =
 	});
 });
 
-test("research.enabled=true registers research_search", async () => {
+test("research.enabled=true registers multi_search", async () => {
 	await loadExtension(
 		JSON.stringify({ research: { enabled: true } }),
 		({ tools, commands }) => {
 			assert.deepEqual(names({ tools, commands }), [
 				"web_search",
 				"code_search",
-				"research_search",
+				"multi_search",
 			]);
 		},
 	);
@@ -180,8 +180,9 @@ test("Parallel registration is anonymous by default, or Bearer when a key alread
 			let report = "";
 			await commands[0].handler("", { hasUI: true, ui: { notify: (text) => { report = text; } } });
 			assert.match(report, /parallel: anonymous MCP needs no key/);
-			assert.match(report, /Pi owns classifier auth: TYPESAFE_API_KEY or Pi stored\/runtime\/model auth.*JEV_API_KEY alone is not Pi classifier authentication/);
-			assert.match(report, /Pi owns classifier auth: AI_GATEWAY_API_KEY or Pi stored\/runtime\/model auth/);
+			assert.match(report, /Classifier authentication \(Pi snapshot/);
+			assert.match(report, /openrouter: Pi auth status unavailable/);
+			assert.doesNotMatch(report, /JEV_API_KEY|package-visible/);
 			assert.match(report, /\/reload after changing.*Parallel credential/);
 		});
 		process.env.PARALLEL_API_KEY = "  configured-key  ";
@@ -220,9 +221,9 @@ test("registered web_search forwards the live tool context through the native pi
 	});
 });
 
-test("research.enabled=false does not register research_search", async () => {
+test("research.enabled=false does not register multi_search", async () => {
 	await loadExtension(JSON.stringify({ research: { enabled: false } }), ({ tools, commands }) => {
-		assert.equal(names({ tools, commands }).includes("research_search"), false);
+		assert.equal(names({ tools, commands }).includes("multi_search"), false);
 	});
 });
 
@@ -282,7 +283,7 @@ test("the /web-search-settings command reports presence without keys", async () 
 			}
 
 			assert.match(report, /pi-web-search settings/);
-			assert.match(report, /research_search: enabled/);
+			assert.match(report, /multi_search: enabled/);
 			assert.match(report, /github: present via auth\.json/);
 			assert.match(report, /parallel: present via PARALLEL_API_KEY/);
 			assert.match(report, /Install from a repository checkout: pi install \.\/pi-web-search/);
@@ -291,4 +292,86 @@ test("the /web-search-settings command reports presence without keys", async () 
 			assert.doesNotMatch(report, /parallel-secret-value/);
 		},
 	);
+});
+
+test("classifier diagnostics use Pi's auth snapshot, including stored/runtime auth, without resolving keys", async () => {
+	await loadExtension("{}", async ({ commands }) => {
+		let report = "";
+		const checked: string[] = [];
+		const modelRegistry = {
+			getProviderAuthStatus: (provider: string) => {
+				checked.push(provider);
+				return { configured: provider !== "typesafe", source: "runtime", label: "classifier-secret" };
+			},
+			findOfType: (_type: string, provider: string, id: string) => ({ provider, id }),
+			getProviderAuth: () => { throw new Error("must not resolve credentials for diagnostics"); },
+			getAvailableOfType: () => { throw new Error("must not probe availability for diagnostics"); },
+		} as unknown as ExtensionContext["modelRegistry"];
+		await commands[0].handler("", { hasUI: true, ui: { notify: (message) => { report = message; } }, modelRegistry });
+		assert.deepEqual(checked, ["typesafe", "vercel-ai-gateway", "openrouter"]);
+		assert.match(report, /typesafe: Pi auth not configured; classifier registered/);
+		assert.match(report, /vercel-ai-gateway: Pi auth configured; classifier registered/);
+		assert.match(report, /openrouter: Pi auth configured; classifier registered/);
+		assert.doesNotMatch(report, /classifier-secret|JEV_API_KEY|package-visible/);
+	});
+});
+
+test("setup selects an explicit provider, preserves tuning/search settings, and never writes auth", async () => {
+	const initial = { web: { provider: "parallel", fallback: [] }, timeoutMs: 3456,
+		jev: { safetyThreshold: 0.9, weights: { answers: 0.8 } } };
+	const auth = { openrouter: { type: "api_key", key: "existing-harness-secret" } };
+	await loadExtension(JSON.stringify(initial), async ({ commands }, dir) => {
+		const authBefore = await readFile(join(dir, "auth.json"), "utf8");
+		const defaults = { typesafe: "jev-latest", vercel: "typesafe-ai/jev", openrouter: "~typesafe/jev-latest" };
+		for (const [backend, model] of Object.entries(defaults)) {
+			let report = "";
+			await commands[0].handler(backend, { hasUI: true, ui: { notify: (message) => { report = message; } } });
+			const saved = JSON.parse(await readFile(join(dir, "web-search.json"), "utf8"));
+			assert.deepEqual(saved.web, initial.web);
+			assert.equal(saved.timeoutMs, initial.timeoutMs);
+			assert.equal(saved.research.enabled, true);
+			assert.deepEqual(saved.jev, { ...initial.jev, enabled: true, backend, model });
+			assert.match(report, /Saved search settings.*Run \/reload/);
+			assert.doesNotMatch(report, /existing-harness-secret/);
+		}
+		await commands[0].handler("off", { hasUI: false, ui: { notify: () => { throw new Error("headless"); } } });
+		const saved = JSON.parse(await readFile(join(dir, "web-search.json"), "utf8"));
+		assert.equal(saved.jev.enabled, false);
+		assert.equal(saved.research.enabled, true, "off disables judgment, not retrieval");
+		assert.equal(await readFile(join(dir, "auth.json"), "utf8"), authBefore);
+		assert.deepEqual((await readdir(dir)).sort(), ["auth.json", "web-search.json"]);
+	}, auth);
+});
+
+test("first-time headless setup creates the overridden config path without any keys", async () => {
+	await loadExtension(undefined, async ({ commands, messages }, dir) => {
+		const path = join(dir, "nested", "web-search.json");
+		process.env[CONFIG_PATH_ENV_VAR] = path;
+		await commands[0].handler("openrouter", { hasUI: false, ui: { notify: () => { throw new Error("headless"); } } });
+		assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+			research: { enabled: true }, jev: { enabled: true, backend: "openrouter", model: "~typesafe/jev-latest" },
+		});
+		assert.equal(messages.length, 1);
+		assert.match(messages[0].content, /No separate Jev key is needed/);
+		assert.deepEqual(await readdir(dir), ["nested"]);
+	});
+});
+
+test("setup refuses malformed config and unknown arguments without leaking their content", async () => {
+	for (const config of ["{ broken", JSON.stringify({ unrelated: "private-config-value" })]) {
+		await loadExtension(config, async ({ commands }, dir) => {
+			let report = "";
+			await commands[0].handler("openrouter", { hasUI: true, ui: { notify: (message) => { report = message; } } });
+			assert.match(report, /malformed configuration is never overwritten/);
+			assert.equal(await readFile(join(dir, "web-search.json"), "utf8"), config);
+			assert.doesNotMatch(report, /private-config-value/);
+		});
+	}
+	await loadExtension("{}", async ({ commands }, dir) => {
+		let report = "";
+		await commands[0].handler("accidentally-pasted-secret", { hasUI: true, ui: { notify: (message) => { report = message; } } });
+		assert.match(report, /^Usage:/);
+		assert.doesNotMatch(report, /accidentally-pasted-secret/);
+		assert.equal(await readFile(join(dir, "web-search.json"), "utf8"), "{}");
+	});
 });

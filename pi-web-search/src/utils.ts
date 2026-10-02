@@ -2,7 +2,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import { formatResult, PROVIDER_TEXT_MAX_CHARS, type WebSearchDetails } from "./format.ts";
 import { isProviderError } from "./providers/types.ts";
 
-export type SearchToolName = "web_search" | "code_search" | "research_search";
+export type SearchToolName = "web_search" | "code_search" | "multi_search";
 
 /**
  * Names parameters the tool does not declare. The host validates arguments
