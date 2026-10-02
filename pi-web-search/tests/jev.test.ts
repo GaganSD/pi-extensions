@@ -6,10 +6,9 @@ import { DEFAULT_JEV_SETTINGS, type JevSettings } from "../src/providers/config.
 import type { SearchRequest } from "../src/providers/index.ts";
 import type { StreamResult } from "../src/providers/types.ts";
 import {
-	type JevAnswer,
-	JEV_DEFAULT_MODEL,
+	type JudgeAnswer,
+	readBool,
 	readChoice,
-	readNoul,
 } from "../src/jev/api.ts";
 import { augmentResults } from "../src/jev/augment.ts";
 import {
@@ -29,30 +28,29 @@ const CANDIDATES = [
 ];
 
 function settingsWith(overrides: Partial<JevSettings> = {}): JevSettings {
-	return { ...DEFAULT_JEV_SETTINGS, enabled: true, ...overrides };
+	return { ...DEFAULT_JEV_SETTINGS, enabled: true, provider: "typesafe", model: "jev-latest", ...overrides };
 }
 
 type Registry = ExtensionContext["modelRegistry"];
 const usage = { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 120,
 	cost: { input: 0.01, output: 0.01, cacheRead: 0, cacheWrite: 0, total: 0.02 } };
 const model = { id: "jev-latest", provider: "typesafe" };
-function fakeJev(answers: Record<string, JevAnswer>, calls: { bodies: unknown[] } = { bodies: [] }): Registry {
+function fakeJev(answers: Record<string, JudgeAnswer>, calls: { bodies: unknown[] } = { bodies: [] }): Registry {
 	return {
 		findOfType: () => model,
 		getAvailableOfType: async () => [model],
 		classify: async (_model: unknown, body: unknown) => {
 			calls.bodies.push(body);
-			return { stopReason: "stop", answers: Object.fromEntries(Object.entries(answers).map(([id, answer]) =>
-				[id, answer.type === "noul" ? { type: "bool", probability: answer.noul } : answer])), usage };
+			return { stopReason: "stop", answers, usage };
 		},
 	} as unknown as Registry;
 }
 
-function scoreAnswer(value: number): JevAnswer {
-	return { type: "noul", noul: value };
+function scoreAnswer(value: number): JudgeAnswer {
+	return { type: "bool", probability: value };
 }
 
-function choiceAnswer(choice: string, probability: number): JevAnswer {
+function choiceAnswer(choice: string, probability: number): JudgeAnswer {
 	return {
 		type: "choice",
 		choice,
@@ -61,7 +59,7 @@ function choiceAnswer(choice: string, probability: number): JevAnswer {
 	};
 }
 
-function goodFor(index: number): Record<string, JevAnswer> {
+function goodFor(index: number): Record<string, JudgeAnswer> {
 	return {
 		[`c${index}_answers`]: scoreAnswer(0.95),
 		[`c${index}_offtopic`]: scoreAnswer(0.02),
@@ -88,16 +86,12 @@ function request(settings: JevSettings): SearchRequest {
 
 // --- api --------------------------------------------------------------------
 
-test("the default uses the current Pi Jev catalog ID", () => {
-	assert.equal(JEV_DEFAULT_MODEL, "jev-latest");
-});
-
-test("noul and choice reads tolerate malformed answers", () => {
-	assert.equal(readNoul({}, "missing"), Number.NaN);
-	assert.equal(readNoul({ x: { type: "choice", choice: "a", probabilities: {}, confidence: 1 } }, "x"), Number.NaN);
-	assert.equal(readNoul({ x: scoreAnswer(0.4) }, "x"), 0.4);
+test("bool and choice reads tolerate malformed answers", () => {
+	assert.equal(readBool({}, "missing"), Number.NaN);
+	assert.equal(readBool({ x: { type: "choice", choice: "a", probabilities: {}, confidence: 1 } }, "x"), Number.NaN);
+	assert.equal(readBool({ x: scoreAnswer(0.4) }, "x"), 0.4);
 	// Out-of-range values are clamped rather than trusted.
-	assert.equal(readNoul({ x: scoreAnswer(5) }, "x"), 1);
+	assert.equal(readBool({ x: scoreAnswer(5) }, "x"), 1);
 
 	const bad = readChoice({}, "x");
 	assert.equal(bad.choice, "");
@@ -137,7 +131,7 @@ test("candidates are capped at maxResults", () => {
 // --- policy -----------------------------------------------------------------
 
 test("ranking is composed in code, not taken from the model", () => {
-	const answers: Record<string, JevAnswer> = {
+	const answers: Record<string, JudgeAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
@@ -155,7 +149,7 @@ test("ranking is composed in code, not taken from the model", () => {
 });
 
 test("an unsafe result is suppressed and the suppression is reported", () => {
-	const answers: Record<string, JevAnswer> = {
+	const answers: Record<string, JudgeAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
@@ -175,7 +169,7 @@ test("an unsafe result is suppressed and the suppression is reported", () => {
 test("a mid-band safety probability is held, not treated as a hazard", async () => {
 	// Cost is asymmetric: a false clear admits unsafe content. An uncertain
 	// verdict must not suppress.
-	const answers: Record<string, JevAnswer> = {
+	const answers: Record<string, JudgeAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
@@ -205,7 +199,7 @@ test("a missing judgment never scores as perfect", () => {
 });
 
 test("every result being unsafe returns none even when the model claims sufficiency", () => {
-	const answers: Record<string, JevAnswer> = {};
+	const answers: Record<string, JudgeAnswer> = {};
 	for (const candidate of CANDIDATES) {
 		Object.assign(answers, goodFor(candidate.index));
 		answers[`c${candidate.index}_safety`] = choiceAnswer("harmful_content", 0.99);
@@ -222,7 +216,7 @@ test("every result being unsafe returns none even when the model claims sufficie
 });
 
 test("sufficiency is not asserted when evidence was withheld", () => {
-	const answers: Record<string, JevAnswer> = {
+	const answers: Record<string, JudgeAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
@@ -239,7 +233,7 @@ test("sufficiency is not asserted when evidence was withheld", () => {
 });
 
 test("an uncertain safety verdict is kept but reported as unverified", () => {
-	const answers: Record<string, JevAnswer> = {
+	const answers: Record<string, JudgeAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
@@ -254,7 +248,7 @@ test("an uncertain safety verdict is kept but reported as unverified", () => {
 });
 
 test("an out-of-range safety threshold is clamped to [0, 1]", () => {
-	const answers: Record<string, JevAnswer> = {
+	const answers: Record<string, JudgeAnswer> = {
 		...goodFor(0),
 		...goodFor(1),
 		...goodFor(2),
@@ -307,7 +301,7 @@ test("unavailable Pi classifier fails open with actionable catalog/auth guidance
 	const unavailable = await augmentResults(request(settingsWith()), input, { modelRegistry: emptyRegistry });
 	assert.equal(unavailable.jevStatus, "unavailable");
 	assert.deepEqual(unavailable.searchResults, input.searchResults);
-	assert.match(unavailable.warnings?.join(" ") ?? "", /Pi has no available classifier.*\/login typesafe/);
+	assert.match(unavailable.warnings?.join(" ") ?? "", /Pi has no available classifier for typesafe\/jev-latest/);
 });
 
 test("classifier error fails open with warning", async () => {

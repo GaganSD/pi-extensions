@@ -144,7 +144,7 @@ test("progress observers cannot fail retrieval or emit after completion/cancella
 	assert.equal(updates, 2);
 }));
 
-test("operation budget exhausted only during optional judging preserves retrieved evidence", () => withSettings({ timeoutMs: 1000, research: { enabled: true }, jev: { enabled: true } }, async () => {
+test("operation budget exhausted only during optional judging preserves retrieved evidence", () => withSettings({ timeoutMs: 1000, research: { enabled: true }, jev: { enabled: true, provider: "typesafe", model: "jev-latest" } }, async () => {
 	const judgeContext = { modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})) } as ExtensionContext;
 	const result = await multiSearch("id", { query: "example", scope: "web" }, undefined, undefined, judgeContext, {
 		availability: { exa: true },
@@ -170,7 +170,8 @@ test("optional judgment bounds a native classifier that ignores abort", async ()
 	const keepAlive = setTimeout(() => {}, 1000);
 	try {
 		await assert.rejects(systemOne({ query: "q", candidates: [] }, {}, {
-			modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})), timeoutMs: 20,
+			modelRegistry: classifierRegistry(async () => new Promise<never>(() => {})),
+			provider: "typesafe", model: "jev-latest", timeoutMs: 20,
 		}), /deadline exceeded/);
 	} finally { clearTimeout(keepAlive); }
 });

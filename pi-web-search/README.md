@@ -10,7 +10,7 @@
 ## Installation
 
 1. Install: `pi install npm:@gagansd/pi-web-search`
-2. The first interactive session shows a one-time setup prompt. For optional keys and settings anytime, run `/web-search-settings`.
+2. The first interactive session shows a one-time setup prompt that reuses existing Exa, GitHub, Parallel, and Pi classifier auth. For optional keys and settings anytime, run `/web-search-settings`.
 
 > Keyless configs have limitations set by Exa and Parallel.
 
@@ -27,33 +27,33 @@ Optional classification adds judgments to `multi_search`; ordinary `web_search` 
 
 `Retrieval → Pi classifier API → ranking/filtering policy → cited results`
 
-The classifier receives the query and candidate titles, URLs, and excerpts as state, plus typed boolean and choice questions. It returns probabilities; code applies weights and thresholds. Pi owns model authentication and execution, separate from the search connectors.
+The classifier receives the query and candidate titles, URLs, and excerpts as state, plus typed boolean and choice questions. It returns probabilities; code applies weights and thresholds. Pi owns the catalog, authentication, and `classify()`. This package pins one exact `provider`/`model`.
 
 | Classifier | Support |
 | --- | --- |
 | **Jev** via TypeSafe, Vercel AI Gateway, or OpenRouter | Available now; reuses Pi authentication. |
-| **Your own local classifier** via llama.cpp or a custom Pi provider | Pi supports it; selecting it in this extension is planned. |
+| **Any Pi classifier** including llama.cpp | Pin its exact `provider`/`model`. |
 | **OpenAI Decisions API** | Planned adapter; official API contract and access still need verification. Not available today. |
 
-The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. The current model selector supports TypeSafe, Vercel, and OpenRouter; see the [implementation plan](docs/classifier-plan.md) for lifting that restriction.
+The provider-independent boundary makes other classifiers possible without rewriting retrieval or ranking. The current model selector supports TypeSafe, Vercel, and OpenRouter; pin any Pi classifier with `/web-search-settings provider/model`.
 
 ### Try Jev with your existing Pi login
 
 For OpenRouter:
 
 1. Run `/login openrouter` **only if Pi isn't already authenticated**.
-2. Run `/web-search-settings openrouter`, then `/reload`.
+2. Run `/web-search-settings on` or `/web-search-settings typesafe/jev-latest`, then `/reload`.
 3. Ask: “Use multi_search to search the web for AbortSignal.timeout.”
 
 | Use | Setup command | Default model |
 | --- | --- | --- |
-| TypeSafe | `/web-search-settings typesafe` | `jev-latest` |
-| Vercel AI Gateway | `/web-search-settings vercel` | `typesafe-ai/jev` |
-| OpenRouter | `/web-search-settings openrouter` | `~typesafe/jev-latest` |
+| TypeSafe | `/web-search-settings typesafe/jev-latest` | `jev-latest` |
+| Vercel AI Gateway | `/web-search-settings vercel-ai-gateway/typesafe-ai/jev` | `typesafe-ai/jev` |
+| OpenRouter | `/web-search-settings openrouter/~typesafe/jev-latest` | `~typesafe/jev-latest` |
 
 The command enables multi-source search and judgment in `web-search.json`, preserving your other settings. **No second API key is needed.** Pi reuses its stored, environment, runtime, or model authentication. If needed, use Pi's `/login vercel-ai-gateway` or `/login typesafe` for the other providers.
 
-`/web-search-settings` shows status; `/web-search-settings off` disables judgment but keeps search enabled. Gateways require explicit selection: `auto` now uses TypeSafe only, with **no classifier provider fallback**. Hosted classification is billed to the selected account.
+`/web-search-settings` shows status; `/web-search-settings off` disables judgment but keeps search enabled. There is no gateway ladder or default classifier. Hosted classification is billed to the pinned account.
 
 Classification is off by default. Failures keep retrieved evidence with warnings. Hosted classifiers receive excerpts before output clipping; safety judgments are not a security boundary. See [all settings and limits](docs/research.md).
 
@@ -128,7 +128,7 @@ To expose `multi_search`, merge this into the config path printed by `/web-searc
 
 Research sends the same query to all eligible sources in the chosen scope, concurrently. It is not an autonomous research agent, agreement checker, or automatic follow-up search. It merges successful responses while the operation deadline remains live. Ordinary web/code searches do not run Jev.
 
-For optional ranking and safety classification, choose a provider with `/web-search-settings typesafe`, `vercel`, or `openrouter`. Pi handles authentication; anonymous search does not depend on classifier credentials. See [settings and limits](docs/research.md).
+For optional ranking and safety classification, pin a Pi classifier with `/web-search-settings on` or `/web-search-settings provider/model`. Anonymous search does not depend on classifier credentials. See [settings and limits](docs/research.md).
 
 ## Credentials
 

@@ -120,7 +120,10 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 		try {
 			await writeFile(join(root, "auth.json"), JSON.stringify(mode.endsWith("stored") ? { [provider]: { type: "api_key", key } } : {}));
 			await writeFile(configPath, JSON.stringify({ web: { provider: "parallel", fallback: [] },
-				research: { enabled: judge }, jev: { enabled: judge, ...(nativeClassifier ? { backend } : {}) }, timeoutMs: 5000, maxResults: 2 }));
+				research: { enabled: judge }, jev: { enabled: judge, ...(judge ? {
+					provider: nativeClassifier ? provider : "typesafe",
+					model: nativeClassifier ? (backend === "vercel" ? "typesafe-ai/jev" : "~typesafe/jev-latest") : "jev-latest",
+				} : {}) }, timeoutMs: 5000, maxResults: 2 }));
 			// The explicit same-name user config wins over the extension's remote registration.
 			await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
 				command: process.execPath, args: [fixture, callsPath], exposure: "codemode-deferred",

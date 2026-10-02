@@ -21,11 +21,11 @@ import {
 } from "./env.ts";
 import { SearchOutputSchema, type WebSearchDetails } from "./format.ts";
 import {
-	configureJev,
+	configureJudgment,
+	parseJudgmentArgs,
 	resolveSettings,
 	resolveSettingsSync,
 } from "./providers/config.ts";
-import { JEV_BACKENDS, isJevBackend, resolveJevTarget } from "./jev/model.ts";
 import {
 	type MultiSearchInput,
 	MultiSearchSchema,
@@ -168,18 +168,21 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 	}
 
 	pi.registerCommand("web-search-settings", {
-		description: "Show search settings; use typesafe, vercel, openrouter, or off to configure optional Jev",
-		getArgumentCompletions: (prefix) => [...JEV_BACKENDS, "off"].filter((value) => value.startsWith(prefix))
+		description: "Show search settings; use on, off, or provider/model to configure optional judgment",
+		getArgumentCompletions: (prefix) => ["on", "off"].filter((value) => value.startsWith(prefix))
 			.map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
-			const selection = args.trim();
+			const selection = parseJudgmentArgs(args);
 			let report: string;
-			if (selection && selection !== "off" && !isJevBackend(selection)) {
-				report = "Usage: /web-search-settings [typesafe|vercel|openrouter|off]. No keys belong in this command.";
+			if (selection === undefined) {
+				report = "Usage: /web-search-settings [on|off|provider/model]. No keys belong in this command.";
 			} else {
 				try {
-					const saved = isJevBackend(selection) || selection === "off" ? await configureJev(selection) : undefined;
-					report = (saved ? `Saved search settings to ${saved}. Run /reload to apply tool exposure changes.\n\n` : "") +
+					const saved = selection === "status" ? undefined : await configureJudgment(
+						selection,
+						selection === "on" ? await availableClassifiers(ctx.modelRegistry) : [],
+					);
+					report = (saved ? `Saved search settings to ${saved.path}. Run /reload to apply tool exposure changes.${saved.note ? `\n${saved.note}` : ""}\n\n` : "") +
 						await buildSettingsReport(ctx.modelRegistry);
 				} catch {
 					report = "Could not update search settings. Check the config file and permissions; malformed configuration is never overwritten.";
@@ -260,7 +263,9 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 		].join("\n");
 	}
 
-	const selected = resolveJevTarget(resolved.jev);
+	const pin = resolved.jev.provider && resolved.jev.model
+		? `${resolved.jev.provider}/${resolved.jev.model}`
+		: "unpinned";
 	const list = (kinds: readonly string[]) =>
 		kinds.length > 0 ? kinds.join(", ") : "none";
 	const lines: string[] = [
@@ -269,7 +274,7 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 		`web_search: ${resolved.web.provider} (fallback: ${list(resolved.web.fallback)})`,
 		`code_search: ${resolved.code.provider} (fallback: ${list(resolved.code.fallback)})`,
 		`multi_search: ${resolved.researchEnabled ? "enabled" : "disabled"}`,
-		`jev: ${resolved.jev.enabled ? `enabled (${selected.provider}/${selected.model})` : "disabled"}`,
+		`jev: ${resolved.jev.enabled ? `enabled (${pin})` : "disabled"}`,
 		"",
 		"Search credentials (presence only; keys are never shown):",
 	];
@@ -289,21 +294,22 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 						: `- ${id}: missing — set ${aliases}, or add "${id}" to auth.json`,
 		);
 	}
-	lines.push("", "Classifier authentication (Pi snapshot; not a live credential test):");
-	for (const backend of JEV_BACKENDS) {
-		const target = resolveJevTarget({ backend });
-		if (target.provider === selected.provider) target.model = selected.model;
-		const auth = registry?.getProviderAuthStatus(target.provider);
-		const registered = registry?.findOfType("classifier", target.provider, target.model);
-		lines.push(`- ${target.provider}: ${auth?.configured ? "Pi auth configured" : registry ? "Pi auth not configured" : "Pi auth status unavailable"}; ${registered ? "classifier registered" : "classifier not registered"}. /login ${target.provider} if needed.`);
+	if (resolved.jev.provider && resolved.jev.model) {
+		const auth = registry?.getProviderAuthStatus(resolved.jev.provider);
+		const registered = registry?.findOfType("classifier", resolved.jev.provider, resolved.jev.model);
+		lines.push(
+			"",
+			"Pinned classifier (Pi snapshot; not a live credential test):",
+			`- ${resolved.jev.provider}/${resolved.jev.model}: ${auth?.configured ? "Pi auth configured" : registry ? "Pi auth not configured" : "Pi auth status unavailable"}; ${registered ? "registered" : "not registered"}.`,
+		);
 	}
 	lines.push(
 		"",
 		"Setup:",
-		"- Reuse your existing Pi classifier login/key. No separate Jev key is needed; provider billing applies.",
-		"- Enable optional Jev: /web-search-settings typesafe, vercel, or openrouter; then /reload.",
+		"- Judgment uses one exact Pi classifier. No separate Jev key; provider billing applies.",
+		"- Enable: /web-search-settings on (pins only if Pi has exactly one available classifier).",
+		"- Or pin explicitly: /web-search-settings provider/model then /reload.",
 		"- Disable judgment: /web-search-settings off. Nonsecret settings live in web-search.json.",
-		"- Gateways require explicit selection. auto uses TypeSafe only; no classifier provider fallback.",
 		"- Code search is keyless via grep.app and Sourcegraph. GitHub is optional (token or gh auth login).",
 		"- Parallel native MCP is keyless by default; check /mcp for connection status or a same-name mcp.json override.",
 		"- Run /reload after changing multi_search exposure or a Parallel credential (its MCP header is captured at registration).",
@@ -311,4 +317,18 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 		"- After an npm release is available: pi install npm:@gagansd/pi-web-search",
 	);
 	return lines.join("\n");
+}
+
+async function availableClassifiers(
+	registry: ExtensionContext["modelRegistry"] | undefined,
+) {
+	if (!registry) {
+		return [];
+	}
+	try {
+		const models = await registry.getAvailableOfType("classifier");
+		return models.map((model) => ({ provider: model.provider, id: model.id }));
+	} catch {
+		return [];
+	}
 }

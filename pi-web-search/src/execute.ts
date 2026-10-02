@@ -203,7 +203,7 @@ export async function executeSearch(
 						{
 							signal: composed.signal,
 							modelRegistry: ctx.modelRegistry,
-							backend: resolved.jev.backend,
+							provider: resolved.jev.provider,
 							model: resolved.jev.model,
 						},
 					)

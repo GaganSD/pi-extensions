@@ -7,8 +7,7 @@ This file is a navigation index for agents, not an API specification. Paths are 
 ## Documentation
 
 - [Package README](README.md): install, tools, defaults, optional setup, config, and code-search notes.
-- [Multi-source search and Jev](docs/research.md): judgment settings, Pi classifier selection, and fail-open behavior.
-- [Classifier support plan](docs/classifier-plan.md): planned local/custom selection.
+- [Multi-source search and Jev](docs/research.md): judgment settings, exact Pi classifier pin, and fail-open behavior.
 
 ## Source contracts
 
