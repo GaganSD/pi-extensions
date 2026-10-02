@@ -31,7 +31,7 @@ test("Pi SDK permission-hook reasons never retry Parallel through Exa, even when
 		await writeFile(join(root, "auth.json"), "{}");
 		await writeFile(configPath, JSON.stringify({ web: { provider: "parallel", fallback: ["exa"] }, timeoutMs: 5000 }));
 		await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
-			command: process.execPath, args: [fixture, callsPath], exposure: "codemode-deferred",
+			command: process.execPath, args: [fixture, callsPath], exposure: "codemode",
 		} } }));
 		const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search"], compaction: { enabled: false }, retry: { enabled: false } });
 		const native = `mcp__${PARALLEL_MCP_SERVER}__web_search`;
@@ -126,7 +126,7 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 				} : {}) }, timeoutMs: 5000, maxResults: 2 }));
 			// The explicit same-name user config wins over the extension's remote registration.
 			await writeFile(join(root, "mcp.json"), JSON.stringify({ mcpServers: { [PARALLEL_MCP_SERVER]: {
-				command: process.execPath, args: [fixture, callsPath], exposure: "codemode-deferred",
+				command: process.execPath, args: [fixture, callsPath], exposure: "codemode",
 			} } }));
 			const settingsManager = SettingsManager.inMemory({ defaultTools: ["web_search", ...(judge ? ["multi_search"] : [])],
 				compaction: { enabled: false }, retry: { enabled: false } });

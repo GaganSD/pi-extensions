@@ -177,7 +177,7 @@ test("Parallel registration is anonymous by default, or Bearer when a key alread
 	try {
 		delete process.env.PARALLEL_API_KEY;
 		await loadExtension("{}", async ({ servers, commands }) => {
-			assert.deepEqual(servers, [{ name: PARALLEL_MCP_SERVER, config: { url: PARALLEL_MCP_URL, exposure: "codemode-deferred" } }]);
+			assert.deepEqual(servers, [{ name: PARALLEL_MCP_SERVER, config: { url: PARALLEL_MCP_URL, exposure: "codemode" } }]);
 			let report = "";
 			await commands[0].handler("", { hasUI: true, ui: { notify: (text) => { report = text; } } });
 			assert.match(report, /parallel: anonymous MCP needs no key/);
@@ -363,7 +363,7 @@ test("setup refuses malformed config and unknown arguments without leaking their
 		await loadExtension(config, async ({ commands }, dir) => {
 			let report = "";
 			await commands[0].handler("typesafe/jev-latest", { hasUI: true, ui: { notify: (message) => { report = message; } } });
-			assert.match(report, /malformed configuration is never overwritten/);
+			assert.match(report, /Malformed configuration is never overwritten/);
 			assert.equal(await readFile(join(dir, "web-search.json"), "utf8"), config);
 			assert.doesNotMatch(report, /private-config-value/);
 		});

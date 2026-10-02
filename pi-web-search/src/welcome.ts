@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
@@ -87,7 +87,10 @@ export async function detectWelcome(
 }
 
 export function welcomeStatePath(configPath = defaultWebSearchConfigPath()): string {
-	return join(dirname(configPath), "web-search-welcome.json");
+	// An override can name the config itself after the usual sidecar.
+	return basename(configPath).toLowerCase() === "web-search-welcome.json"
+		? `${configPath}.welcome.json`
+		: join(dirname(configPath), "web-search-welcome.json");
 }
 
 export async function hasSeenWelcome(path = welcomeStatePath()): Promise<boolean> {
@@ -101,7 +104,12 @@ export async function hasSeenWelcome(path = welcomeStatePath()): Promise<boolean
 
 export async function markWelcomeSeen(path = welcomeStatePath()): Promise<void> {
 	await mkdir(dirname(path), { recursive: true });
-	await writeFile(path, `${JSON.stringify({ seen: true }, null, 2)}\n`, { mode: 0o600 });
+	try {
+		// Advisory state must never truncate an existing file or follow a symlink.
+		await writeFile(path, `${JSON.stringify({ seen: true }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	}
 }
 
 export async function maybeShowWelcome(

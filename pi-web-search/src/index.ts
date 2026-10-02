@@ -37,6 +37,7 @@ import {
 	webSearch,
 } from "./web_search.ts";
 import { maybeShowWelcome } from "./welcome.ts";
+import { awaitWithSignal, withTimeout } from "./providers/http.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
 export function assertSupportedPiVersion(version: string): void {
@@ -131,7 +132,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		const key = parallelApiKey();
 		pi.registerMcpServer(PARALLEL_MCP_SERVER, {
 			url: PARALLEL_MCP_URL,
-			exposure: "codemode-deferred",
+			exposure: "codemode",
 			...(key ? { headers: { Authorization: `Bearer ${key}` } } : {}),
 		});
 	}
@@ -180,12 +181,14 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 				try {
 					const saved = selection === "status" ? undefined : await configureJudgment(
 						selection,
-						selection === "on" ? await availableClassifiers(ctx.modelRegistry) : [],
+						selection === "on" ? () => availableClassifiers(ctx.modelRegistry, ctx.signal) : [],
 					);
 					report = (saved ? `Saved search settings to ${saved.path}. Run /reload to apply tool exposure changes.${saved.note ? `\n${saved.note}` : ""}\n\n` : "") +
 						await buildSettingsReport(ctx.modelRegistry);
-				} catch {
-					report = "Could not update search settings. Check the config file and permissions; malformed configuration is never overwritten.";
+				} catch (error) {
+					report = error instanceof ClassifierDiscoveryError
+						? error.message
+						: "Could not update search settings. Check the config file and permissions. Malformed configuration is never overwritten.";
 				}
 			}
 			if (ctx.hasUI) {
@@ -319,16 +322,27 @@ async function buildSettingsReport(registry: ExtensionContext["modelRegistry"] |
 	return lines.join("\n");
 }
 
-async function availableClassifiers(
+class ClassifierDiscoveryError extends Error {}
+
+export async function availableClassifiers(
 	registry: ExtensionContext["modelRegistry"] | undefined,
+	signal?: AbortSignal,
+	timeoutMs = 3_000,
 ) {
-	if (!registry) {
-		return [];
-	}
+	if (!registry) return [];
+	const deadline = withTimeout(signal, timeoutMs);
 	try {
-		const models = await registry.getAvailableOfType("classifier");
+		if (deadline.signal.aborted) throw deadline.signal.reason;
+		const models = await awaitWithSignal(
+			registry.getAvailableOfType("classifier", undefined, { signal: deadline.signal }),
+			deadline.signal,
+		);
 		return models.map((model) => ({ provider: model.provider, id: model.id }));
 	} catch {
-		return [];
+		throw new ClassifierDiscoveryError(
+			"Classifier discovery failed or stopped. Settings did not change. Use /web-search-settings provider/model to select a classifier directly.",
+		);
+	} finally {
+		deadline.dispose();
 	}
 }

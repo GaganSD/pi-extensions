@@ -286,7 +286,7 @@ export function parseWebSearchConfig(
 /** Explicit setup command: preserve settings, write no keys, refuse malformed config. */
 export async function configureJudgment(
 	action: JudgmentAction,
-	available: readonly AvailableClassifier[] = [],
+	available: readonly AvailableClassifier[] | (() => Promise<readonly AvailableClassifier[]>) = [],
 ): Promise<{ path: string; note?: string }> {
 	const configPath = defaultWebSearchConfigPath();
 	const targetPath = await realpath(configPath).catch((error) => {
@@ -305,14 +305,17 @@ export async function configureJudgment(
 			const existing = pinnedClassifier(config.jev);
 			if (existing) {
 				config.jev = { ...config.jev, enabled: true };
-			} else if (available.length === 1) {
-				const [only] = available;
-				config.jev = { ...config.jev, enabled: true, provider: only.provider, model: only.id };
 			} else {
-				config.jev = { ...config.jev, enabled: true };
-				note = available.length === 0
-					? "Judgment enabled without a pin. Authenticate a Pi classifier, then set jev.provider and jev.model."
-					: `Judgment enabled without a pin. Available: ${available.map((entry) => `${entry.provider}/${entry.id}`).join(", ")}.`;
+				const candidates = typeof available === "function" ? await available() : available;
+				if (candidates.length === 1) {
+					const [only] = candidates;
+					config.jev = { ...config.jev, enabled: true, provider: only.provider, model: only.id };
+				} else {
+					config.jev = { ...config.jev, enabled: true };
+					note = candidates.length === 0
+						? "Judgment enabled without a pin. Authenticate a Pi classifier, then set jev.provider and jev.model."
+						: `Judgment enabled without a pin. Available: ${candidates.map((entry) => `${entry.provider}/${entry.id}`).join(", ")}.`;
+				}
 			}
 		} else {
 			config.research = { ...config.research, enabled: true };

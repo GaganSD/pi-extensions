@@ -158,7 +158,7 @@ export async function runSearch(
 			const hits = result.searchResults?.length ?? 0;
 			const more = i < chain.length - 1 && options.family === "code";
 			if (hits === 0 && more) {
-				notes.push(`${kind} returned no results.`);
+				notes.push(...(result.warnings ?? []), `${kind} returned no results.`);
 				lastEmpty = withNotes(result, notes);
 				continue;
 			}

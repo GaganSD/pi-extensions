@@ -17,6 +17,7 @@ export interface ResponseLike {
 
 export interface RequestInitLike {
 	method?: string;
+	redirect?: "error";
 	headers?: Record<string, string>;
 	body?: string;
 	signal?: AbortSignal;
@@ -248,6 +249,8 @@ async function send<T>(
 		if (composed.signal.aborted) throw reasonFrom(composed.signal);
 		const response = await awaitWithSignal(doFetch(url, {
 			method,
+			// Fixed provider endpoints must not forward keys or queries elsewhere.
+			redirect: "error",
 			headers: {
 				...(method === "POST" ? { "Content-Type": "application/json" } : {}),
 				Accept: "application/json, text/event-stream",

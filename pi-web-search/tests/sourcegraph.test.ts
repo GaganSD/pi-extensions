@@ -16,7 +16,7 @@ test("owner/name repos are scoped to github.com on Sourcegraph", () => {
 	assert.equal(toSourcegraphRepo("github.com/vercel/next.js"), "github.com/vercel/next.js");
 	assert.equal(
 		buildSourcegraphQuery("useState( repo:acme/thing language:TypeScript", 5),
-		"useState( repo:github.com/acme/thing lang:TypeScript count:5",
+		String.raw`useState( repo:"^github\\.com/acme/thing$" lang:TypeScript count:5`,
 	);
 	assert.equal(
 		buildSourcegraphQuery('foo language:"Protocol Buffer"', 8),

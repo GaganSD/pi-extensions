@@ -19,7 +19,7 @@ test("empty code hits continue to the next source", async () => {
 		transports: {
 			grep: async () => {
 				attempted.push("grep");
-				return { text: "", providerKind: "grep", searchResults: [], sources: [] };
+				return { text: "", providerKind: "grep", searchResults: [], sources: [], warnings: ["grep response could not be parsed."] };
 			},
 			sourcegraph: async () => {
 				attempted.push("sourcegraph");
@@ -38,6 +38,7 @@ test("empty code hits continue to the next source", async () => {
 	assert.deepEqual(attempted, ["grep", "sourcegraph"]);
 	assert.equal(result.providerKind, "sourcegraph");
 	assert.match(result.warnings?.join(" ") ?? "", /grep returned no results/);
+	assert.ok(result.warnings?.includes("grep response could not be parsed."));
 });
 
 test("web empty results do not walk the fallback chain", async () => {

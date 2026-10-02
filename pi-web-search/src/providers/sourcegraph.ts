@@ -48,7 +48,8 @@ export function buildSourcegraphQuery(raw: string, maxResults: number): string {
 	const parsed = parseCodeQuery(raw);
 	const parts = [parsed.literal];
 	if (parsed.repo !== undefined) {
-		parts.push(`repo:${toSourcegraphRepo(parsed.repo)}`);
+		const exactRepo = `^${toSourcegraphRepo(parsed.repo).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+		parts.push(`repo:${quoteSourcegraphToken(exactRepo)}`);
 	}
 	for (const language of parsed.languages) {
 		parts.push(`lang:${quoteSourcegraphToken(language)}`);
