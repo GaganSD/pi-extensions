@@ -39,6 +39,7 @@ test("maybeShowWelcome is once-only and can persist TypeSafe setup", async () =>
 		process.env.PI_WEB_SEARCH_CONFIG = configPath;
 		const shown: string[] = [];
 		const ctx = {
+			mode: "tui",
 			hasUI: true,
 			ui: {
 				select: async () => ENABLE_JEV,
@@ -66,6 +67,35 @@ test("maybeShowWelcome is once-only and can persist TypeSafe setup", async () =>
 	});
 });
 
+test("RPC and headless sessions skip the blocking welcome prompt", async () => {
+	await withDir(async (dir) => {
+		const configPath = join(dir, "web-search.json");
+		const previous = process.env.PI_WEB_SEARCH_CONFIG;
+		process.env.PI_WEB_SEARCH_CONFIG = configPath;
+		try {
+			let selected = false;
+			await maybeShowWelcome({
+				mode: "rpc",
+				hasUI: true,
+				ui: {
+					select: async () => {
+						selected = true;
+						return KEEP_DEFAULTS;
+					},
+					notify: () => {
+						throw new Error("should not notify");
+					},
+				},
+			} as never);
+			assert.equal(selected, false);
+			assert.equal(await hasSeenWelcome(), false);
+		} finally {
+			if (previous === undefined) delete process.env.PI_WEB_SEARCH_CONFIG;
+			else process.env.PI_WEB_SEARCH_CONFIG = previous;
+		}
+	});
+});
+
 test("show-setup notifies the short blurb and keep-defaults writes seen", async () => {
 	await withDir(async (dir) => {
 		const configPath = join(dir, "web-search.json");
@@ -74,6 +104,7 @@ test("show-setup notifies the short blurb and keep-defaults writes seen", async 
 		try {
 			let notified = "";
 			await maybeShowWelcome({
+				mode: "tui",
 				hasUI: true,
 				ui: {
 					select: async () => SHOW_SETUP,

@@ -35,7 +35,7 @@ export async function markWelcomeSeen(path = welcomeStatePath()): Promise<void> 
 }
 
 export async function maybeShowWelcome(ctx: ExtensionContext): Promise<void> {
-	if (!ctx.hasUI || await hasSeenWelcome()) {
+	if (ctx.mode !== "tui" || !ctx.hasUI || await hasSeenWelcome()) {
 		return;
 	}
 	let choice: string | undefined;

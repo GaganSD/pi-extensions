@@ -18,6 +18,10 @@ test("owner/name repos are scoped to github.com on Sourcegraph", () => {
 		buildSourcegraphQuery("useState( repo:acme/thing language:TypeScript", 5),
 		"useState( repo:github.com/acme/thing lang:TypeScript count:5",
 	);
+	assert.equal(
+		buildSourcegraphQuery('foo language:"Protocol Buffer"', 8),
+		'foo lang:"Protocol Buffer" count:8',
+	);
 });
 
 test("Sourcegraph stream matches become public file hits", () => {
@@ -43,6 +47,34 @@ test("Sourcegraph stream matches become public file hits", () => {
 		"https://github.com/vercel/next.js/blob/abc/packages/next/index.ts",
 	);
 	assert.match(parsed.results[0].citedText ?? "", /useState/);
+});
+
+test("malformed Sourcegraph matches are a parse error, not an empty success", () => {
+	const parsed = parseSourcegraphStream([
+		"event: matches",
+		"data: not-json",
+		"",
+	].join("\n"), 8);
+	assert.equal(parsed.results.length, 0);
+	assert.equal(parsed.fatalCode, "parse_error");
+	assert.match(parsed.fatal ?? "", /JSON array/);
+});
+
+test("a Sourcegraph error after matches keeps the hits and warns", async () => {
+	const fetchImpl: FetchLike = async () => new Response([
+		"event: matches",
+		`data: ${JSON.stringify([{ repository: "github.com/acme/thing", path: "a.ts", lineMatches: [{ line: "ok" }] }])}`,
+		"",
+		"event: error",
+		`data: ${JSON.stringify({ message: "shard failed" })}`,
+		"",
+	].join("\n"), { headers: { "content-type": "text/event-stream" } });
+	const result = await sourcegraphSearch({
+		query: "ok",
+		settings: applyConfig("/tmp/c.json", { maxResults: 3 }),
+	}, { fetchImpl });
+	assert.equal(result.searchResults?.length, 1);
+	assert.match(result.warnings?.join(" ") ?? "", /incomplete.*shard failed/);
 });
 
 test("Sourcegraph alerts are warnings; fatal errors stay retryable", async () => {

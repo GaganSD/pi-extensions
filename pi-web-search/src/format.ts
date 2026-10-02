@@ -281,7 +281,7 @@ function buildExcerpt(result: SearchResultDetail): string {
 	if (!citedText) {
 		return "";
 	}
-	const isCode = result.source === "grep" || result.source === "github";
+	const isCode = result.source === "grep" || result.source === "sourcegraph" || result.source === "github";
 	if (isCode) {
 		const clipped = citedText.replace(/\s+$/u, "").slice(0, EXCERPT_MAX_CHARS);
 		return clipped.length > 0 ? `\`\`\`\n${clipped}\n\`\`\`` : "";

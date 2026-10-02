@@ -126,25 +126,39 @@ export function githubToken(
 	return trim(readGhCliToken());
 }
 
+/** Always github.com — never the CLI default host, which may be Enterprise. */
+export const GH_CLI_TOKEN_ARGS = ["auth", "token", "--hostname", "github.com"] as const;
+
+let ghCliCache: { value: string | undefined; at: number } | undefined;
+const GH_CLI_CACHE_MS = 30_000;
+
 /**
- * Uses an already-authenticated GitHub CLI login. Disabled under `node:test`
+ * Uses an already-authenticated github.com CLI login. Disabled under `node:test`
  * so suite machines with `gh auth` do not silently change availability.
  */
-export function readGhCliToken(): string | undefined {
+export function readGhCliToken(
+	spawn: typeof spawnSync = spawnSync,
+): string | undefined {
 	if (process.env.NODE_TEST_CONTEXT) {
 		return undefined;
 	}
+	const now = Date.now();
+	if (ghCliCache && now - ghCliCache.at < GH_CLI_CACHE_MS) {
+		return ghCliCache.value;
+	}
 	try {
-		const result = spawnSync("gh", ["auth", "token"], {
+		const result = spawn("gh", [...GH_CLI_TOKEN_ARGS], {
 			encoding: "utf8",
 			timeout: 2000,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
-		if (result.status !== 0 || typeof result.stdout !== "string") {
-			return undefined;
-		}
-		return result.stdout;
+		const value = result.status === 0 && typeof result.stdout === "string"
+			? result.stdout
+			: undefined;
+		ghCliCache = { value, at: now };
+		return value;
 	} catch {
+		ghCliCache = { value: undefined, at: now };
 		return undefined;
 	}
 }

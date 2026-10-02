@@ -175,14 +175,14 @@ export async function executeSearch(
 					? { runtime: ctx as ExtensionToolContext } : {}),
 			};
 
-			const availability = options.availability ?? providerAvailability();
+			const availability = options.availability ?? providerAvailability(family);
 			const skipped = params.parallel
 				? skippedSources(params.scope, availability)
 				: [];
 
 			const raw = params.parallel
-				? await runParallelSearch(req, { ...options, family })
-				: await runSearch(req, { ...options, family: family ?? "web" });
+				? await runParallelSearch(req, { ...options, family, availability })
+				: await runSearch(req, { ...options, family: family ?? "web", availability });
 
 			if (composed.signal.aborted) {
 				throw abortedError(composed.signal.reason);

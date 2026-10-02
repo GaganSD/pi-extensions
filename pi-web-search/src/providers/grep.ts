@@ -52,10 +52,10 @@ export async function grepSearch(
 			(client) => client.callTool(SEARCH_TOOL, args),
 		);
 	} catch (error) {
-		if (isNoMatchToolError(error)) {
-			return emptyGrepResult(parsed, warnings);
+		if (!isNoMatchToolError(error)) {
+			throw error;
 		}
-		throw error;
+		text = "No results found";
 	}
 
 	const results = parseGrepSearchText(text, req.settings.maxResults);
@@ -92,20 +92,6 @@ export async function grepSearch(
 
 function isNoMatchToolError(error: unknown): boolean {
 	return isProviderError(error) && error.code === "tool_error" && /no results found/i.test(error.message);
-}
-
-function emptyGrepResult(parsed: ParsedCodeQuery, warnings: string[]): StreamResult {
-	const hint = parsed.repo !== undefined
-		? `grep.app found no matches in repo:${parsed.repo}. That repository may not be indexed; retry without the repo: qualifier, or with a shorter literal identifier.`
-		: "grep.app found no matches. Retry with a shorter literal identifier (not a sentence), or drop repo:/language: qualifiers.";
-	return {
-		text: "",
-		providerKind: "grep",
-		sources: [],
-		searchResults: [],
-		requestId: "mcp",
-		warnings: [...warnings, hint],
-	};
 }
 
 interface GrepHit {

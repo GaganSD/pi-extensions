@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { applyConfig } from "../src/providers/config.ts";
-import { githubToken } from "../src/env.ts";
+import { GH_CLI_TOKEN_ARGS, githubToken } from "../src/env.ts";
 import { normalizeHttpError } from "../src/providers/http.ts";
 import { runSearch } from "../src/providers/index.ts";
 import { providerError } from "../src/providers/types.ts";
@@ -84,6 +84,10 @@ test("HTML error pages are not dumped into the tool error", () => {
 	assert.equal(error.status, 504);
 	assert.match(error.message, /HTML error page/);
 	assert.doesNotMatch(error.message, /<!doctype|<title>/i);
+});
+
+test("gh CLI token requests github.com, never the default host", () => {
+	assert.deepEqual([...GH_CLI_TOKEN_ARGS], ["auth", "token", "--hostname", "github.com"]);
 });
 
 test("githubToken uses an injected gh reader only after env and auth miss", () => {

@@ -44,13 +44,16 @@ export interface RunSearchOptions {
  * Capability knowledge at the registry level. Parallel's native MCP server
  * is anonymous by default; connection errors surface from the host call.
  */
-export function providerAvailability(): Record<ProviderKind, boolean> {
+export function providerAvailability(
+	family?: ProviderFamily,
+): Record<ProviderKind, boolean> {
+	const code = family !== "web";
 	return {
 		exa: true,
 		parallel: true,
-		grep: true,
-		sourcegraph: true,
-		github: hasGitHubToken(),
+		grep: code,
+		sourcegraph: code,
+		github: code && hasGitHubToken(),
 	};
 }
 

@@ -26,15 +26,19 @@ export async function sourcegraphSearch(
 		timeoutMs: req.settings.timeoutMs,
 		fetchImpl: options.fetchImpl,
 	});
-	const { results, warnings, fatal } = parseSourcegraphStream(body, req.settings.maxResults);
-	if (fatal !== undefined && results.length === 0) {
-		throw providerError("tool_error", fatal, { retryable: true });
+	const parsed = parseSourcegraphStream(body, req.settings.maxResults);
+	if (parsed.fatal !== undefined && parsed.results.length === 0) {
+		throw providerError(parsed.fatalCode ?? "tool_error", parsed.fatal, { retryable: true });
+	}
+	const warnings = [...parsed.warnings];
+	if (parsed.fatal !== undefined) {
+		warnings.push(`Sourcegraph search was incomplete: ${parsed.fatal}`);
 	}
 	return {
 		text: "",
 		providerKind: "sourcegraph",
-		sources: sourcesFromResults(results),
-		searchResults: results,
+		sources: sourcesFromResults(parsed.results),
+		searchResults: parsed.results,
 		requestId: "sourcegraph",
 		...(warnings.length > 0 ? { warnings } : {}),
 	};
@@ -47,10 +51,14 @@ export function buildSourcegraphQuery(raw: string, maxResults: number): string {
 		parts.push(`repo:${toSourcegraphRepo(parsed.repo)}`);
 	}
 	for (const language of parsed.languages) {
-		parts.push(`lang:${language}`);
+		parts.push(`lang:${quoteSourcegraphToken(language)}`);
 	}
 	parts.push(`count:${maxResults}`);
 	return parts.filter((part) => part.length > 0).join(" ");
+}
+
+export function quoteSourcegraphToken(value: string): string {
+	return /^[A-Za-z0-9_./+-]+$/.test(value) ? value : `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 export function toSourcegraphRepo(repo: string): string {
@@ -64,12 +72,19 @@ export function toSourcegraphRepo(repo: string): string {
 export function parseSourcegraphStream(
 	text: string,
 	maxResults: number,
-): { results: SearchResultDetail[]; warnings: string[]; fatal?: string } {
+): { results: SearchResultDetail[]; warnings: string[]; fatal?: string; fatalCode?: "tool_error" | "parse_error" } {
 	const results: SearchResultDetail[] = [];
 	const warnings: string[] = [];
 	let fatal: string | undefined;
+	let fatalCode: "tool_error" | "parse_error" | undefined;
+	let recognized = false;
 	let event = "message";
 	let data: string[] = [];
+
+	const markFatal = (message: string, code: "tool_error" | "parse_error") => {
+		fatal ??= message;
+		fatalCode ??= code;
+	};
 
 	const flush = () => {
 		const payload = data.join("\n").trim();
@@ -79,8 +94,11 @@ export function parseSourcegraphStream(
 			return;
 		}
 		if (event === "matches") {
+			recognized = true;
 			const parsed = parseJson(payload);
-			if (Array.isArray(parsed)) {
+			if (!Array.isArray(parsed)) {
+				markFatal("Sourcegraph matches payload was not a JSON array.", "parse_error");
+			} else {
 				for (const item of parsed) {
 					const hit = parseMatch(item);
 					if (hit) {
@@ -92,6 +110,7 @@ export function parseSourcegraphStream(
 				}
 			}
 		} else if (event === "alert") {
+			recognized = true;
 			const parsed = parseJson(payload);
 			if (isRecord(parsed)) {
 				const title = readString(parsed, "title");
@@ -100,12 +119,18 @@ export function parseSourcegraphStream(
 				if (message) {
 					warnings.push(message);
 				}
+			} else {
+				markFatal("Sourcegraph alert payload was not JSON.", "parse_error");
 			}
 		} else if (event === "error") {
+			recognized = true;
 			const parsed = parseJson(payload);
-			fatal = isRecord(parsed)
-				? readString(parsed, "message") ?? "Sourcegraph search failed."
-				: "Sourcegraph search failed.";
+			markFatal(
+				isRecord(parsed) ? readString(parsed, "message") ?? "Sourcegraph search failed." : "Sourcegraph search failed.",
+				"tool_error",
+			);
+		} else if (event === "done" || event === "progress" || event === "filters") {
+			recognized = true;
 		}
 		event = "message";
 	};
@@ -125,7 +150,10 @@ export function parseSourcegraphStream(
 		}
 	}
 	flush();
-	return { results: results.slice(0, maxResults), warnings, fatal };
+	if (!recognized && results.length === 0) {
+		markFatal("Sourcegraph returned no recognized search events.", "parse_error");
+	}
+	return { results: results.slice(0, maxResults), warnings, fatal, fatalCode };
 }
 
 function parseMatch(value: unknown): SearchResultDetail | undefined {
@@ -143,7 +171,7 @@ function parseMatch(value: unknown): SearchResultDetail | undefined {
 			isRecord(match) && typeof match.line === "string" ? [match.line] : [])
 		: [];
 	return {
-		title: `${stripGithubPrefix(repo)}/${path}`,
+		title: `${repo.replace(/^github\.com\//, "")}/${path}`,
 		url: resultUrl(repo, path, commit),
 		source: "sourcegraph",
 		type: "content",
@@ -158,10 +186,6 @@ function resultUrl(repo: string, path: string, commit?: string): string {
 	}
 	const ref = commit && commit.length > 0 ? `@${commit}` : "";
 	return `https://sourcegraph.com/${repo}${ref}/-/blob/${encodePath(path)}`;
-}
-
-function stripGithubPrefix(repo: string): string {
-	return repo.startsWith("github.com/") ? repo.slice("github.com/".length) : repo;
 }
 
 function encodePath(path: string): string {
