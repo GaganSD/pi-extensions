@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9
+
+Scroll and copy a large prompt without leaving the composer.
+
+- Mouse wheel over the prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
+- `Ctrl+A` then `Ctrl+C` copies the full prompt, including collapsed pastes; `Ctrl+X` cuts after a successful copy
+- Unselected `Ctrl+C` / `Ctrl+X` still reach Pi
+
 ## 0.1.8
 
 Syntax-highlighted `edit` and `write` results in the transcript.

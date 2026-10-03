@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { Editor, visibleWidth, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import { formatVerticalContextResources, formatVerticalContextTokens } from "../extensions/pi-slate/layout.ts";
 import {
   chromePaint,
@@ -16,6 +16,7 @@ import {
   frameRow,
   inscribedBorder,
   inscribedTitle,
+  scrollComposerByLines,
 } from "../extensions/pi-slate/composer.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
@@ -299,6 +300,49 @@ test("selection paint happens before rails so the frame stays uninverted", () =>
   assert.doesNotMatch(stripVTControlCharacters(body).slice(0, 1), /\x1b/);
   assert.match(body, /\x1b\[7mhello\x1b\[27m/);
   assert.doesNotMatch(body, /\x1b\[7m│/);
+});
+
+test("scrollComposerByLines moves overflow and ignores a fully visible prompt", () => {
+  const lines = Array.from({ length: 12 }, (_, index) => ({ logicalLine: index, startCol: 0, length: 4 }));
+  const editor = {
+    lastWidth: 20,
+    scrollOffset: 4,
+    renderedVisibleLineCount: 4,
+    buildVisualLineMap: () => lines,
+    findCurrentVisualLine: () => 6,
+    moveToVisualLineCalls: [] as Array<[number, number]>,
+    moveToVisualLine(_lines: unknown, from: number, to: number) {
+      this.moveToVisualLineCalls.push([from, to]);
+    },
+  };
+
+  assert.equal(scrollComposerByLines(editor, -2), true);
+  assert.equal(editor.scrollOffset, 2);
+  assert.deepEqual(editor.moveToVisualLineCalls, [[6, 4]]);
+
+  editor.renderedVisibleLineCount = 12;
+  editor.scrollOffset = 0;
+  assert.equal(scrollComposerByLines(editor, 3), false);
+  assert.equal(editor.scrollOffset, 0);
+});
+
+test("a tall prompt scrolls by wheel and leaves a short prompt to the transcript", () => {
+  const editor = new Editor({
+    terminal: { rows: 24, columns: 80 },
+    requestRender() {},
+  } as TUI, { borderColor: (text) => text } as EditorTheme);
+  editor.setText(Array.from({ length: 40 }, (_, index) => `line ${index}`).join("\n"));
+  editor.render(40);
+  const internals = editor as unknown as { scrollOffset: number };
+  const before = internals.scrollOffset;
+  assert.ok(before > 0);
+  assert.equal(scrollComposerByLines(editor, -3), true);
+  editor.render(40);
+  assert.ok(internals.scrollOffset < before);
+
+  editor.setText("short");
+  editor.render(40);
+  assert.equal(scrollComposerByLines(editor, -1), false);
 });
 
 

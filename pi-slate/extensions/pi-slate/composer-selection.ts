@@ -11,6 +11,7 @@ import { paintSelectedContent } from "./composer.ts";
 export type ComposerSelectionEditor = {
   getText(): string;
   setText(text: string): void;
+  getExpandedText?(): string;
   getCursor(): { line: number; col: number };
   handleInput(data: string): void;
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined;
@@ -21,7 +22,9 @@ export type ComposerSelectionEditor = {
 };
 
 export type ComposerSelectionOptions = {
+  copy?(text: string): void | Promise<void>;
   requestRender?(): void;
+  onCopyError?(error: unknown): void;
 };
 
 type PasteableEditor = ComposerSelectionEditor & {
@@ -49,6 +52,14 @@ type InstalledEditor = {
 
 function isSelectAll(data: string): boolean {
   return matchesKey(data, "ctrl+a") || matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
+}
+
+function isCopy(data: string): boolean {
+  return matchesKey(data, "ctrl+c") || matchesKey(data, "super+c") || matchesKey(data, "ctrl+shift+c");
+}
+
+function isCut(data: string): boolean {
+  return matchesKey(data, "ctrl+x") || matchesKey(data, "super+x") || matchesKey(data, "ctrl+shift+x");
 }
 
 function isPrintable(data: string): boolean {
@@ -201,6 +212,25 @@ export class ComposerSelectionController {
       disarmEscape();
       this.revision += 1;
     };
+    const copySelected = (cut: boolean): void => {
+      if (!options.copy) return;
+      const rawText = editor.getText();
+      const expandedText = editor.getExpandedText?.() ?? rawText;
+      const revision = this.revision;
+      try {
+        void Promise.resolve(options.copy(expandedText)).then(
+          () => {
+            if (cut && this.installed?.editor === editor && this.revision === revision && editor.getText() === rawText) {
+              editor.setText("");
+              options.requestRender?.();
+            }
+          },
+          (error: unknown) => options.onCopyError?.(error),
+        );
+      } catch (error) {
+        options.onCopyError?.(error);
+      }
+    };
 
     const togglePasteAtCursor = (): boolean => {
       const cursor = editor.getCursor();
@@ -268,6 +298,10 @@ export class ComposerSelectionController {
       }
 
       if (this.selected) {
+        if (options.copy && (isCopy(data) || isCut(data))) {
+          copySelected(isCut(data));
+          return;
+        }
         if (matchesKey(data, "backspace") || matchesKey(data, "delete")) {
           editor.setText("");
           return;
@@ -284,7 +318,9 @@ export class ComposerSelectionController {
     };
 
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
-      clearInteraction();
+      if (event.type !== "wheel" && event.type !== "move" && event.type !== "release") {
+        clearInteraction();
+      }
       const result = originalHandleMouse.call(editor, event);
       if (isPasteClick(event) && togglePasteAtCursor()) options.requestRender?.();
       return result;
