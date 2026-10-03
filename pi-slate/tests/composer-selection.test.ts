@@ -12,7 +12,7 @@ import {
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { TuiBase } from "../node_modules/@earendil-works/pi-tui/dist/tui.js";
-import { paintSelectedContent } from "../extensions/pi-slate/composer.ts";
+import { paintSelectedContent, paintSelectedSpan, sliceComposerText } from "../extensions/pi-slate/composer.ts";
 import {
   ComposerSelectionController,
   pasteTokenAtCursor,
@@ -48,14 +48,6 @@ class FakeEditor implements ComposerSelectionEditor {
 
   getText(): string {
     return this.text;
-  }
-
-  getExpandedText(): string {
-    let result = this.text;
-    for (const [id, body] of this.pastes) {
-      result = result.replace(new RegExp(`\\[paste #${id}(?: \\+\\d+ lines| \\d+ chars)?\\]`, "g"), body);
-    }
-    return result;
   }
 
   setText(text: string): void {
@@ -341,41 +333,12 @@ test("short insertTextAtCursor is not collapsed", async (t) => {
   selection.dispose();
 });
 
-test("selected Ctrl+C copies the expanded prompt and leaves it in place", async () => {
-  const editor = new FakeEditor("[paste #1 +2 lines]");
-  editor.pastes.set(1, "line one\nline two");
-  const copied: string[] = [];
-  const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy: (text) => { copied.push(text); } });
-  editor.handleInput(SELECT_ALL);
-  editor.handleInput("\x03");
-  await Promise.resolve();
-  assert.deepEqual(copied, ["line one\nline two"]);
-  assert.equal(editor.getText(), "[paste #1 +2 lines]");
-  assert.deepEqual(editor.inputCalls, []);
-  assert.match(editor.render(20)[1]!, /\x1b\[7m/);
-  selection.dispose();
-});
-
-test("selected Ctrl+X cuts only after a successful copy", async () => {
-  const editor = new FakeEditor("keep me");
-  const copied: string[] = [];
-  const selection = new ComposerSelectionController();
-  selection.attach(editor, { copy: (text) => { copied.push(text); } });
-  editor.handleInput(SELECT_ALL);
-  editor.handleInput("\x18");
-  await Promise.resolve();
-  assert.deepEqual(copied, ["keep me"]);
-  assert.deepEqual(editor.setTextCalls, [""]);
-  assert.equal(editor.getText(), "");
-  selection.dispose();
-});
-
-test("unselected Ctrl+C and Ctrl+X still reach Pi", () => {
+test("Ctrl+C and Ctrl+X still reach Pi after select-all", () => {
   const editor = new FakeEditor("hello");
   const copied: string[] = [];
   const selection = new ComposerSelectionController();
   selection.attach(editor, { copy: (text) => { copied.push(text); } });
+  editor.handleInput(SELECT_ALL);
   editor.handleInput("\x03");
   editor.handleInput("\x18");
   assert.deepEqual(copied, []);
@@ -390,4 +353,49 @@ test("wheel over the prompt keeps select-all", () => {
   editor.handleInput(SELECT_ALL);
   editor.handleMouse({ type: "wheel", button: "none", wheelDelta: -1 } as TuiMouseEvent);
   assert.match(editor.render(20)[1]!, /\x1b\[7mhello\x1b\[27m/);
+});
+
+function mouseEvent(type: TuiMouseEvent["type"], x: number, y: number): TuiMouseEvent {
+  return {
+    type,
+    button: "left",
+    x,
+    y,
+    screenX: x,
+    screenY: y,
+    width: 20,
+    height: 4,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
+}
+
+test("drag-selecting prompt text copies it and leaves rails unselected", async () => {
+  const editor = new FakeEditor("hello");
+  editor.cursor = { line: 0, col: 0 };
+  editor.renderedLines = ["TOP", "│ hello │", "BOTTOM"];
+  const copied: string[] = [];
+  const selection = new ComposerSelectionController();
+  selection.attach(editor, { copy: (text) => { copied.push(text); } });
+
+  const press = editor.handleMouse(mouseEvent("press", 2, 1));
+  assert.equal(press?.handled, true);
+  editor.cursor = { line: 0, col: 5 };
+  editor.handleMouse(mouseEvent("drag", 7, 1));
+  editor.handleMouse(mouseEvent("release", 7, 1));
+  await Promise.resolve();
+
+  assert.deepEqual(copied, ["hello"]);
+  assert.equal(paintSelectedSpan("│ hello │", 0, 9), "│\x1b[7m hello \x1b[27m│");
+  assert.doesNotMatch(paintSelectedSpan("│ hello │", 0, 9), /\x1b\[7m│/);
+  selection.dispose();
+});
+
+test("sliceComposerText keeps the ordered prompt range", () => {
+  assert.equal(sliceComposerText("hello", { start: { line: 0, col: 1 }, end: { line: 0, col: 4 } }), "ell");
+  assert.equal(
+    sliceComposerText("ab\ncd", { start: { line: 1, col: 2 }, end: { line: 0, col: 1 } }),
+    "b\ncd",
+  );
 });

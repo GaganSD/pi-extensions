@@ -6,12 +6,16 @@ import {
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
-import { paintSelectedContent } from "./composer.ts";
+import {
+  paintSelectedContent,
+  sliceComposerText,
+  type ComposerCursor,
+  type ComposerSelectionRange,
+} from "./composer.ts";
 
 export type ComposerSelectionEditor = {
   getText(): string;
   setText(text: string): void;
-  getExpandedText?(): string;
   getCursor(): { line: number; col: number };
   handleInput(data: string): void;
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined;
@@ -19,6 +23,7 @@ export type ComposerSelectionEditor = {
   isShowingAutocomplete(): boolean;
   focused?: boolean;
   selectionActive?: boolean;
+  selectionRange?: ComposerSelectionRange;
 };
 
 export type ComposerSelectionOptions = {
@@ -54,12 +59,16 @@ function isSelectAll(data: string): boolean {
   return matchesKey(data, "ctrl+a") || matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
 }
 
-function isCopy(data: string): boolean {
-  return matchesKey(data, "ctrl+c") || matchesKey(data, "super+c") || matchesKey(data, "ctrl+shift+c");
+function isChromeRow(event: TuiMouseEvent): boolean {
+  return event.y <= 0 || event.y >= Math.max(1, event.height) - 1;
 }
 
-function isCut(data: string): boolean {
-  return matchesKey(data, "ctrl+x") || matchesKey(data, "super+x") || matchesKey(data, "ctrl+shift+x");
+function asClick(event: TuiMouseEvent): TuiMouseEvent {
+  return { ...event, type: "click", button: "left" };
+}
+
+function sameCursor(a: ComposerCursor, b: ComposerCursor): boolean {
+  return a.line === b.line && a.col === b.col;
 }
 
 function isPrintable(data: string): boolean {
@@ -173,6 +182,8 @@ function cursorInRevealed(item: RevealedPaste, cursor: { line: number; col: numb
 export class ComposerSelectionController {
   private installed?: InstalledEditor;
   private selected = false;
+  private range?: ComposerSelectionRange;
+  private dragging = false;
   private escapeArmedText?: string;
   private escapeArmedAt = 0;
   private revision = 0;
@@ -196,9 +207,20 @@ export class ComposerSelectionController {
 
     const setSelected = (on: boolean): void => {
       this.selected = on;
+      if (on) {
+        this.range = undefined;
+        editor.selectionRange = undefined;
+      }
       if (editor.selectionActive !== undefined) editor.selectionActive = on;
     };
+    const setRange = (range: ComposerSelectionRange | undefined): void => {
+      this.range = range;
+      editor.selectionRange = range;
+      if (range) setSelected(false);
+    };
     const collapse = (): void => {
+      this.dragging = false;
+      setRange(undefined);
       setSelected(false);
     };
     const disarmEscape = (): void => {
@@ -212,26 +234,6 @@ export class ComposerSelectionController {
       disarmEscape();
       this.revision += 1;
     };
-    const copySelected = (cut: boolean): void => {
-      if (!options.copy) return;
-      const rawText = editor.getText();
-      const expandedText = editor.getExpandedText?.() ?? rawText;
-      const revision = this.revision;
-      try {
-        void Promise.resolve(options.copy(expandedText)).then(
-          () => {
-            if (cut && this.installed?.editor === editor && this.revision === revision && editor.getText() === rawText) {
-              editor.setText("");
-              options.requestRender?.();
-            }
-          },
-          (error: unknown) => options.onCopyError?.(error),
-        );
-      } catch (error) {
-        options.onCopyError?.(error);
-      }
-    };
-
     const togglePasteAtCursor = (): boolean => {
       const cursor = editor.getCursor();
       const open = [...this.revealed].reverse().find((item) => cursorInRevealed(item, cursor));
@@ -298,10 +300,6 @@ export class ComposerSelectionController {
       }
 
       if (this.selected) {
-        if (options.copy && (isCopy(data) || isCut(data))) {
-          copySelected(isCut(data));
-          return;
-        }
         if (matchesKey(data, "backspace") || matchesKey(data, "delete")) {
           editor.setText("");
           return;
@@ -318,9 +316,50 @@ export class ComposerSelectionController {
     };
 
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
-      if (event.type !== "wheel" && event.type !== "move" && event.type !== "release") {
-        clearInteraction();
+      if (event.type === "wheel" || event.type === "move") {
+        return originalHandleMouse.call(editor, event);
       }
+
+      if (event.button === "left" && event.type === "press" && !isChromeRow(event)) {
+        clearInteraction();
+        originalHandleMouse.call(editor, asClick(event));
+        const cursor = editor.getCursor();
+        this.dragging = true;
+        setRange({ start: cursor, end: cursor });
+        return { handled: true, capture: true, focus: true };
+      }
+
+      if (event.button === "left" && event.type === "drag" && this.dragging) {
+        originalHandleMouse.call(editor, asClick(event));
+        const start = this.range?.start ?? editor.getCursor();
+        setRange({ start, end: editor.getCursor() });
+        return { handled: true, render: true };
+      }
+
+      if (event.type === "release" && this.dragging) {
+        this.dragging = false;
+        const range = this.range;
+        if (!range || sameCursor(range.start, range.end)) {
+          setRange(undefined);
+          if (isPasteClick({ ...event, type: "click", button: "left" }) && togglePasteAtCursor()) {
+            options.requestRender?.();
+          }
+          return { handled: true };
+        }
+        if (options.copy) {
+          try {
+            void Promise.resolve(options.copy(sliceComposerText(editor.getText(), range))).then(
+              undefined,
+              (error: unknown) => options.onCopyError?.(error),
+            );
+          } catch (error) {
+            options.onCopyError?.(error);
+          }
+        }
+        return { handled: true };
+      }
+
+      if (event.type !== "release") clearInteraction();
       const result = originalHandleMouse.call(editor, event);
       if (isPasteClick(event) && togglePasteAtCursor()) options.requestRender?.();
       return result;
@@ -429,6 +468,7 @@ export class ComposerSelectionController {
         installed.editor.insertTextAtCursor = installed.originalInsertTextAtCursor;
       }
       if (installed.editor.selectionActive !== undefined) installed.editor.selectionActive = false;
+      installed.editor.selectionRange = undefined;
       if (installed.originalFocus && installed.focusGetter) {
         const descriptor = Object.getOwnPropertyDescriptor(installed.editor, "focused");
         if (descriptor?.get === installed.focusGetter) {
@@ -441,6 +481,8 @@ export class ComposerSelectionController {
     }
     this.installed = undefined;
     this.selected = false;
+    this.range = undefined;
+    this.dragging = false;
     this.escapeArmedText = undefined;
     this.revealed = [];
     this.revision += 1;

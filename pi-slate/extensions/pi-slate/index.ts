@@ -412,10 +412,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         },
       );
       selection.attach(activeEditor, {
-        copy: async (text) => {
-          await copyToClipboard(text);
-          ctx.ui.notify("Copied prompt", "info");
-        },
+        copy: (text) => copyToClipboard(text),
         requestRender: () => tui.requestRender(),
         onCopyError: () => ctx.ui.notify("Could not copy", "error"),
       });

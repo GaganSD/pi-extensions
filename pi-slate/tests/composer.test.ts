@@ -17,6 +17,8 @@ import {
   inscribedBorder,
   inscribedTitle,
   scrollComposerByLines,
+  paintSelectedSpan,
+  composerRangeColumns,
 } from "../extensions/pi-slate/composer.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
@@ -343,6 +345,29 @@ test("a tall prompt scrolls by wheel and leaves a short prompt to the transcript
   editor.setText("short");
   editor.render(40);
   assert.equal(scrollComposerByLines(editor, -1), false);
+});
+
+test("paintSelectedSpan never inverts composer rails", () => {
+  const line = paintSelectedSpan("│ hello │", 0, 9);
+  assert.equal(line, "│\x1b[7m hello \x1b[27m│");
+  assert.doesNotMatch(line, /\x1b\[7m│/);
+});
+
+test("composerRangeColumns maps a logical span onto padded visual columns", () => {
+  const columns = composerRangeColumns(
+    { logicalLine: 0, startCol: 0, length: 5 },
+    { start: { line: 0, col: 1 }, end: { line: 0, col: 4 } },
+    4,
+  );
+  assert.deepEqual(columns, { from: 5, to: 8 });
+  assert.equal(
+    composerRangeColumns(
+      { logicalLine: 1, startCol: 0, length: 3 },
+      { start: { line: 0, col: 0 }, end: { line: 0, col: 2 } },
+      4,
+    ),
+    undefined,
+  );
 });
 
 

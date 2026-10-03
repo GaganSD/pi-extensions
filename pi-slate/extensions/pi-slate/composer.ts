@@ -57,6 +57,90 @@ export function paintSelectedContent(line: string): string {
   return `${before}${REVERSE_ON}${text}${REVERSE_OFF}${after}`;
 }
 
+export type ComposerCursor = { line: number; col: number };
+
+export type ComposerSelectionRange = {
+  start: ComposerCursor;
+  end: ComposerCursor;
+};
+
+export function compareComposerCursor(a: ComposerCursor, b: ComposerCursor): number {
+  return a.line === b.line ? a.col - b.col : a.line - b.line;
+}
+
+export function orderComposerRange(range: ComposerSelectionRange): ComposerSelectionRange {
+  return compareComposerCursor(range.start, range.end) <= 0 ? range : { start: range.end, end: range.start };
+}
+
+export function sliceComposerText(text: string, range: ComposerSelectionRange): string {
+  const { start, end } = orderComposerRange(range);
+  const lines = text.split("\n");
+  if (start.line === end.line) return (lines[start.line] ?? "").slice(start.col, end.col);
+  const parts = [(lines[start.line] ?? "").slice(start.col)];
+  for (let index = start.line + 1; index < end.line; index++) parts.push(lines[index] ?? "");
+  parts.push((lines[end.line] ?? "").slice(0, end.col));
+  return parts.join("\n");
+}
+
+/** Invert visible columns in [startCol, endCol). Box rails stay unselected. */
+export function paintSelectedSpan(line: string, startCol: number, endCol: number): string {
+  if (endCol <= startCol) return line;
+  const cells: Array<{ start: number; end: number; char: string; col: number; width: number }> = [];
+  let col = 0;
+
+  for (let index = 0; index < line.length;) {
+    ESCAPE_SEQUENCE.lastIndex = index;
+    const escape = ESCAPE_SEQUENCE.exec(line);
+    if (escape) {
+      index += escape[0].length;
+      continue;
+    }
+
+    const codePoint = line.codePointAt(index);
+    if (codePoint === undefined) break;
+    const character = String.fromCodePoint(codePoint);
+    const width = visibleWidth(character);
+    cells.push({ start: index, end: index + character.length, char: character, col, width });
+    col += width;
+    index += character.length;
+  }
+
+  let from = -1;
+  let to = -1;
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i]!;
+    if (FRAME_CHROME.test(cell.char)) continue;
+    if (cell.col + cell.width <= startCol || cell.col >= endCol) continue;
+    if (from < 0) from = i;
+    to = i;
+  }
+  if (from < 0 || to < 0) return line;
+
+  const firstText = cells[from]!.start;
+  const lastTextEnd = cells[to]!.end;
+  const before = line.slice(0, firstText);
+  const text = line.slice(firstText, lastTextEnd).replaceAll(RESET, `${RESET}${REVERSE_ON}`);
+  const after = line.slice(lastTextEnd);
+  return `${before}${REVERSE_ON}${text}${REVERSE_OFF}${after}`;
+}
+
+export function composerRangeColumns(
+  visual: { logicalLine: number; startCol: number; length: number },
+  range: ComposerSelectionRange,
+  paddingX: number,
+): { from: number; to: number } | undefined {
+  const { start, end } = orderComposerRange(range);
+  if (visual.logicalLine < start.line || visual.logicalLine > end.line) return undefined;
+  const visualStart = visual.startCol;
+  const visualEnd = visual.startCol + visual.length;
+  const selectedStart = visual.logicalLine === start.line ? start.col : 0;
+  const selectedEnd = visual.logicalLine === end.line ? end.col : Number.POSITIVE_INFINITY;
+  const from = Math.max(visualStart, selectedStart);
+  const to = Math.min(visualEnd, selectedEnd);
+  if (to <= from) return undefined;
+  return { from: paddingX + (from - visual.startCol), to: paddingX + (to - visual.startCol) };
+}
+
 export const COMPOSER_SHELF_LINES = 4;
 
 let lastComposerFrameLines = COMPOSER_SHELF_LINES;
@@ -340,6 +424,7 @@ export function scrollComposerByLines(editor: object, delta: number): boolean {
 
 export class ComposerEditor extends CustomEditor {
   selectionActive = false;
+  selectionRange?: ComposerSelectionRange;
   private readonly source: () => ComposerSource;
   private statusIndicator: WorkingStatusIndicatorParameter;
 
@@ -430,7 +515,32 @@ export class ComposerEditor extends CustomEditor {
       width,
       paint,
     );
-    noteComposerFrameLines(lines.length);
-    return lines;
+    const ranged = !this.selectionActive && this.selectionRange && !this.isShowingAutocomplete()
+      ? paintComposerRange(lines, this, this.selectionRange, this.getPaddingX())
+      : lines;
+    noteComposerFrameLines(ranged.length);
+    return ranged;
   }
+}
+
+function paintComposerRange(
+  lines: string[],
+  editor: object,
+  range: ComposerSelectionRange,
+  paddingX: number,
+): string[] {
+  const internals = editor as ComposerScrollInternals;
+  const width = internals.lastWidth;
+  if (!width || typeof internals.buildVisualLineMap !== "function" || lines.length < 3) return lines;
+  const visualLines = internals.buildVisualLineMap(width);
+  const visible = Math.max(0, internals.renderedVisibleLineCount ?? 0);
+  const offset = Math.max(0, internals.scrollOffset ?? 0);
+  if (visible === 0 || !Array.isArray(visualLines)) return lines;
+  return lines.map((line, index) => {
+    if (index === 0 || index === lines.length - 1 || index > visible) return line;
+    const visual = visualLines[offset + index - 1];
+    if (!visual) return line;
+    const columns = composerRangeColumns(visual, range, paddingX);
+    return columns ? paintSelectedSpan(line, columns.from, columns.to) : line;
+  });
 }
