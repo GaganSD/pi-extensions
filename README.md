@@ -22,11 +22,15 @@ until Grok is reconciled. Episode totals are out of 30 because Grok is pending.
 
 | Model · thinking | `@gagansd/pi-subagents` | `nicobailon/pi-subagents` | Change |
 | --- | ---: | ---: | ---: |
-| Kimi K3 · medium | — | — | — |
+| Kimi K3 · medium | 331,346 | 638,964 | −48% |
 | Grok 4.6 · medium | — | — | — |
 
-Kimi reported-usage lower bounds exist but **13 / 30** episodes have unknown
-error/abort/zero records. Complete-consumption and savings cells stay blank.
+Kimi token cells are a **consistent character proxy**: each provider request is
+rebuilt from the session tree (system/tools + prior visible messages, including
+repeated context), then `ceil(JS UTF-16 chars / 4)`, summed over parent and
+child sessions. Median of three five-pattern suite totals. Not provider billing.
+Provider SDK usage was incomplete on 13/30 Kimi episodes, so that ledger is not
+used here.
 Declared-context figures are character proxies for system/tool declarations,
 not billing counts; on-demand guide reads are excluded here, included in total usage.
 Token usage includes reported parent **and child** usage, including cached tokens;
