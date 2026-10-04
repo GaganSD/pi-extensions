@@ -24,7 +24,7 @@ execute prompt.txt
 
 Each operator runs 30 episodes: **2 packages × 5 patterns × 3 seeded trials**.
 Two operators collect **60 fresh parent episodes**, 30 per package. Run them
-**sequentially**. The runner waits 45 seconds between episodes and lets Pi retry
+**sequentially**. The runner waits 15 seconds between episodes and lets Pi retry
 transient 429/overload errors with backoff. Billing/auth failures still abort.
 Do not compare wall-clock speed.
 
@@ -100,9 +100,9 @@ available; unrelated extensions/MCP/global instructions are excluded.
 
 | Pattern | Independent acceptance checks |
 | --- | --- |
-| Parallel → join | Three correct child-derived values, correct ordered join and sum, three distinct children, actual overlapping child execution—not just a batch receipt. |
+| Parallel → join | Two correct child-derived values, correct ordered join and sum, two distinct children, actual overlapping child execution—not just a batch receipt. |
 | Discover → conditional fanout | Routing child settles before branch launch; route selects only the correct child/children; both branch children overlap on the `both` seed; correct total. |
-| Review → repair → repeat | Reviewer-driven first-error repairs; exact final file; 2/0/1 repairs for trial 1/2/3; fresh reviews after writers settle; no parent substitution. |
+| Review → repair → repeat | Reviewer-driven first-error repair; exact final file; 1/0/1 repairs for trial 1/2/3; fresh review after the writer settles; no parent substitution. |
 | Question → reply → continue | Real native question, exact correlated reply, no premature write, correct token; child does not inherit parent decision. |
 | Cancel → replace | Actual pending question, no answer to obsolete child, confirmed cancellation before workspace reuse, new child identity, correct replacement and no obsolete artifact. |
 

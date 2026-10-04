@@ -9,7 +9,7 @@
   "trials": [1, 2, 3],
   "scenarios": ["parallel_join", "conditional_fanout", "bounded_repair_loop", "supervisor_roundtrip", "cancel_replace"],
   "episode_timeout_seconds": 600,
-  "episode_spacing_seconds": 45,
+  "episode_spacing_seconds": 15,
   "models": {
     "luna": {"label": "GPT-6 Luna", "provider": "openai", "id": "gpt-6-luna", "thinking": "medium"},
     "kimi": {"label": "Kimi K3", "provider": "bedrock-runtime", "id": "us.moonshotai.kimi-k3", "thinking": "medium"}

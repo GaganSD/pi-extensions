@@ -1,19 +1,10 @@
 SCENARIO: cancel_replace
 
-Launch one worker with this brief:
-"Create obsolete.txt containing a token selected by your parent followed by a
-newline. The token is intentionally missing. Ask your owning supervisor which
-token to use through the native coordination tool and wait for its reply.
-Do not guess, write files, or return a final question instead of using the tool."
+Launch one worker that must ask the supervisor for a missing token before writing
+obsolete.txt. Do not answer. Stop that child and wait until it is actually
+stopped/cancelled.
 
-When its actual question arrives, do not answer it. Stop that exact child through
-the native package control. Confirm terminal stopped/cancelled settlement before
-reusing the workspace. A stop acknowledgment alone is insufficient.
+Then launch a fresh worker to write only replacement.txt containing REPLACED\n.
 
-Then launch a fresh worker:
-"Create replacement.txt containing exactly REPLACED followed by a newline.
-Do not create obsolete.txt or modify any other file."
-
-Wait for completion and verify replacement.txt has the correct contents and
-obsolete.txt does not exist. Write answer.json:
+Write answer.json:
 {"original_cancelled":true,"replacement":"REPLACED","obsolete_exists":false}

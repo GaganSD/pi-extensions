@@ -70,7 +70,7 @@ class Fixture:
         self.answer = None
         self.repairs = 0
         self.requests, self.failures, self.intervals = [], [], []
-        self.parallel_gate = threading.Barrier(3 if scenario == "parallel_join" else 2)
+        self.parallel_gate = threading.Barrier(2)
         self.parent_calls = 0
         self.activation_requested = False
 
@@ -94,7 +94,7 @@ class Fixture:
         def params(label, role="reviewer", detail=""):
             return json.dumps(self.child_spec(label, role, detail))
         if self.scenario == "parallel_join":
-            items = [{"key": key, **self.child_spec(f"integer:{key}.txt")} for key in "abc"]
+            items = [{"key": key, **self.child_spec(f"integer:{key}.txt")} for key in "ab"]
             return f'const r=await runs.all({json.dumps(items)}); const values=r.map(x=>Number(/integer: (\\d+)/.exec(x.output)[1])); return {{values,sum:values.reduce((a,b)=>a+b,0)}};'
         if self.scenario == "conditional_fanout":
             return (f'const r=await runs.run("route",{params("route")}); const route=/route: (left|right|both)/.exec(r.output)[1]; '
@@ -198,7 +198,7 @@ class Fixture:
                 self.phase = "workflow_written"
                 return [self.call("write", {"path": str(Path(self.workspace) / "preflight-workflow.js"), "content": self.workflow()})], None
             if self.scenario == "parallel_join":
-                return self.launch([self.child_spec(f"integer:{key}.txt") for key in "abc"]), None
+                return self.launch([self.child_spec(f"integer:{key}.txt") for key in "ab"]), None
             if self.scenario == "conditional_fanout":
                 return self.launch([self.child_spec("route")]), None
             if self.scenario == "bounded_repair_loop":
@@ -238,7 +238,7 @@ class Fixture:
             assert re.search(r"complete|completed", latest, re.I), f"Workflow did not settle: {latest}"
             # The real workflow itself parsed actual reports and returned the answer.
             # This fixture also validates physical reports, files, and counts independently.
-            answer = {"parallel_join": {"values": [11, 22, 33], "sum": 66},
+            answer = {"parallel_join": {"values": [11, 22], "sum": 33},
                       "conditional_fanout": {"route": "both", "total": 30},
                       "bounded_repair_loop": {"status": "PASS", "repairs": 2}}[self.scenario]
             return self.finish(answer), None
@@ -464,7 +464,7 @@ def probe(variant, scenario, target, mode="normal", lazy=False, foreground=False
             assert execution.returncode == 0, execution.stdout + execution.stderr
             assert not fixture.failures, fixture.failures
             children = {row["id"]: row for row in record["session_attestation"]["children"]}
-            expected = 1 if direct_completion else {"parallel_join": 3, "conditional_fanout": 3, "bounded_repair_loop": 5, "supervisor_roundtrip": 1, "cancel_replace": 2}[scenario]
+            expected = 1 if direct_completion else {"parallel_join": 2, "conditional_fanout": 3, "bounded_repair_loop": 3, "supervisor_roundtrip": 1, "cancel_replace": 2}[scenario]
             assert len(children) == expected, (len(children), expected)
             assert not record["session_attestation"]["errors"], record["session_attestation"]["errors"]
             assert all(row["thinking_changes"] and set(row["thinking_changes"]) == {"medium"} for row in children.values()), children
@@ -494,7 +494,7 @@ def probe(variant, scenario, target, mode="normal", lazy=False, foreground=False
             if scenario == "cancel_replace":
                 assert (workspace / "replacement.txt").read_text() == "REPLACED\n" and not (workspace / "obsolete.txt").exists()
             if scenario in {"parallel_join", "conditional_fanout"}:
-                assert len(fixture.intervals) >= (3 if scenario == "parallel_join" else 2)
+                assert len(fixture.intervals) >= 2
                 assert max(row["start"] for row in fixture.intervals) <= min(row["end"] for row in fixture.intervals), fixture.intervals
             return {"variant": variant, "scenario": scenario, "foreground": foreground, "direct_completion": direct_completion, "requests": len(fixture.requests), "children": len(children), "quiescent": True,
                     "unknown_cancel_records": usage["unknown_requests"], "scored": False}

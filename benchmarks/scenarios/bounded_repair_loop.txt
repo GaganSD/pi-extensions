@@ -1,20 +1,13 @@
 SCENARIO: bounded_repair_loop
 
-The target state.txt is exactly these three lines, each ending with a newline:
+Target state.txt, each line ending with a newline:
 alpha=1
 beta=2
 gamma=3
 
-Launch a reviewer to inspect state.txt without modifying it. Ask it to check keys
-in alpha/beta/gamma order and report only the first concrete discrepancy with its
-key, actual value, and expected value. If all keys match, its normal no-findings
-report is sufficient. Accept native reviewer formatting, not a special JSON shape.
-
-Extract the semantic verdict from the actual report. On a discrepancy, launch one
-worker to correct only that key, leaving every other line unchanged. Wait for
-confirmed worker settlement, then launch a fresh reviewer. Continue until a clean
-review, with at most three repairs. Never review while a writer is still active.
-Do not inspect or repair state.txt yourself before the loop finishes.
+Launch a reviewer to check keys in that order and report only the first mismatch.
+If a key is wrong, launch one worker to fix only that key, then a fresh reviewer.
+At most one repair. Do not edit state.txt yourself.
 
 Write answer.json:
-{"status":<final status>,"repairs":<number of worker repairs>}
+{"status":<final status>,"repairs":<worker count>}

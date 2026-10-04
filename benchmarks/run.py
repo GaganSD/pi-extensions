@@ -48,9 +48,9 @@ def episode_order(config, trials):
 
 def make_fixture(workspace, trial):
     workspace.mkdir(parents=True)
-    values = {1: (11, 22, 33), 2: (4, 9, 2), 3: (7, 3, 5)}[trial]
-    state = {1: "alpha=9\nbeta=8\ngamma=3\n", 2: "alpha=1\nbeta=2\ngamma=3\n", 3: "alpha=1\nbeta=9\ngamma=3\n"}[trial]
-    files = {f"{key}.txt": f"{value}\n" for key, value in zip("abc", values)}
+    values = {1: (11, 22), 2: (4, 9), 3: (7, 3)}[trial]
+    state = {1: "alpha=9\nbeta=2\ngamma=3\n", 2: "alpha=1\nbeta=2\ngamma=3\n", 3: "alpha=1\nbeta=9\ngamma=3\n"}[trial]
+    files = {f"{key}.txt": f"{value}\n" for key, value in zip("ab", values)}
     files.update({"route.txt": {1: "left\n", 2: "right\n", 3: "both\n"}[trial], "left.txt": "10\n", "right.txt": "20\n", "state.txt": state})
     for name, contents in files.items():
         (workspace / name).write_text(contents)

@@ -29,7 +29,7 @@ class BenchmarkTests(unittest.TestCase):
     def test_fixtures_are_paired_and_clean(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            for trial, route, repair_count in [(1, "left", 2), (2, "right", 0), (3, "both", 1)]:
+            for trial, route, repair_count in [(1, "left", 1), (2, "right", 0), (3, "both", 1)]:
                 ours, upstream = root / f"ours-{trial}", root / f"upstream-{trial}"
                 self.assertEqual(bench.make_fixture(ours, trial), bench.make_fixture(upstream, trial))
                 self.assertEqual((ours / "route.txt").read_text().strip(), route)

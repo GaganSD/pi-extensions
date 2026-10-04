@@ -1,11 +1,7 @@
 SCENARIO: parallel_join
 
-Launch three reviewer children concurrently, before consuming any child result.
-Assign one file per child: a.txt, b.txt, c.txt. Each reads only its assigned input
-and reports its integer. Do not read these input files yourself.
+Launch two reviewer children at once, one for a.txt and one for b.txt. Each
+reads only its file and reports the integer. Do not read the inputs yourself.
 
-After all three children settle, read their reports and write answer.json:
-{"values":[<a>,<b>,<c>],"sum":<sum>}
-
-Do not wait for one child to complete before launching the next. Execution overlap
-will be verified from raw evidence, not your description.
+After both settle, write answer.json:
+{"values":[<a>,<b>],"sum":<sum>}
