@@ -21,13 +21,16 @@ def main():
                                                 json.loads((ROOT / "config.json").read_text())["models"]))
     args = parser.parse_args()
     campaign = hashlib.sha256((ROOT / ".cache/manifest.json").read_bytes()).hexdigest()
-    episodes = ROOT / args.model / "results/episodes"
-    assert episodes.is_dir(), f"No episodes at {episodes}"
+    results = ROOT / args.model / "results"
     dest = ROOT / ".cache" / f"archive-{args.model}-rerun-{int(time.time())}"
     dest.mkdir(parents=True)
     moved = []
     blocked = []
-    for directory in sorted(p for p in episodes.iterdir() if p.is_dir()):
+    for kind in ("episodes", "smoke"):
+      parent = results / kind
+      if not parent.is_dir():
+          continue
+      for directory in sorted(p for p in parent.iterdir() if p.is_dir()):
         record_path = directory / "collection.json"
         if not record_path.is_file():
             blocked.append(directory.name + " (partial)")
@@ -40,8 +43,10 @@ def main():
             blocked.append(directory.name + " (incomplete)")
             continue
         if unknown or foreign or incomplete:
-            shutil.move(directory, dest / directory.name)
-            moved.append({"id": directory.name, "unknown": unknown, "foreign_campaign": foreign})
+            target = dest / kind
+            target.mkdir(exist_ok=True)
+            shutil.move(directory, target / directory.name)
+            moved.append({"id": f"{kind}/{directory.name}", "unknown": unknown, "foreign_campaign": foreign})
     print(json.dumps({"archived": str(dest), "moved": moved, "blocked": blocked}, indent=2))
     if blocked:
         raise SystemExit("Left blocking evidence in place; inspect before another run.")
