@@ -1,0 +1,10 @@
+SCENARIO: cancel_replace
+
+Launch one worker that must ask the supervisor for a missing token before writing
+obsolete.txt. Do not answer. Stop that child and wait until it is actually
+stopped/cancelled.
+
+Then launch a fresh worker to write only replacement.txt containing REPLACED\n.
+
+Write answer.json:
+{"original_cancelled":true,"replacement":"REPLACED","obsolete_exists":false}

@@ -1,0 +1,8 @@
+/.github/ @GaganSD
+/scripts/ @GaganSD
+/.release/ @GaganSD
+/.githooks/ @GaganSD
+/.gitleaks.toml @GaganSD
+/eslint.config.mjs @GaganSD
+/package.json @GaganSD
+/package-lock.json @GaganSD

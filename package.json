@@ -10,7 +10,15 @@
   },
   "scripts": {
     "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search && npm test --prefix pi-subagents",
-    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents"
+    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents",
+    "lint": "eslint . --max-warnings=0",
+    "test:tooling": "node --test scripts/*.test.mjs",
+    "secrets:scan": "bash scripts/secret-scan.sh",
+    "hooks:install": "bash scripts/install-hooks.sh",
+    "release:prepare": "node scripts/release.mjs prepare",
+    "release:apply": "node scripts/release.mjs apply",
+    "release:check": "node scripts/release.mjs check",
+    "release:publish": "node scripts/release.mjs publish"
   },
   "pi": {
     "extensions": [
@@ -25,5 +33,11 @@
     "themes": [
       "./pi-slate/themes/*.json"
     ]
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "typescript-eslint": "8.71.0"
   }
 }

@@ -1,0 +1,6 @@
+{
+  "models": {
+    "kimi": {"provider": "YOUR_PROVIDER", "id": "YOUR_KIMI_MODEL"},
+    "grok": {"provider": "YOUR_PROVIDER", "id": "YOUR_GROK_MODEL"}
+  }
+}

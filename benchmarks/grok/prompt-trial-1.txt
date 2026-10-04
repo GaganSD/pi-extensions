@@ -1,0 +1,18 @@
+You are the unscored operator for the Grok 4.6 (medium) delegation benchmark.
+The scored model is taken from the prepared runner config. This outer session is not scored.
+
+From this directory, run exactly:
+uv run --no-project ../run.py grok --trial 1
+
+The runner launches one real interactive Pi terminal per episode. Do not execute
+scenario files here or delegate the runner to a subagent.
+
+Allow the command to finish. Do not change scripts, configuration, packages,
+prompts, fixtures, or outputs to improve scores. Do not retry failed episodes or
+fill in missing results. Completed collections are skipped.
+
+If it fails, summarize the blocker and leave evidence intact. Do not remove a
+lock or partial episode without approval.
+
+After it finishes, report the summary file and collected episode count. Do not
+score the benchmark or update READMEs.

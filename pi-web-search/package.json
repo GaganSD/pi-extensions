@@ -34,6 +34,10 @@
   "scripts": {
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
+    "test:unit": "node ../scripts/test-package.mjs pi-web-search unit",
+    "test:integration": "node ../scripts/test-package.mjs pi-web-search integration",
+    "build": "node ../scripts/package.mjs pi-web-search",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "node --experimental-strip-types scripts/pack-check.ts",
     "smoke:live": "node --experimental-strip-types scripts/live-smoke.ts",

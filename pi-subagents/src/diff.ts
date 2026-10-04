@@ -12,7 +12,7 @@ const Params = Type.Object({
 export function diffPath(value?: string): string[] {
   if (value === undefined) return [];
   if (!value.trim() || value.includes("\0") || value.startsWith("-") || value.startsWith(":") || path.isAbsolute(value)
-    || /^[A-Za-z]:/.test(value) || /[*?\[\]]/.test(value) || value.split(/[\\/]/).includes("..")) {
+    || /^[A-Za-z]:/.test(value) || /[*?[\]]/.test(value) || value.split(/[\\/]/).includes("..")) {
     throw new Error("diff path must be a relative path inside the repository");
   }
   return [value];

@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-subagents",
   "version": "0.0.1",
-  "description": "Small, session-bound Pi delegation with worker and reviewer agents",
+  "description": "Tiny yet powerful, benchmarked sub-agents for Pi",
   "license": "MIT",
   "type": "module",
   "author": "Gagan Devagiri",
@@ -23,6 +23,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
+    "test:unit": "node ../scripts/test-package.mjs pi-subagents unit",
+    "test:integration": "node ../scripts/test-package.mjs pi-subagents integration",
+    "build": "node ../scripts/package.mjs pi-subagents",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "check": "npm run typecheck && npm test",
     "pack:check": "npm pack --dry-run",

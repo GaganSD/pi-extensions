@@ -297,7 +297,6 @@ export function renderFooterKeymaps(
 	const main = getAskContextBindings(config, "main");
 	const editor = getAskContextBindings(config, "editor");
 	const noteEditor = getAskContextBindings(config, "noteEditor");
-	const bindings = getAskKeyBindings(config);
 	const noteNavigationLabel = `${main.optionNote.label}/${main.questionNote.label}`;
 	const hintsByContext: Record<FooterKeymapContext, readonly string[]> = {
 		input: [

@@ -1,0 +1,25 @@
+Execute one scored delegation episode.
+
+RUN_ID: {{RUN_ID}}
+TRIAL: {{TRIAL}}
+MODEL: {{MODEL}}
+THINKING: {{THINKING}}
+WORKSPACE: {{WORKSPACE}}
+
+Use the installed subagent package and its shipped worker/reviewer roles. Every
+child is a fresh leaf with the exact MODEL and THINKING above, set on launch.
+Do not fork parent history, recurse, substitute models, or change the package.
+
+Use native launch, wait/notification, reply, and stop. Native workflow await/join
+counts as waiting. Do not sleep, bash-wait, or poll status. If a child produces no
+output, stop it and finish blocked. Do not do the delegated reads or edits
+yourself. Launch/control receipts are not results.
+
+Do not commit, use the network, or write files outside WORKSPACE except the
+required answer.json and result.json. Keep narration minimal. If blocked, stop
+honestly; do not switch protocols.
+
+After all child work has settled, write result.json:
+{"run_id":"{{RUN_ID}}","scenario":"{{SCENARIO}}","trial":{{TRIAL}},"model":"{{MODEL}}","thinking":"{{THINKING}}","outcome":"completed|blocked|failed","answer":{},"children":[{"id":"exact run ID","state":"terminal state"}],"errors":[],"human_intervention":false}
+
+Then stop.

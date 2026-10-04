@@ -1,0 +1,13 @@
+SCENARIO: bounded_repair_loop
+
+Target state.txt, each line ending with a newline:
+alpha=1
+beta=2
+gamma=3
+
+Launch a reviewer to check keys in that order and report only the first mismatch.
+If a key is wrong, launch one worker to fix only that key, then a fresh reviewer.
+At most one repair. Do not edit state.txt yourself.
+
+Write answer.json:
+{"status":<final status>,"repairs":<worker count>}

@@ -1,0 +1,9 @@
+SCENARIO: conditional_fanout
+
+Launch one reviewer to read route.txt and report left, right, or both.
+
+Then launch only the matching value reviewers: left.txt, right.txt, or both
+concurrently. Each reports its integer. Do not read these files yourself.
+
+Write answer.json:
+{"route":<route>,"total":<sum of selected integers>}

@@ -1,0 +1,9 @@
+SCENARIO: supervisor_roundtrip
+
+Parent-only token: {{TOKEN}}. Do not put it in the child brief.
+
+Launch one worker: create choice.txt with the supervisor-selected token and a
+newline. The token is missing; ask via the native supervisor tool and wait.
+
+Reply to that exact request with the parent token. Then write answer.json:
+{"token":<file contents without newline>}

@@ -1,0 +1,7 @@
+SCENARIO: parallel_join
+
+Launch two reviewer children at once, one for a.txt and one for b.txt. Each
+reads only its file and reports the integer. Do not read the inputs yourself.
+
+After both settle, write answer.json:
+{"values":[<a>,<b>],"sum":<sum>}

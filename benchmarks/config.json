@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "pi_version": "1.0.0",
+  "upstream": {
+    "repository": "https://github.com/nicobailon/pi-subagents.git",
+    "commit": "8983754bb3ef6603cbbe46dcc2314ec8563ffc23",
+    "version": "0.75.0"
+  },
+  "trials": [1, 2, 3],
+  "scenarios": ["parallel_join", "conditional_fanout", "bounded_repair_loop", "supervisor_roundtrip", "cancel_replace"],
+  "episode_timeout_seconds": 600,
+  "episode_spacing_seconds": 15,
+  "child_stall_seconds": 90,
+  "models": {
+    "kimi": {"label": "Kimi K3", "provider": "local", "id": "kimi-k3", "thinking": "medium"},
+    "grok": {"label": "Grok 4.6", "provider": "local", "id": "grok-4.6", "thinking": "medium"}
+  }
+}

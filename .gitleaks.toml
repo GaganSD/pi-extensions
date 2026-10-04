@@ -1,0 +1,3 @@
+title = "pi-extensions secrets"
+[extend]
+useDefault = true

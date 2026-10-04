@@ -103,8 +103,8 @@ test("elapsed time is natural and down cycles live threads then parent", () => {
   }));
   assert.equal(nextLive(live, live[0]!.id), live[1]!.id);
   assert.equal(nextLive(live, live[1]!.id), undefined);
-  assert.match(rows(live)[0]!, /^↓  2$/);
-  assert.match(rows([live[0]!])[0]!, /^↓  aaaaaaaa  worker  1m 5s$/);
+  assert.match(rows(live)[0]!, /^↓ {2}2$/);
+  assert.match(rows([live[0]!])[0]!, /^↓ {2}aaaaaaaa {2}worker {2}1m 5s$/);
 });
 
 test("human command parse and unique prefix attach", () => {
