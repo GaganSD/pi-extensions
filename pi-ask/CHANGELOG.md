@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- README screenshots use stable GitHub URLs on GitHub, npm, and the Pi gallery; packing no longer rewrites the README
+
 ## 0.1.2
 
 - README screenshots served from the npm CDN

@@ -11,6 +11,7 @@ import { paintSelectedContent } from "./composer.ts";
 export type ComposerSelectionEditor = {
   getText(): string;
   setText(text: string): void;
+  getExpandedText?(): string;
   getCursor(): { line: number; col: number };
   handleInput(data: string): void;
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined;
@@ -21,7 +22,9 @@ export type ComposerSelectionEditor = {
 };
 
 export type ComposerSelectionOptions = {
+  copy?(text: string): void | Promise<void>;
   requestRender?(): void;
+  onCopyError?(error: unknown): void;
 };
 
 type PasteableEditor = ComposerSelectionEditor & {
@@ -49,6 +52,10 @@ type InstalledEditor = {
 
 function isSelectAll(data: string): boolean {
   return matchesKey(data, "ctrl+a") || matchesKey(data, "super+a") || matchesKey(data, "ctrl+shift+a");
+}
+
+function isCopy(data: string): boolean {
+  return matchesKey(data, "ctrl+c") || matchesKey(data, "super+c") || matchesKey(data, "ctrl+shift+c");
 }
 
 function isPrintable(data: string): boolean {
@@ -201,7 +208,17 @@ export class ComposerSelectionController {
       disarmEscape();
       this.revision += 1;
     };
-
+    const copyPrompt = (): void => {
+      if (!options.copy) return;
+      try {
+        void Promise.resolve(options.copy(editor.getExpandedText?.() ?? editor.getText())).then(
+          undefined,
+          (error: unknown) => options.onCopyError?.(error),
+        );
+      } catch (error) {
+        options.onCopyError?.(error);
+      }
+    };
     const togglePasteAtCursor = (): boolean => {
       const cursor = editor.getCursor();
       const open = [...this.revealed].reverse().find((item) => cursorInRevealed(item, cursor));
@@ -267,6 +284,12 @@ export class ComposerSelectionController {
         return;
       }
 
+      // Ctrl+C is Pi's app.clear. Never let it wipe a non-empty prompt.
+      if (isCopy(data) && editor.getText().length > 0) {
+        copyPrompt();
+        return;
+      }
+
       if (this.selected) {
         if (matchesKey(data, "backspace") || matchesKey(data, "delete")) {
           editor.setText("");
@@ -284,7 +307,10 @@ export class ComposerSelectionController {
     };
 
     const handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
-      clearInteraction();
+      // Leave press/drag/release unhandled so Pi's screen-level selection can run.
+      if (event.type !== "wheel" && event.type !== "move" && event.type !== "release") {
+        clearInteraction();
+      }
       const result = originalHandleMouse.call(editor, event);
       if (isPasteClick(event) && togglePasteAtCursor()) options.requestRender?.();
       return result;

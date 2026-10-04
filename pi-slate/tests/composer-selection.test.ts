@@ -50,6 +50,14 @@ class FakeEditor implements ComposerSelectionEditor {
     return this.text;
   }
 
+  getExpandedText(): string {
+    let result = this.text;
+    for (const [id, body] of this.pastes) {
+      result = result.replace(new RegExp(`\\[paste #${id}(?: \\+\\d+ lines| \\d+ chars)?\\]`, "g"), body);
+    }
+    return result;
+  }
+
   setText(text: string): void {
     this.setTextCalls.push(text);
     this.text = text;
@@ -165,12 +173,12 @@ test("Kitty and xterm printable keys replace selection using the public TUI API"
   }
 });
 
-test("Ctrl+C and Ctrl+X pass through to Pi", () => {
+test("Ctrl+X always reaches Pi, even after select-all", () => {
   const editor = new FakeEditor("hello");
   attach(editor);
-  editor.handleInput("\x03");
+  editor.handleInput(SELECT_ALL);
   editor.handleInput("\x18");
-  assert.deepEqual(editor.inputCalls, ["\x03", "\x18"]);
+  assert.deepEqual(editor.inputCalls, ["\x18"]);
   assert.equal(editor.getText(), "hello");
 });
 
@@ -330,5 +338,84 @@ test("short insertTextAtCursor is not collapsed", async (t) => {
   selection.attach(editor, {});
   editor.insertTextAtCursor("hello");
   assert.equal(editor.getText(), "hello");
+  selection.dispose();
+});
+
+test("selected Ctrl+C copies the expanded prompt and leaves it in place", async () => {
+  const editor = new FakeEditor("[paste #1 +2 lines]");
+  editor.pastes.set(1, "line one\nline two");
+  const copied: string[] = [];
+  const selection = new ComposerSelectionController();
+  selection.attach(editor, { copy: (text) => { copied.push(text); } });
+  editor.handleInput(SELECT_ALL);
+  editor.handleInput("\x03");
+  await Promise.resolve();
+  assert.deepEqual(copied, ["line one\nline two"]);
+  assert.equal(editor.getText(), "[paste #1 +2 lines]");
+  assert.deepEqual(editor.inputCalls, []);
+  assert.match(editor.render(20)[1]!, /\x1b\[7m/);
+  selection.dispose();
+});
+
+test("Ctrl+C copies a non-empty prompt without sending clear to Pi", async () => {
+  const editor = new FakeEditor("keep me");
+  const copied: string[] = [];
+  const selection = new ComposerSelectionController();
+  selection.attach(editor, { copy: (text) => { copied.push(text); } });
+  editor.handleInput("\x03");
+  await Promise.resolve();
+  assert.deepEqual(copied, ["keep me"]);
+  assert.equal(editor.getText(), "keep me");
+  assert.deepEqual(editor.inputCalls, []);
+  selection.dispose();
+});
+
+test("empty Ctrl+C still reaches Pi", () => {
+  const editor = new FakeEditor("");
+  const copied: string[] = [];
+  const selection = new ComposerSelectionController();
+  selection.attach(editor, { copy: (text) => { copied.push(text); } });
+  editor.handleInput("\x03");
+  assert.deepEqual(copied, []);
+  assert.deepEqual(editor.inputCalls, ["\x03"]);
+  selection.dispose();
+});
+
+test("wheel over the prompt keeps select-all", () => {
+  const editor = new FakeEditor("hello");
+  editor.renderedLines = ["TOP", "hello", "BOTTOM"];
+  attach(editor);
+  editor.handleInput(SELECT_ALL);
+  editor.handleMouse({ type: "wheel", button: "none", wheelDelta: -1 } as TuiMouseEvent);
+  assert.match(editor.render(20)[1]!, /\x1b\[7mhello\x1b\[27m/);
+});
+
+function mouseEvent(type: TuiMouseEvent["type"], x: number, y: number): TuiMouseEvent {
+  return {
+    type,
+    button: "left",
+    x,
+    y,
+    screenX: x,
+    screenY: y,
+    width: 20,
+    height: 4,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
+}
+
+test("press and drag stay unhandled so Pi can select screen text", () => {
+  const editor = new FakeEditor("hello");
+  const copied: string[] = [];
+  const selection = new ComposerSelectionController();
+  selection.attach(editor, { copy: (text) => { copied.push(text); } });
+
+  const press = editor.handleMouse(mouseEvent("press", 2, 1));
+  const drag = editor.handleMouse(mouseEvent("drag", 7, 1));
+  assert.equal(press?.capture, undefined);
+  assert.equal(drag?.capture, undefined);
+  assert.deepEqual(copied, []);
   selection.dispose();
 });

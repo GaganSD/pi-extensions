@@ -15,9 +15,11 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
+import { copyWithFeedback } from "./copy-feedback.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
 import { installDiff } from "./diff.ts";
+import { installRead } from "./read.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
 import { GitDiffPreviewLoader } from "./git-diff.ts";
@@ -195,6 +197,7 @@ class BranchFooter implements Component {
 export default function piSlate(pi: ExtensionAPI): void {
   let config = loadConfig();
   installDiff(pi);
+  installRead(pi);
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
   const selection = new ComposerSelectionController();
@@ -313,10 +316,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         }
       },
       copy: (text) => {
-        void copyToClipboard(text).then(
-          () => ctx.ui.notify("Copied", "info"),
-          () => ctx.ui.notify("Could not copy", "error"),
-        );
+        void copyWithFeedback(activeTui, ctx.ui.notify, text);
       },
       openFile: (filePath) => {
         const target = resolve(ctx.cwd, filePath);
@@ -412,6 +412,7 @@ export default function piSlate(pi: ExtensionAPI): void {
         },
       );
       selection.attach(activeEditor, {
+        copy: (text) => copyWithFeedback(tui, ctx.ui.notify, text),
         requestRender: () => tui.requestRender(),
       });
       images.attachEditor(activeEditor);

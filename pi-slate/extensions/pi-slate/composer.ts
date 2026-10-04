@@ -5,6 +5,8 @@ import {
   visibleWidth,
   type EditorTheme,
   type TUI,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { footerVisibility, modelStatusLabel, type ModelDisplay } from "./layout.ts";
 
@@ -290,6 +292,52 @@ export function composerStatusContextEdge(
 
 type WorkingStatusIndicatorParameter = Parameters<CustomEditor["setWorkingStatusIndicator"]>[0];
 
+type ComposerVisualLine = {
+  logicalLine: number;
+  startCol: number;
+  length: number;
+};
+
+type ComposerScrollInternals = {
+  lastWidth?: number;
+  scrollOffset?: number;
+  renderedVisibleLineCount?: number;
+  buildVisualLineMap?: (width: number) => ComposerVisualLine[];
+  findCurrentVisualLine?: (lines: ComposerVisualLine[]) => number;
+  moveToVisualLine?: (lines: ComposerVisualLine[], from: number, to: number) => void;
+};
+
+/** Handle wheel input for an overflowing prompt, including at its scroll boundaries. */
+export function scrollComposerByLines(editor: object, delta: number): boolean {
+  if (!Number.isFinite(delta) || delta === 0) return false;
+  const internals = editor as ComposerScrollInternals;
+  const width = internals.lastWidth;
+  if (!width || typeof internals.buildVisualLineMap !== "function" || typeof internals.moveToVisualLine !== "function") {
+    return false;
+  }
+
+  const visualLines = internals.buildVisualLineMap(width);
+  if (!Array.isArray(visualLines) || visualLines.length === 0) return false;
+
+  const maxVisible = Math.max(1, internals.renderedVisibleLineCount || visualLines.length);
+  const maxOffset = Math.max(0, visualLines.length - maxVisible);
+  if (maxOffset === 0) return false;
+
+  const currentOffset = Math.max(0, Math.min(internals.scrollOffset ?? 0, maxOffset));
+  const direction = delta < 0 ? -1 : 1;
+  const steps = Math.max(1, Math.round(Math.abs(delta)));
+  const desiredOffset = Math.max(0, Math.min(maxOffset, currentOffset + direction * steps));
+  if (desiredOffset === currentOffset) return true;
+
+  const currentLine = typeof internals.findCurrentVisualLine === "function"
+    ? internals.findCurrentVisualLine(visualLines)
+    : currentOffset;
+  const rel = Math.max(0, Math.min(maxVisible - 1, currentLine - currentOffset));
+  internals.moveToVisualLine(visualLines, currentLine, desiredOffset + rel);
+  internals.scrollOffset = desiredOffset;
+  return true;
+}
+
 export class ComposerEditor extends CustomEditor {
   selectionActive = false;
   private readonly source: () => ComposerSource;
@@ -317,6 +365,14 @@ export class ComposerEditor extends CustomEditor {
   override setWorkingStatusIndicator(indicator: WorkingStatusIndicatorParameter): void {
     this.statusIndicator = indicator;
     super.setWorkingStatusIndicator(indicator);
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.type === "wheel") {
+      if (scrollComposerByLines(this, event.wheelDelta ?? 0)) return { handled: true, focus: true };
+      return undefined;
+    }
+    return super.handleMouse(event);
   }
 
   protected renderTopBorder(width: number, hiddenLineCount: number): string {

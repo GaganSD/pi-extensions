@@ -1,7 +1,7 @@
 {
   "name": "pi-slate",
-  "version": "0.1.8",
-  "description": "Quiet Pi TUI: header, footer, sidebar, and a muted dark theme.",
+  "version": "0.1.9",
+  "description": "A minimal-TUI with rich-graphics support that adds zero-context bloat",
   "type": "module",
   "license": "MIT",
   "author": "Gagan Devagiri",
@@ -67,7 +67,7 @@
     "themes": [
       "./themes/*.json"
     ],
-    "image": "https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-overview.png"
+    "image": "https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-overview.png"
   },
   "dependencies": {
     "diff": "^9.0.0",
