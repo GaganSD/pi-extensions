@@ -158,20 +158,20 @@ class FaultTests(unittest.TestCase):
             (root / ".cache").mkdir()
             bench.save_json(root / ".cache/manifest.json", {"protocol_sha256": "fixture"})
             bench.save_json(root / "config.json", bench.read_json(bench.ROOT / "config.json"))
-            previous = root / "luna/results/episodes/luna-t1-existing"
+            previous = root / "grok/results/episodes/grok-t1-existing"
             previous.mkdir(parents=True)
             bench.save_json(previous / "collection.json", {"collector_status": "incomplete", "execution": {"process_cleanup": {"cleanup_state": "unknown"}}})
             original = bench.admission_gate
             def locked_gate(results, *args):
                 self.assertTrue((results / ".running").exists())
                 return original(results, *args)
-            with patch.object(bench, "ROOT", root), patch.object(sys, "argv", ["run.py", "luna", "--trial", "2"]), \
+            with patch.object(bench, "ROOT", root), patch.object(sys, "argv", ["run.py", "grok", "--trial", "2"]), \
                  patch.object(bench.subprocess, "run"), patch.object(bench, "admission_gate", side_effect=locked_gate), \
                  patch.object(bench.pty, "fork") as fork, patch.object(bench, "run_tui") as transport:
                 with self.assertRaisesRegex(AssertionError, "blocks admission"):
                     bench.main()
                 fork.assert_not_called(); transport.assert_not_called()
-            self.assertEqual(list((root / "luna/results/episodes").iterdir()), [previous])
+            self.assertEqual(list((root / "grok/results/episodes").iterdir()), [previous])
             self.assertEqual(bench.read_json(previous / "collection.json")["collector_status"], "incomplete")
 
     def test_no_startup_still_retains_unknown_pid_and_blocks_trial_two(self):

@@ -61,7 +61,7 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(bench.retryable_provider_error(billing))
 
     def test_scored_process_uses_tui_not_print_or_rpc(self):
-        model = bench.read_json(bench.ROOT / "config.json")["models"]["luna"]
+        model = bench.read_json(bench.ROOT / "config.json")["models"]["grok"]
         command = bench.pi_command(model, prompt="test prompt")
         for forbidden in ("--print", "--mode", "--no-session"):
             self.assertNotIn(forbidden, command)

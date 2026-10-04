@@ -2,18 +2,11 @@
 
 ## Run it
 
-The local artifacts and model-folder defaults are prepared. Open **one** terminal
-at a time so the two remaining models do not compete with dropped OpenAI/Bedrock
-routes:
+Kimi collection on the current task set is complete. Do **not** resume Luna/
+OpenAI. The remaining model is Grok 4.6 on Bedrock:
 
 ```sh
-cd benchmarks/luna && pi   # needs OpenAI credits; billing errors are not retried
-```
-
-When Luna finishes, then:
-
-```sh
-cd benchmarks/kimi && pi
+cd benchmarks/grok && pi
 ```
 
 In **each** Pi session, say:
@@ -40,8 +33,8 @@ workflow: the model and the package under test do that.
 
 | Folder | Exact scored model | Thinking |
 | --- | --- | --- |
-| `luna` | `openai/gpt-6-luna` | medium |
 | `kimi` | `bedrock-runtime/us.moonshotai.kimi-k3` | medium |
+| `grok` | `bedrock/xai.grok-4.6` | medium |
 
 Routes are pinned in `config.json`; the Kimi route supports medium thinking,
 unlike some alternative Kimi routes. No automatic model/provider fallback.
@@ -179,8 +172,8 @@ request reconstruction including repeated context, not counting transcript bytes
 
 ```sh
 node benchmarks/prepare.mjs --check    # Sealed protocol, CLI/Node/SDK/dependencies/routes; no model calls
-uv run --no-project benchmarks/run.py luna --dry-run
-uv run --no-project benchmarks/run.py luna --smoke  # Startup-only real TUI checks; no model calls
+uv run --no-project benchmarks/run.py grok --dry-run
+uv run --no-project benchmarks/run.py grok --smoke  # Startup-only real TUI checks; no model calls
 uv run --no-project python -m unittest discover -s benchmarks -p 'test_*.py'
 uv run --no-project benchmarks/preflight.py             # Both packages, all five native patterns
 uv run --no-project benchmarks/preflight.py --variant upstream --scenario parallel_join --lazy

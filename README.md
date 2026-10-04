@@ -18,8 +18,8 @@ No live trials have been scored yet.
 
 | Model · thinking | `@gagansd/pi-subagents` | `nicobailon/pi-subagents` | Change |
 | --- | ---: | ---: | ---: |
-| GPT-6 Luna · medium | — | — | — |
 | Kimi K3 · medium | — | — | — |
+| Grok 4.6 · medium | — | — | — |
 
 Declared-context figures are character proxies for system/tool declarations,
 not billing counts; on-demand guide reads are excluded here, included in total usage.

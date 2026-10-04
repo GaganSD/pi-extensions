@@ -1,8 +1,8 @@
-You are the unscored operator for the GPT-6 Luna (medium) delegation benchmark.
-The scored model is pinned to openai/gpt-6-luna; the model of this outer session does not affect the scored sessions.
+You are the unscored operator for the Grok 4.6 (medium) delegation benchmark.
+The scored model is pinned to bedrock/xai.grok-4.6; the model of this outer session does not affect the scored sessions.
 
 From this directory, run exactly:
-uv run --no-project ../run.py luna --trial 2
+uv run --no-project ../run.py grok --trial 1
 
 The prepared runner launches independent real interactive Pi terminals, one per episode, with the frozen package artifacts. It handles model selection, fixtures, fresh sessions, credential isolation, package switching between episodes, raw evidence, and completion. Do not execute scenario files in this outer session or delegate the runner to a subagent.
 
