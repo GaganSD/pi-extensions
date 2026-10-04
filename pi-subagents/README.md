@@ -39,4 +39,4 @@ Then `/reload`. Built for Pi **1.0.x**.
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
-Note: I've stressed tested the library. It works well but I gotta improve UI & Developer Experience. Msg if you find issues
+## Notes: I've stressed tested the library to work well locally. TODO: Improve UI & Developer Experience. Support Cloud Sub-agents. Message me if you feedback, TIA!
