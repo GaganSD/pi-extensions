@@ -240,9 +240,9 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   const syncSidebar = (ctx: ExtensionContext): void => {
-    let tokens: number | null = null;
-    let percent: number | null = null;
-    let spend = 0;
+    let tokens: number | null;
+    let percent: number | null;
+    let spend: number;
     try {
       const resolved = resolveContextTokens(
         ctx.getContextUsage(),
@@ -579,7 +579,6 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   const pickTheme = async (ctx: ExtensionContext): Promise<void> => {
-    const current = ctx.ui.theme.name;
     const mocha = currentCatppuccin(ctx).style;
     const value = await ctx.ui.select("Theme", [
       ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], style === mocha)),

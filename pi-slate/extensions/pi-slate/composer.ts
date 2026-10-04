@@ -199,7 +199,7 @@ export function frameComposerLines(
   return out;
 }
 
-function sideBorder(line: string, width: number, paint: (text: string) => string, prompt: boolean, theme?: Theme): string {
+function sideBorder(line: string, width: number, paint: (text: string) => string, prompt: boolean, _theme?: Theme): string {
   const leftCols = prompt ? 4 : 1;
   const prefix = " ".repeat(leftCols);
   let body = line.startsWith(prefix) ? line.slice(leftCols) : line;

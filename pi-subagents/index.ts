@@ -122,7 +122,7 @@ export default function subagents(pi: ExtensionAPI): void {
       if (!host || host.inspecting || !matchesKey(data, "down")) return;
       const live = host.manager.live();
       if (!live.length) return;
-      let text = "";
+      let text: string;
       try { text = host.ctx.ui.getEditorText(); } catch { return; }
       if (text.includes("\n")) return;
       void openThread(host.ctx, live[0]!.id);

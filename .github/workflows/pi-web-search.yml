@@ -1,15 +1,7 @@
 name: pi-web-search
 
 on:
-  pull_request:
-    paths:
-      - "pi-web-search/**"
-      - ".github/workflows/pi-web-search.yml"
-  push:
-    branches: [main]
-    paths:
-      - "pi-web-search/**"
-      - ".github/workflows/pi-web-search.yml"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -40,10 +32,11 @@ jobs:
       run:
         working-directory: package validation workspace/pi-web-search
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: package validation workspace
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ matrix.node }}
           cache: npm

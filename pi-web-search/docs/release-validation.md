@@ -42,8 +42,9 @@ npm run smoke:live
 - Live checks cover Exa, grep.app, scoped Sourcegraph, native Parallel, URL extraction, and multi-source code search through Pi's SDK.
 - Live checks send public test queries. They require network access and can fail when a provider is unavailable.
 - A terminal rehearsal checked local installation, first-run setup, settings display, and a second launch without the welcome prompt.
-- CI has three jobs: Linux (Node 22.19.0, Pi 0.99), Windows (Node 24, Pi 0.99), and macOS (Node 24, Pi 1.0).
-- Each job runs audits, typechecks, and package tests. Runtime tests run once, against the tarball. Pi 1.0 installation uses npm 12.
+- The compatibility lane has three jobs: Linux (Node 22.19.0, Pi 0.99), Windows (Node 24, Pi 0.99), and macOS (Node 24, Pi 1.0).
+- Each compatibility job runs audits, typechecks, and package tests. Runtime tests in that lane run against the tarball. Pi 1.0 installation uses npm 12.
+- Shared monorepo CI also runs lint, separate unit/integration suites, a clean-consumer artifact build, and secret scanning. See the repository’s `docs/ci-cd.md` for the current release workflow.
 
 To test an installed candidate with the live smoke, supply its package directory:
 
@@ -63,10 +64,6 @@ npm run smoke:live -- /path/to/node_modules/@gagansd/pi-web-search
 
 ## Publish
 
-Confirm that PR checks pass for the final commit. Run the commands above before publication.
+Request a release from the monorepo root using `npm run release:prepare` as documented in the repository’s `docs/ci-cd.md`. Merging its release PR publishes the validated tarball through GitHub Actions after main CI passes. Ordinary PR merges do not publish.
 
-```bash
-npm publish --access public
-```
-
-`prepublishOnly` repeats the production audit, offline tests, typecheck, and tarball checks. It does not run live provider checks.
+`prepublishOnly` remains a local safety check: it repeats the production audit, offline tests, typecheck, and tarball checks. CI publication validates the artifact first and disables lifecycle hooks when publishing that exact tarball. Neither route runs live provider checks.

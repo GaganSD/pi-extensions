@@ -37,6 +37,10 @@
   "scripts": {
     "test": "node --test --experimental-strip-types tests/**/*.test.ts tests/**/*.test.mjs",
     "typecheck": "tsc --noEmit",
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
+    "test:unit": "node ../scripts/test-package.mjs pi-slate unit",
+    "test:integration": "node ../scripts/test-package.mjs pi-slate integration",
+    "build": "node ../scripts/package.mjs pi-slate",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck"

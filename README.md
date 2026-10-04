@@ -36,6 +36,12 @@ Monorepo of extensions I've built and maintain for the [Pi Agent Harness](https:
 
 - [pi-context-view](https://www.npmjs.com/package/pi-context-view): context usage inspection
 
+## Development and releases
+
+GitHub Actions validates package changes before merge. npm releases are requested
+explicitly through a release PR; ordinary merges do not publish.
+See [CI, release commands, and secret protection](docs/ci-cd.md).
+
 ## License
 
 MIT — [Gagan Devagiri](https://github.com/GaganSD).

@@ -1,0 +1,79 @@
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current main SHA
+        required: true
+        type: string
+      packages:
+        description: 'Comma-separated path:bump pairs, e.g. pi-ask:patch,pi-slate:minor'
+        required: true
+        type: string
+      notes:
+        description: Reviewed release summary (Markdown)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate dispatch source
+        env:
+          SOURCE: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$SOURCE" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$SOURCE" == "$(gh api repos/GaganSD/pi-extensions/commits/main --jq .sha)" ]]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Generate deterministic release files
+        env:
+          SOURCE: ${{ inputs.source_sha }}
+          PACKAGES: ${{ inputs.packages }}
+          NOTES: ${{ inputs.notes }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IFS=',' read -ra selections <<< "$PACKAGES"
+          args=()
+          for selection in "${selections[@]}"; do args+=(--package "$selection"); done
+          npm run release:apply -- --source-sha "$SOURCE" --notes "$NOTES" "${args[@]}"
+      # An App token makes the bot's PR trigger ordinary pull_request CI.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
+        with:
+          token: ${{ steps.app.outputs.token }}
+          branch: release/next
+          base: main
+          title: 'chore: prepare npm releases'
+          commit-message: 'chore: prepare npm releases'
+          body-path: .release/body.md
+          add-paths: |
+            .release/plan.json
+            pi-*/package.json
+            pi-*/package-lock.json
+            pi-*/CHANGELOG.md

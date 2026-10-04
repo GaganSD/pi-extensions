@@ -35,6 +35,10 @@
   "scripts": {
     "test": "node --test --experimental-strip-types tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
+    "test:unit": "node ../scripts/test-package.mjs pi-ask unit",
+    "test:integration": "node ../scripts/test-package.mjs pi-ask integration",
+    "build": "node ../scripts/package.mjs pi-ask",
     "pack:check": "npm pack --dry-run",
     "prepublishOnly": "npm test && npm run typecheck"
   },
@@ -43,6 +47,9 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
+  },
+  "overrides": {
+    "undici": "8.10.2"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "0.85.1",

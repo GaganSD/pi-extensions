@@ -14,7 +14,7 @@ export function parseProfile(contents: string, source: string): Profile {
   try {
     raw = parse(match[1]!, { uniqueKeys: true, maxAliasCount: 0 });
   } catch (error) {
-    throw new Error(`Invalid YAML frontmatter: ${source}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Invalid YAML frontmatter: ${source}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   const data = object(raw, source);
   keys(data, ["name", "description", "mode", "model", "thinking"], source);

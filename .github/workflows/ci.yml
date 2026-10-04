@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.detect.outputs.packages }}
+      has_packages: ${{ steps.detect.outputs.has_packages }}
+      web: ${{ steps.detect.outputs.web }}
+      base: ${{ steps.base.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [[ "$EVENT" == push && -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
+            echo "sha=$BEFORE" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+          fi
+      - id: detect
+        env:
+          BASE: ${{ github.event_name != 'workflow_dispatch' && steps.base.outputs.sha || '' }}
+        run: node scripts/ci.mjs "$BASE" "$GITHUB_SHA"
+
+  tooling:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Lint tooling
+        run: npm exec -- eslint scripts eslint.config.mjs --max-warnings=0
+      - name: Tooling regression tests
+        run: npm run test:tooling
+      - name: Audit tooling dependencies
+        run: npm audit --audit-level=high
+      - name: Validate release intent
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: npm run release:check -- "$BASE" "$GITHUB_SHA"
+
+  packages:
+    needs: changes
+    if: needs.changes.outputs.has_packages == 'true'
+    name: Package / ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ${{ matrix.package }}/package-lock.json
+      - run: npm install --global npm@12.0.0 --ignore-scripts --no-audit --no-fund
+      - name: Install tooling
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install package
+        run: npm ci --prefix "${{ matrix.package }}" --ignore-scripts --no-audit --no-fund
+      - name: Lint
+        run: npm run lint --prefix "${{ matrix.package }}"
+      - name: Typecheck
+        run: npm run typecheck --prefix "${{ matrix.package }}"
+      - name: Unit tests
+        run: npm run test:unit --prefix "${{ matrix.package }}"
+      - name: Integration tests
+        run: npm run test:integration --prefix "${{ matrix.package }}"
+      - name: Security audit (including development dependencies)
+        run: npm audit --prefix "${{ matrix.package }}" --audit-level=high
+      - name: Build and smoke-test npm artifact
+        run: npm run build --prefix "${{ matrix.package }}"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: npm-${{ matrix.package }}
+          path: .artifacts/${{ matrix.package }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  web-compatibility:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    uses: ./.github/workflows/pi-web-search.yml
+
+  secrets:
+    uses: ./.github/workflows/secret-scan.yml
+
+  passed:
+    name: CI passed
+    if: always()
+    needs: [changes, tooling, packages, web-compatibility, secrets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every applicable check
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e '
+            const jobs = JSON.parse(process.env.RESULTS);
+            for (const name of ["changes", "tooling", "secrets"]) {
+              if (jobs[name].result !== "success") process.exit(1);
+            }
+            const expected = {
+              packages: jobs.changes.outputs.has_packages === "true",
+              "web-compatibility": jobs.changes.outputs.web === "true"
+            };
+            for (const [name, required] of Object.entries(expected)) {
+              if (jobs[name].result !== (required ? "success" : "skipped")) process.exit(1);
+            }
+          '
