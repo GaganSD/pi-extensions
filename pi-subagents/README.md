@@ -1,4 +1,6 @@
-# pi-subagents
+#TODO: Write README and benchmark
+
+# pi-subagents [WIP]
 
 - Delegate bounded work from one parent session to worker and reviewer children
 - Fresh native Pi sessions, session-bound, no nested delegation
