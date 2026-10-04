@@ -52,6 +52,30 @@ class BenchmarkTests(unittest.TestCase):
                     if scenario == "supervisor_roundtrip":
                         self.assertIn({1: "BLUE", 2: "GREEN", 3: "GOLD"}[trial], text)
 
+    def test_child_stall_ignores_parent_and_aborted_assistants(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            parent = root / "agent/sessions/parent.jsonl"
+            parent.parent.mkdir(parents=True)
+            parent.write_text(json.dumps({"type": "message", "message": {"role": "assistant", "stopReason": "stop"}}) + "\n")
+            child = root / "agent/minimal-subagents/owner/id/transcript/child.jsonl"
+            child.parent.mkdir(parents=True)
+            child.write_text(json.dumps({"type": "session", "id": "child"}) + "\n")
+            self.assertFalse(bench.child_assistant_progress(root))
+            child.write_text(child.read_text() + json.dumps(
+                {"type": "message", "message": {"role": "assistant", "stopReason": "aborted"}}) + "\n")
+            self.assertFalse(bench.child_assistant_progress(root))
+            child.write_text(child.read_text() + json.dumps(
+                {"type": "message", "message": {"role": "assistant", "stopReason": "stop"}}) + "\n")
+            self.assertTrue(bench.child_assistant_progress(root))
+            other = Path(temp + "-up")
+            up_child = other / "agent/sessions/enc/run-0/session.jsonl"
+            up_child.parent.mkdir(parents=True)
+            up_child.write_text(json.dumps({"type": "message", "message": {"role": "assistant", "stopReason": "toolUse"}}) + "\n")
+            (other / "agent/sessions/enc.jsonl").write_text(
+                json.dumps({"type": "message", "message": {"role": "assistant", "stopReason": "stop"}}) + "\n")
+            self.assertTrue(bench.child_assistant_progress(other))
+
     def test_timeout_failure_is_collected_and_does_not_block_resume(self):
         record = {"collector_status": "collected", "errors": [{"type": "episode_timeout"}],
                   "usage_evidence": {"parse_errors": []}, "session_attestation": {"errors": []},
@@ -221,7 +245,7 @@ class BenchmarkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             result = bench.run_tui([sys.executable, "-c", "import time; time.sleep(60)"], root,
-                                   dict(bench.os.environ), root / "log", 0.1)
+                                   dict(bench.os.environ), root / "log", 1)
             self.assertTrue(result["external_timeout"])
             self.assertNotEqual(result["exit_code"], 0)
 

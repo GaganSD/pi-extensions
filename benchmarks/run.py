@@ -160,18 +160,27 @@ def events_from(path):
 TEARDOWN_SECONDS = 14
 
 
+def child_session_paths(root):
+    root = Path(root)
+    paths = list((root / "agent/minimal-subagents").glob("**/transcript/*.jsonl"))
+    paths += list((root / "agent/sessions").glob("**/run-0/session.jsonl"))
+    return paths
+
+
 def child_assistant_progress(root):
-    # Role presence only; never log or return transcript text.
-    for path in Path(root).rglob("*.jsonl"):
-        if path.name in {"events.jsonl", "baseline-events.jsonl"}:
-            continue
+    # Child sessions only. Parent assistant rows must not count as progress.
+    # Aborted is the collector closing the stream, not a model reply.
+    for path in child_session_paths(root):
         try:
-            text = path.read_text()
-        except OSError:
+            rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        except (OSError, ValueError):
             continue
-        if '"role":"assistant"' in text.replace(" ", ""):
-            return True
+        for row in rows:
+            message = row.get("message") or {}
+            if row.get("type") == "message" and message.get("role") == "assistant" and message.get("stopReason") != "aborted":
+                return True
     return False
+
 RATE_LIMIT = ("429", "rate_limit", "rate limit", "too many requests", "throttl", "overloaded", "service unavailable")
 NONRETRYABLE = ("no credits remaining", "insufficient_quota", "billing", "invalid api key", "unauthorized", "authentication")
 
