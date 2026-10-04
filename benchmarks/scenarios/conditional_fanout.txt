@@ -1,0 +1,15 @@
+SCENARIO: conditional_fanout
+
+Launch one reviewer to read route.txt and report exactly left, right, or both.
+Wait for its actual result before deciding which children to launch next.
+
+If left: launch a reviewer for left.txt only.
+If right: launch a reviewer for right.txt only.
+If both: launch two reviewers concurrently, one for each file.
+
+Each selected reviewer reads its assigned file and reports its integer.
+Write answer.json:
+{"route":<reported route>,"total":<sum of selected integers>}
+
+Do not inspect route.txt or either value file yourself. Do not launch an unselected
+branch. Do not put a presumed route into any child brief.

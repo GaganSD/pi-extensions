@@ -1,0 +1,19 @@
+SCENARIO: bounded_repair_loop
+
+The target state.txt is exactly these three lines, each ending with a newline:
+alpha=1
+beta=2
+gamma=3
+
+Launch a reviewer to inspect state.txt without modifying it. Its report should be:
+{"status":"PASS"}
+or the first incorrect key in alpha/beta/gamma order:
+{"status":"FIX","key":<key>,"expected":<target value>}
+
+On FIX, launch one worker to correct only that key, leaving every other line
+unchanged. Wait for confirmed worker settlement, then launch a fresh reviewer.
+Continue until PASS, with at most three repairs. Never review while a writer is
+still active. Do not inspect or repair state.txt yourself before the loop finishes.
+
+Write answer.json:
+{"status":<final status>,"repairs":<number of worker repairs>}

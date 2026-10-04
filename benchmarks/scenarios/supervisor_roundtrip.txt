@@ -1,0 +1,15 @@
+SCENARIO: supervisor_roundtrip
+
+Your parent-only decision is {{TOKEN}}. Do not include this token in the child
+brief or let the child inherit parent conversation.
+
+Launch one worker with this brief:
+"Create choice.txt containing the token selected by your parent followed by a
+newline. The token is intentionally missing. Ask your owning supervisor which
+token to use through the native coordination tool and wait for its reply.
+Do not guess, write files, or return a final question instead of using the tool."
+
+Wait for the actual child question. Reply to that exact child and request with
+the parent-only token. Wait for completion, then verify choice.txt.
+Write answer.json:
+{"token":<actual file contents without newline>}

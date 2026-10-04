@@ -1,0 +1,39 @@
+Execute one scored delegation benchmark episode.
+
+RUN_ID: {{RUN_ID}}
+TRIAL: {{TRIAL}}
+MODEL: {{MODEL}}
+THINKING: {{THINKING}}
+WORKSPACE: {{WORKSPACE}}
+
+Delegation is explicitly authorized. Use the installed subagent package for all child work. Use its shipped worker and reviewer roles. All children must be fresh leaves with the exact MODEL and THINKING above; set these explicitly on every launch. Never fork parent history, recurse, substitute models, resume retained children, or change package/configuration.
+
+Use the package's native launch, waiting/notification, reply, and stop mechanisms. Use event-driven waiting, not repeated status polling. A workflow script through the package's native API is allowed if required; do not create a shell/process orchestration substitute. Normal package discovery/guide/skill reading is allowed. Do not read benchmark runner source, fixture generators, expected answers, or other episodes.
+
+Include complete narrowly scoped instructions in each child brief. Use reviewer children for read-only inspection and worker children for mutations. Do not personally perform the delegated inspections or edits. The parent may combine reported values and validate final artifacts. Launch acknowledgments are not results; control acknowledgments are not confirmed settlement. Read actual reports and inspect exact-ID status when needed.
+
+Do not commit, stage, publish, access the network, install anything, create worktrees, or change files outside WORKSPACE. Do not write running logs, extra plans, or progress files. Keep narration minimal. Never invent IDs, timestamps, overlap, token counts, artifacts, or successful checks. Do not ask the human for help. If an operation is unsupported or fails, preserve the exact error and terminate this episode honestly rather than switching execution protocols.
+
+Only after all scenario work has settled, use write to create result.json in WORKSPACE. If blocked, create it with outcome="blocked" and the actual error. This file is the finish signal, so never create it early or use it as a draft.
+
+result.json must be one JSON object with:
+{
+  "run_id": "{{RUN_ID}}",
+  "scenario": "{{SCENARIO}}",
+  "trial": {{TRIAL}},
+  "model": "{{MODEL}}",
+  "thinking": "{{THINKING}}",
+  "outcome": "completed | blocked | failed",
+  "answer": {},
+  "children": [
+    {"logical_task": "...", "id": "exact run ID", "model": "resolved provider/model", "thinking": "resolved level", "state": "actual terminal state", "report_path": null, "transcript_path": null, "metadata_path": null}
+  ],
+  "controls": [{"action": "reply or stop", "id": "exact run ID", "request_id": null, "receipt": {}}],
+  "artifacts": ["relative artifact paths"],
+  "errors": [],
+  "human_intervention": false
+}
+
+Use null for unavailable evidence paths, not invented paths. Include workflow/container IDs as additional fields if the package distinguishes those from logical children. These are claims and evidence pointers for an independent evaluator, not a self-assigned benchmark score. Do not estimate tokens yourself.
+
+After writing result.json, return a brief final response and do no more work.

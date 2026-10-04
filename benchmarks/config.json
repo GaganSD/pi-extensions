@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "pi_version": "1.0.0",
+  "upstream": {
+    "repository": "https://github.com/nicobailon/pi-subagents.git",
+    "commit": "8983754bb3ef6603cbbe46dcc2314ec8563ffc23",
+    "version": "0.75.0"
+  },
+  "trials": [1, 2, 3],
+  "scenarios": ["parallel_join", "conditional_fanout", "bounded_repair_loop", "supervisor_roundtrip", "cancel_replace"],
+  "episode_timeout_seconds": 600,
+  "models": {
+    "luna": {"label": "GPT-6 Luna", "provider": "openai", "id": "gpt-6-luna", "thinking": "medium"},
+    "kimi": {"label": "Kimi K3", "provider": "bedrock-runtime", "id": "us.moonshotai.kimi-k3", "thinking": "medium"},
+    "grok": {"label": "Grok 4.6", "provider": "bedrock", "id": "xai.grok-4.6", "thinking": "medium"},
+    "astra": {"label": "GPT-6 Astra", "provider": "openai", "id": "gpt-6-astra", "thinking": "high"}
+  }
+}
