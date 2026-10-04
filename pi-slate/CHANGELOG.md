@@ -6,6 +6,7 @@ Scroll a large prompt, copy it with `Ctrl+C`, and keep composer rails out of scr
 
 - Mouse wheel over the prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
 - `Ctrl+C` copies a non-empty prompt and does not clear it; empty `Ctrl+C` still reaches Pi
+- Copy confirmation is one `Copied!` flash, same as drag-select
 - Drag-select uses Pi's screen selection again; `│` rails stay out of the highlight and clipboard
 
 ## 0.1.8
