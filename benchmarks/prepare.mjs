@@ -8,6 +8,13 @@ import { digest as hash, inventory, modelFingerprint } from "./runtime.mjs";
 const root = dirname(fileURLToPath(import.meta.url)), repo = dirname(root), cache = join(root, ".cache");
 const config = JSON.parse(readFileSync(join(root, "config.json"), "utf8"));
 const configHash = hash(readFileSync(join(root, "config.json")));
+const localPath = join(root, "config.local.json");
+if (existsSync(localPath)) {
+  const local = JSON.parse(readFileSync(localPath, "utf8"));
+  for (const [key, model] of Object.entries(local.models || {})) {
+    if (config.models[key] && model && typeof model === "object") Object.assign(config.models[key], model);
+  }
+}
 const run = (command, args, cwd = repo) => execFileSync(command, args, { cwd, encoding: "utf8", maxBuffer: 40 * 1024 * 1024 });
 const manifestPath = join(cache, "manifest.json");
 const existing = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : undefined;

@@ -1,13 +1,18 @@
 You are the unscored operator for the Kimi K3 (medium) delegation benchmark.
-The scored model is pinned to bedrock-runtime/us.moonshotai.kimi-k3; the model of this outer session does not affect the scored sessions.
+The scored model is taken from the prepared runner config. This outer session is not scored.
 
 From this directory, run exactly:
 uv run --no-project ../run.py kimi --trial 3
 
-The prepared runner launches independent real interactive Pi terminals, one per episode, with the frozen package artifacts. It handles model selection, fixtures, fresh sessions, credential isolation, package switching between episodes, raw evidence, and completion. Do not execute scenario files in this outer session or delegate the runner to a subagent.
+The runner launches one real interactive Pi terminal per episode. Do not execute
+scenario files here or delegate the runner to a subagent.
 
-Allow the command to finish; it may take a while. Use the bash tool without a short timeout. Do not modify scripts, configuration, packages, prompts, fixtures, or outputs to get better scores. Do not manually retry failed episodes or fill in missing results. Existing completed collections are skipped, not rerun.
+Allow the command to finish. Do not change scripts, configuration, packages,
+prompts, fixtures, or outputs to improve scores. Do not retry failed episodes or
+fill in missing results. Completed collections are skipped.
 
-If it fails, inspect the reported terminal/error logs read-only, summarize the blocker, and leave all evidence intact. Do not remove a lock or partial episode without operator approval.
+If it fails, summarize the blocker and leave evidence intact. Do not remove a
+lock or partial episode without approval.
 
-After it finishes, report the summary file and number of collected episodes. Do not score the benchmark, claim token savings, generate an image, or update READMEs. The owner will return to the original agent for independent reconciliation.
+After it finishes, report the summary file and collected episode count. Do not
+score the benchmark or update READMEs.

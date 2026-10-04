@@ -30,6 +30,17 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
+def load_config():
+    config = read_json(ROOT / "config.json")
+    overlay = ROOT / "config.local.json"
+    if overlay.is_file():
+        local = read_json(overlay)
+        for key, model in (local.get("models") or {}).items():
+            if key in config["models"] and isinstance(model, dict):
+                config["models"][key].update(model)
+    return config
+
+
 def save_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2) + "\n")
 
@@ -642,12 +653,12 @@ def install_signal_handlers():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("model", choices=tuple(read_json(ROOT / "config.json")["models"]))
+    parser.add_argument("model", choices=tuple(load_config()["models"]))
     parser.add_argument("--trial", type=int, choices=(1, 2, 3))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
-    config = read_json(ROOT / "config.json")
+    config = load_config()
     model = config["models"][args.model]
     order = list(episode_order(config, [args.trial] if args.trial else config["trials"]))
     if args.dry_run:

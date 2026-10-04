@@ -13,7 +13,7 @@ import run as bench
 
 class BenchmarkTests(unittest.TestCase):
     def test_balanced_paired_schedule_has_30_episodes_per_model(self):
-        config = bench.read_json(bench.ROOT / "config.json")
+        config = bench.load_config()
         episodes = list(bench.episode_order(config, config["trials"]))
         self.assertEqual(len(episodes), 30)
         self.assertEqual(len(set(episodes)), 30)
@@ -41,7 +41,7 @@ class BenchmarkTests(unittest.TestCase):
                 self.assertEqual(status, b"")
 
     def test_prompts_render_exact_model_thinking_and_parent_only_decision(self):
-        config = bench.read_json(bench.ROOT / "config.json")
+        config = bench.load_config()
         for model in config["models"].values():
             for trial in config["trials"]:
                 for scenario in config["scenarios"]:
@@ -95,7 +95,7 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(bench.retryable_provider_error(billing))
 
     def test_scored_process_uses_tui_not_print_or_rpc(self):
-        model = bench.read_json(bench.ROOT / "config.json")["models"]["grok"]
+        model = bench.load_config()["models"]["grok"]
         command = bench.pi_command(model, prompt="test prompt")
         for forbidden in ("--print", "--mode", "--no-session"):
             self.assertNotIn(forbidden, command)
@@ -244,8 +244,7 @@ class BenchmarkTests(unittest.TestCase):
     def test_pty_timeout_is_explicit(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            result = bench.run_tui([sys.executable, "-c", "import time; time.sleep(60)"], root,
-                                   dict(bench.os.environ), root / "log", 1)
+            result = bench.run_tui([sys.executable, "-c", "import time; time.sleep(60)"], root, {}, root / "log", 2)
             self.assertTrue(result["external_timeout"])
             self.assertNotEqual(result["exit_code"], 0)
 

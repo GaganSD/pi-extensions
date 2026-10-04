@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Publish a reproducible comparison of `@gagansd/pi-subagents` against
+  `nicobailon/pi-subagents` on five parent-composed workflows.
+- Report unpacked package size, declared-context overhead, and character-proxy
+  suite tokens (`ceil(JS UTF-16 / 4)`, median of three five-task suites) for
+  Kimi K3 and Grok 4.6. These are not provider billing counts.
+- Collect each episode in a real interactive Pi TUI. Stall mute children after
+  90s, keep failed episodes in the suite, and leave incomplete evidence in place.
+- Add package CI, on-demand npm publish, Dependabot, and secret scanning.
+
 ## 0.0.1
 
 First public release as `@gagansd/pi-subagents`.

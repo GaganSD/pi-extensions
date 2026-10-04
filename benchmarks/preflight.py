@@ -404,7 +404,7 @@ def probe(variant, scenario, target, mode="normal", lazy=False, foreground=False
                             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}}]}}})
             manifest = copy.deepcopy(bench.read_json(bench.ROOT / ".cache/manifest.json"))
             manifest["source_agent_dir"] = str(source)
-            config = bench.read_json(bench.ROOT / "config.json")
+            config = bench.load_config()
             config["episode_timeout_seconds"] = 10 if mode in {"parent_stream", "detached_stream", "question_timeout"} else 75
             trial = 3 if scenario == "conditional_fanout" else 1
             driver = target / f"{variant}-{scenario}-driver.json"
@@ -508,7 +508,7 @@ def probe(variant, scenario, target, mode="normal", lazy=False, foreground=False
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", choices=("ours", "upstream"))
-    parser.add_argument("--scenario", choices=bench.read_json(bench.ROOT / "config.json")["scenarios"])
+    parser.add_argument("--scenario", choices=bench.load_config()["scenarios"])
     parser.add_argument("--lazy", action="store_true", help="Mock compatibility flags exercise upstream's native auto-lazy activation")
     parser.add_argument("--failures", action="store_true", help="Run intentionally incomplete lifecycle/stream probes, never scored")
     parser.add_argument("--foreground", action="store_true", help="Upstream direct completion, retained question/reply and five incomplete lifecycle probes")
@@ -533,7 +533,7 @@ def main():
                 scenario = "parallel_join" if mode in {"parent_stream", "detached_stream"} else "supervisor_roundtrip"
                 results.append(probe(variant, scenario, subdir, mode=mode))
         else:
-            for scenario in ([args.scenario] if args.scenario else bench.read_json(bench.ROOT / "config.json")["scenarios"]):
+            for scenario in ([args.scenario] if args.scenario else bench.load_config()["scenarios"]):
                 results.append(probe(variant, scenario, target, lazy=args.lazy))
     bench.save_json(target / "summary.json", {"passed": True, "scored": False, "foundation_model_calls": 0,
                     "campaign_sha256": bench.sha256(bench.ROOT / ".cache/manifest.json"), "results": results})
