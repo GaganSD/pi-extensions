@@ -46,7 +46,7 @@
     "@earendil-works/pi-tui": { "optional": true },
     "typebox": { "optional": true }
   },
-  "dependencies": { "yaml": "2.8.3" },
+  "dependencies": { "yaml": "2.9.1" },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/pi-coding-agent": "1.0.0",
