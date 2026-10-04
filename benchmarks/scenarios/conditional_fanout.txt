@@ -1,7 +1,8 @@
 SCENARIO: conditional_fanout
 
-Launch one reviewer to read route.txt and report exactly left, right, or both.
-Wait for its actual result before deciding which children to launch next.
+Launch one reviewer to inspect route.txt and identify whether the route is left,
+right, or both. Accept the package's normal reviewer report format; extract the
+route from its actual evidence before deciding which children to launch next.
 
 If left: launch a reviewer for left.txt only.
 If right: launch a reviewer for right.txt only.

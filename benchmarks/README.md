@@ -2,7 +2,7 @@
 
 ## Run it
 
-The local artifacts and model-folder defaults have already been prepared. Open four terminals:
+The local artifacts and model-folder defaults are prepared. **Wait for the review/readiness verdict before starting scored collection.** Then open four terminals:
 
 ```sh
 cd benchmarks/luna  && pi
@@ -53,19 +53,32 @@ results/
   episodes/<model>-t<trial>-<pattern>-<variant>/
     prompt.txt                 # Exact prompt given to the scored parent
     collection.json             # Host-collected facts; NOT a pass/fail verdict
-    events.jsonl                # Passive parent request/tool/lifecycle capture
-    terminal.log                # Raw TUI output for diagnosing failures
-    baseline-events.jsonl       # Same-cwd, no-package, zero-call baseline
-    agent/                      # Physical parent/child transcripts and package artifacts
-    workspace/
-      .git/                     # Independent seeded repository
-      *.txt                     # Actual task inputs/outputs
-      answer.json
-      result.json               # Parent's claims and evidence pointers
+    runtime-location.json       # Original private root → retained runtime/ alias
+    runtime/
+      events.jsonl              # Parent request/tool/lifecycle capture
+      terminal.log              # Raw TUI output for diagnosing failures
+      baseline-events.jsonl     # Same-cwd, no-package, zero-call baseline
+      agent/                    # Physical parent/child sessions and package artifacts
+      upstream-temp/            # Upstream lifecycle, terminal, supervisor, workflow evidence
+      native-status.json        # Upstream full fleet snapshot before normal exit
+      workspace/
+        .git/                   # Independent seeded repository
+        *.txt                   # Actual task inputs/outputs
+        answer.json
+        result.json             # Parent's claims and evidence pointers
 ```
 
-The collector removes its private copies of `auth.json`, `models.json`, and
-`models-store.json` after each episode. Runtime credential directories are private.
+Runtime roots and homes are private temporary directories, outside the repository's
+instruction-file ancestry. Each child’s actual cwd, applicable ancestor inventory,
+shipped role body/hash, selected model and thinking are recorded for reconciliation.
+Changing `HOME` excludes user `~/.agents` overrides; source cloud credential-file
+locations are preserved explicitly when required. The collector removes private
+`auth.json`, `models.json`, and `models-store.json` copies on normal, setup-failure,
+timeout and handled-interruption paths, and records cleanup results.
+
+Evidence is copied and hash-inventoried only after bounded teardown. Absolute paths
+in native records use the alias in `runtime-location.json` after the temporary root
+is removed. Do not require the original temporary directory for reconciliation.
 All raw results and caches are git-ignored. Do not upload them without reviewing
 for secrets and private model/provider metadata. No automatic publishing.
 
@@ -113,23 +126,24 @@ recursion, and mission management are out of scope.
   artifact includes its shipped maps, declarations, docs, and other resources;
   this is distribution size, not an apples-to-apples executable-code comparison.
   Both are local release builds, not a claim about currently published npm artifacts.
-- **Startup context estimate:** rendered system prompt and declared tool schemas
+- **Startup declared-context estimate:** rendered system prompt and declared tool schemas
   compared with a same-cwd baseline under the same Pi and model. The observer has
   no tools, descriptions, or injected instructions.
-- **Delegation-active context estimate:** first real request where the full
+- **Delegation-active declared-context estimate:** first real request where the full
   `subagent` schema is exposed, with the same baseline subtraction. This preserves
   upstream lazy loading instead of assuming its full schema is always loaded.
 - Estimate rendered prompt as `ceil(JS UTF-16 characters / 4)` and each tool as
   `ceil((name + ': ' + description + '\n' + compact parameters JSON).length / 4)`.
   Sum components then subtract the baseline sum. Includes rendered snippets,
   guidelines, bundled skill discovery, and system instructions exactly once.
-  Task messages and child-result wake-ups are not static footprint.
+  Task messages, child-result wake-ups, and on-demand guide/skill reads are excluded
+  from this declared-context metric, but included in reported total usage.
 - Report per-model startup/active figures or their explicit range; do not hide
   model-dependent lazy activation in a single favorable number.
 
 This follows the reference's **character proxy**, not provider tokenizer/billing
 counts. Counting boundaries differ from its tools-only benchmark: ours includes
-as-installed package resource context. The reference compares a different upstream
+declared package resource context, not every package-induced message. The reference compares a different upstream
 (`tintinweb/pi-subagents`), so its numbers are not reused.
 
 ### Model token usage
@@ -144,7 +158,13 @@ message plus standalone usage/compaction entries. Deduplicate by session ID and
 entry ID. Never add nested tool-result usage rollups on top of child transcripts;
 never add reasoning tokens again when already included in output. Preserve input,
 output, cache-read, and cache-write breakdowns. Reconcile cancelled/failed runs and
-all launched children before treating totals as complete. Missing usage is not zero.
+all launched children before treating totals as complete. The inventory labels each
+assistant entry's stop reason and coverage. Abort/error/zero usage is **unknown**,
+not free; partial positive usage remains a lower bound. A paused-tool cancellation
+can synthesize a zero-usage SDK error even without a provider request, as demonstrated
+by the loopback probes. Do not infer that the corresponding real-provider record is
+free without independent reconciliation. Unknown coverage can leave token cells
+unreportable; no complete-consumption or savings claim is allowed in that case.
 
 These are reported token volumes, not dollar costs or cache-adjusted savings.
 Do not call a failed/partial cheaper run more efficient. Show success counts
@@ -155,25 +175,76 @@ request reconstruction including repeated context, not counting transcript bytes
 ## Preparation and safe maintenance
 
 ```sh
-node benchmarks/prepare.mjs --check    # Pins, artifact hashes, models and supported thinking; no live calls
+node benchmarks/prepare.mjs --check    # Sealed protocol, CLI/Node/SDK/dependencies/routes; no model calls
 uv run --no-project benchmarks/run.py grok --dry-run
 uv run --no-project benchmarks/run.py grok --smoke  # Startup-only real TUI checks; no model calls
 uv run --no-project python -m unittest discover -s benchmarks -p 'test_*.py'
+uv run --no-project benchmarks/preflight.py             # Both packages, all five native patterns
+uv run --no-project benchmarks/preflight.py --variant upstream --scenario parallel_join --lazy
+uv run --no-project benchmarks/preflight.py --failures   # Early/blocked claims, deadlines, SIGINT/SIGTERM
 ```
 
-`prepare.mjs` initially clones the pinned upstream commit, runs its own release
-build, packs both packages, and freezes `.cache/manifest.json`. It does not change
-the user's installed packages or global settings. The snapshots are checked
-before live execution; future source edits do not change an in-progress campaign.
-Package archives, hashes, source commits, versions, and file lists are retained.
+`prepare.mjs` initially clones the pinned upstream commit, runs its release build,
+and packs both packages. A version-2 manifest seals the entire protocol (including
+operators, scenarios, recorder, preparation, runner and tests), the exact Pi CLI,
+Node executable, SDK and installed dependency inventories, and sanitized physical
+model routes. Unexpected resources or changed files are rejected. Credential values
+are never fingerprinted or published. The exact validated CLI is launched by
+absolute path; actual startup Pi/Node/model/thinking/route identities are attested.
 
-A repeated completed collection is skipped, not silently repeated. Partial evidence,
-a stale/concurrent `.running` lock, an invalid model/thinking level, or a timeout
-blocks continuation. The 10-minute episode deadline requests normal Pi shutdown;
-external termination after the grace period is recorded as uncertain cleanup.
-Inspect failures before authorizing any new campaign/retry. Some upstream background
-work can outlive the parent by design; never assume an external kill cleaned it up.
-Keep the frozen artifacts, scenario hashes, and raw evidence for final auditing.
+Frozen recorder/scenario copies are executed. The verified runner rejects protocol
+changes before each new episode and before accepting resumed collections. It does
+not change installed packages or global settings. Before the first scored episode
+only, `prepare.mjs --seal` can establish a corrected protocol campaign while keeping
+the original frozen distribution artifacts. It refuses after scored evidence exists.
+
+`preflight.py` uses scripted loopback SSE responses, real native children and tools,
+plus an inherited Node network guard that rejects non-loopback connections. It
+uses no real credential environment and makes **zero foundation-model calls**.
+These probes exercise infrastructure, not LLM success rates or performance. Their
+ignored evidence is stored in `.cache/preflight/`, never the scored model folders.
+`preflight.py --foreground` additionally checks upstream direct foreground
+completion, question detachment into retained foreground state, correlated reply,
+and five early-finish/timeout/interruption paths. It preserves the shipped writer
+acceptance contract rather than disabling it.
+
+A repeated completed collection is skipped only under the same sealed campaign and
+protocol. Partial evidence, a stale/concurrent `.running` lock, attestation failure,
+or an incomplete lifecycle blocks continuation; no silent retry or overwrite.
+Required usage parsing and child attestation must succeed before the collector
+assigns `collected`; resume rechecks those requirements, not just the saved label.
+Under each model's admission lock, every prior trial's episode/startup evidence is
+checked before admission or resume. Partial, invalid, foreign-campaign or
+cleanup-unknown evidence blocks even a different `--trial`; releasing `.running`
+does not waive that gate. Already-admitted independent model operators are not
+retroactively terminated.
+Expected UNKNOWN cancellation usage remains admissible evidence, never free usage.
+
+`result.json` is a claim, **not a join**. Normal exit requires native terminal file
+records, an upstream full fleet check (including retained foreground work), and
+external owned-process quiescence. Cached upstream fleet/async projections can lag
+completion; they are preserved but are not terminal authority. Early/blocked claims
+with live children trigger teardown, not successful collection.
+
+The 10-minute deadline aborts the parent stream and requests native cancellation.
+The host tracks a random inherited ownership marker, descendants and precise PID
+birth identities across reparenting. Discovery snapshots are only hints: marker
+and ancestry checks use fresh per-PID inspections bracketed by generation queries,
+with parent-incarnation checks for descendants and another check before signalling.
+A 14-second absolute host teardown budget bounds escalation/reaping after abort;
+unreaped children or failed inspection produce cleanup **unknown**, retain private
+runtime/evidence, clean available credential files, and block continuation. The
+known direct-child fallback and PTY closure do not depend on a working inspector.
+Bounded SIGTERM/SIGKILL escalation is recorded, never treated as a normal successful
+collection. No process-group-only cleanup.
+The guardian has no model-facing tools/instructions and does not solve scenarios.
+
+SIGINT/SIGTERM use the same bounded teardown and credential cleanup. **SIGKILL and
+machine failure cannot run finalizers.** A retained `.running` lock, partial episode,
+and `runtime-location.json` identify remnants; inspect owned processes and remove
+private credential remnants manually before any approved restart. Never clear them
+blindly. Containment supports Darwin/Linux and is not an OS sandbox or a remote
+provider billing/cancellation guarantee. Keep all frozen artifacts and evidence.
 
 References:
 - <https://github.com/kunkun9527/my-lean-pi-setup>

@@ -9,8 +9,8 @@ No live trials have been scored yet.
 | Metric | `@gagansd/pi-subagents` | `nicobailon/pi-subagents` |
 | --- | ---: | ---: |
 | Unpacked package size | — | — |
-| Estimated startup context tokens | — | — |
-| Estimated delegation-active context tokens | — | — |
+| Estimated startup declared-context tokens | — | — |
+| Estimated delegation-active declared-context tokens | — | — |
 | Dynamic workflow patterns verified | — / 5 | — / 5 |
 | Successful workflow episodes | — / 60 | — / 60 |
 
@@ -23,10 +23,12 @@ No live trials have been scored yet.
 | Grok 4.6 · medium | — | — | — |
 | GPT-6 Astra · high | — | — | — |
 
-Context tokens are character-proxy estimates, not billing counts. Token usage
-includes reported parent **and child** usage, including cached tokens; it is not
-a dollar-cost estimate. Package size uses pinned local release-build artifacts.
-Savings will only be claimed after completion and usage evidence are reconciled.
+Declared-context figures are character proxies for system/tool declarations,
+not billing counts; on-demand guide reads are excluded here, included in total usage.
+Token usage includes reported parent **and child** usage, including cached tokens;
+it is not a dollar-cost estimate. Package size uses pinned local release builds.
+Unknown/aborted usage is not free. Token cells and savings remain withheld unless
+completion and complete accounting can be independently reconciled.
 [Protocol, prompts, model routes, and measurement boundaries](./benchmarks/README.md).
 
 <table align="center"><tr><td>

@@ -8,7 +8,7 @@ WORKSPACE: {{WORKSPACE}}
 
 Delegation is explicitly authorized. Use the installed subagent package for all child work. Use its shipped worker and reviewer roles. All children must be fresh leaves with the exact MODEL and THINKING above; set these explicitly on every launch. Never fork parent history, recurse, substitute models, resume retained children, or change package/configuration.
 
-Use the package's native launch, waiting/notification, reply, and stop mechanisms. Use event-driven waiting, not repeated status polling. A workflow script through the package's native API is allowed if required; do not create a shell/process orchestration substitute. Normal package discovery/guide/skill reading is allowed. Do not read benchmark runner source, fixture generators, expected answers, or other episodes.
+Use the package's native launch, waiting/notification, reply, and stop mechanisms. Native workflow await/join barriers count as event-driven waiting; repeated status polling does not. A workflow script through the package's native API is allowed if required; do not create a shell/process orchestration substitute. Normal package discovery/guide/skill reading is allowed. Do not read benchmark runner source, fixture generators, expected answers, or other episodes.
 
 Include complete narrowly scoped instructions in each child brief. Use reviewer children for read-only inspection and worker children for mutations. Do not personally perform the delegated inspections or edits. The parent may combine reported values and validate final artifacts. Launch acknowledgments are not results; control acknowledgments are not confirmed settlement. Read actual reports and inspect exact-ID status when needed.
 
