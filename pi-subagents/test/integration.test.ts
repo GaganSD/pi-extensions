@@ -67,8 +67,8 @@ test("two worktree writers run concurrently; aliases are rejected; parent integr
   await git(wtB, ["add", "feature-b.txt"]); await commit(wtB, "B");
   const shaA = (await git(wtA, ["rev-parse", "HEAD"])).trim();
   const shaB = (await git(wtB, ["rev-parse", "HEAD"])).trim();
-  await git(repo, ["cherry-pick", shaA]);
-  await git(repo, ["cherry-pick", shaB]);
+  await git(repo, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "cherry-pick", shaA]);
+  await git(repo, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "cherry-pick", shaB]);
   assert.equal(await readFile(path.join(repo, "feature-a.txt"), "utf8"), "A\n");
   assert.equal(await readFile(path.join(repo, "feature-b.txt"), "utf8"), "B\n");
 });

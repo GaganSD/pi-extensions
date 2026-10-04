@@ -31,5 +31,7 @@ export function isolatedEnvironment(directory) {
     npm_config_cache: process.env.npm_config_cache,
     npm_config_userconfig: npmrc, NO_COLOR: "1",
     GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: join(home, ".gitconfig"),
+    GIT_AUTHOR_NAME: "Test", GIT_AUTHOR_EMAIL: "test@example.invalid",
+    GIT_COMMITTER_NAME: "Test", GIT_COMMITTER_EMAIL: "test@example.invalid",
   };
 }

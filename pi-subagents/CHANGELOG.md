@@ -10,6 +10,7 @@
 - Collect each episode in a real interactive Pi TUI. Stall mute children after
   90s, keep failed episodes in the suite, and leave incomplete evidence in place.
 - Add package CI, on-demand npm publish, Dependabot, and secret scanning.
+- Set the npm package subtitle to “Tiny yet powerful, benchmarked sub-agents for Pi”.
 
 ## 0.0.1
 

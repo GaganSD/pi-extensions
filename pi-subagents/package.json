@@ -1,7 +1,7 @@
 {
   "name": "@gagansd/pi-subagents",
   "version": "0.0.1",
-  "description": "Small, session-bound Pi delegation with worker and reviewer agents",
+  "description": "Tiny yet powerful, benchmarked sub-agents for Pi",
   "license": "MIT",
   "type": "module",
   "author": "Gagan Devagiri",
