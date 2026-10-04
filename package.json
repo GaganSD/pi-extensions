@@ -9,14 +9,15 @@
     "url": "git+https://github.com/GaganSD/pi-extensions.git"
   },
   "scripts": {
-    "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search",
-    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search"
+    "test": "npm test --prefix pi-slate && npm test --prefix pi-ask && npm test --prefix pi-web-search && npm test --prefix pi-subagents",
+    "typecheck": "npm run typecheck --prefix pi-slate && npm run typecheck --prefix pi-ask && npm run typecheck --prefix pi-web-search && npm run typecheck --prefix pi-subagents"
   },
   "pi": {
     "extensions": [
       "./pi-slate/extensions/pi-slate/index.ts",
       "./pi-ask/src/index.ts",
-      "./pi-web-search/src/index.ts"
+      "./pi-web-search/src/index.ts",
+      "./pi-subagents/index.ts"
     ],
     "skills": [
       "./pi-ask/skills"
