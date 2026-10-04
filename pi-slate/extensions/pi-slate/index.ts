@@ -14,7 +14,7 @@ import {
   type EditorTheme,
   type TUI,
 } from "@earendil-works/pi-tui";
-import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
+import { chromePaint, ComposerEditor, composerPaddingX, installComposerSelectionFilter } from "./composer.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
 import { installDiff } from "./diff.ts";
@@ -411,8 +411,12 @@ export default function piSlate(pi: ExtensionAPI): void {
           embedWorkingStatus: true,
         },
       );
+      installComposerSelectionFilter(tui);
       selection.attach(activeEditor, {
-        copy: (text) => copyToClipboard(text),
+        copy: async (text) => {
+          await copyToClipboard(text);
+          ctx.ui.notify("Copied prompt", "info");
+        },
         requestRender: () => tui.requestRender(),
         onCopyError: () => ctx.ui.notify("Could not copy", "error"),
       });

@@ -2,10 +2,11 @@
 
 ## 0.1.9
 
-Scroll a large prompt, and keep composer rails out of drag selections.
+Scroll a large prompt, copy it with `Ctrl+C`, and keep composer rails out of screen selections.
 
 - Mouse wheel over the prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
-- Drag-selecting in the prompt highlights text only; `│` rails are not selected
+- `Ctrl+C` copies a non-empty prompt and does not clear it; empty `Ctrl+C` still reaches Pi
+- Drag-select uses Pi's screen selection again; `│` rails stay out of the highlight and clipboard
 
 ## 0.1.8
 

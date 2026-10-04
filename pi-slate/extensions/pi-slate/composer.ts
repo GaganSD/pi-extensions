@@ -141,6 +141,76 @@ export function composerRangeColumns(
   return { from: paddingX + (from - visual.startCol), to: paddingX + (to - visual.startCol) };
 }
 
+function sgrReverse(code: string, reverse: boolean): boolean {
+  if (!code.startsWith("\x1b[") || !code.endsWith("m")) return reverse;
+  for (const param of code.slice(2, -1).split(";")) {
+    if (param === "0" || param === "") reverse = false;
+    else if (param === "7") reverse = true;
+    else if (param === "27") reverse = false;
+  }
+  return reverse;
+}
+
+/** Keep box rails out of a fullscreen selection highlight. */
+export function uninvertComposerRails(line: string): string {
+  let reverse = false;
+  let out = "";
+  for (let index = 0; index < line.length;) {
+    ESCAPE_SEQUENCE.lastIndex = index;
+    const escape = ESCAPE_SEQUENCE.exec(line);
+    if (escape) {
+      out += escape[0];
+      reverse = sgrReverse(escape[0], reverse);
+      index += escape[0].length;
+      continue;
+    }
+    const codePoint = line.codePointAt(index);
+    if (codePoint === undefined) break;
+    const character = String.fromCodePoint(codePoint);
+    if (reverse && character === "│") out += `${REVERSE_OFF}${character}${REVERSE_ON}`;
+    else out += character;
+    index += character.length;
+  }
+  return out;
+}
+
+/** Drop framed composer rails from copied screen text. */
+export function stripCopiedComposerRails(text: string): string {
+  return text.split("\n").map((line) => {
+    if (!line.includes("│")) return line;
+    const withoutLeft = line.replace(/^\s*│(?: ›)? ?/, "");
+    if (withoutLeft === line || !/ *│\s*$/.test(withoutLeft)) return line;
+    return withoutLeft.replace(/ *│\s*$/, "");
+  }).join("\n");
+}
+
+type SelectableScreen = {
+  applySelection?: (lines: string[], layout?: unknown) => string[];
+  getActiveSelectionText?: () => string | undefined;
+  __slateRailFilter?: boolean;
+};
+
+/** Leave press/drag to Pi, but keep │ rails out of highlight and clipboard. */
+export function installComposerSelectionFilter(tui: object): void {
+  const screen = tui as SelectableScreen;
+  if (screen.__slateRailFilter) return;
+  const apply = screen.applySelection;
+  const text = screen.getActiveSelectionText;
+  if (typeof apply !== "function" && typeof text !== "function") return;
+  screen.__slateRailFilter = true;
+  if (typeof apply === "function") {
+    screen.applySelection = function (this: unknown, lines: string[], layout?: unknown) {
+      return apply.call(this, lines, layout).map(uninvertComposerRails);
+    };
+  }
+  if (typeof text === "function") {
+    screen.getActiveSelectionText = function (this: unknown) {
+      const raw = text.call(this);
+      return raw === undefined ? undefined : stripCopiedComposerRails(raw);
+    };
+  }
+}
+
 export const COMPOSER_SHELF_LINES = 4;
 
 let lastComposerFrameLines = COMPOSER_SHELF_LINES;
@@ -424,7 +494,6 @@ export function scrollComposerByLines(editor: object, delta: number): boolean {
 
 export class ComposerEditor extends CustomEditor {
   selectionActive = false;
-  selectionRange?: ComposerSelectionRange;
   private readonly source: () => ComposerSource;
   private statusIndicator: WorkingStatusIndicatorParameter;
 
@@ -515,32 +584,7 @@ export class ComposerEditor extends CustomEditor {
       width,
       paint,
     );
-    const ranged = !this.selectionActive && this.selectionRange && !this.isShowingAutocomplete()
-      ? paintComposerRange(lines, this, this.selectionRange, this.getPaddingX())
-      : lines;
-    noteComposerFrameLines(ranged.length);
-    return ranged;
+    noteComposerFrameLines(lines.length);
+    return lines;
   }
-}
-
-function paintComposerRange(
-  lines: string[],
-  editor: object,
-  range: ComposerSelectionRange,
-  paddingX: number,
-): string[] {
-  const internals = editor as ComposerScrollInternals;
-  const width = internals.lastWidth;
-  if (!width || typeof internals.buildVisualLineMap !== "function" || lines.length < 3) return lines;
-  const visualLines = internals.buildVisualLineMap(width);
-  const visible = Math.max(0, internals.renderedVisibleLineCount ?? 0);
-  const offset = Math.max(0, internals.scrollOffset ?? 0);
-  if (visible === 0 || !Array.isArray(visualLines)) return lines;
-  return lines.map((line, index) => {
-    if (index === 0 || index === lines.length - 1 || index > visible) return line;
-    const visual = visualLines[offset + index - 1];
-    if (!visual) return line;
-    const columns = composerRangeColumns(visual, range, paddingX);
-    return columns ? paintSelectedSpan(line, columns.from, columns.to) : line;
-  });
 }

@@ -19,6 +19,8 @@ import {
   scrollComposerByLines,
   paintSelectedSpan,
   composerRangeColumns,
+  uninvertComposerRails,
+  stripCopiedComposerRails,
 } from "../extensions/pi-slate/composer.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
@@ -351,6 +353,18 @@ test("paintSelectedSpan never inverts composer rails", () => {
   const line = paintSelectedSpan("│ hello │", 0, 9);
   assert.equal(line, "│\x1b[7m hello \x1b[27m│");
   assert.doesNotMatch(line, /\x1b\[7m│/);
+});
+
+test("uninvertComposerRails lifts reverse video off side rails", () => {
+  const line = uninvertComposerRails("\x1b[7m│ hello │\x1b[27m");
+  assert.match(line, /\x1b\[27m│\x1b\[7m/);
+  assert.doesNotMatch(line, /\x1b\[7m│/);
+});
+
+test("stripCopiedComposerRails drops framed rails and keeps other pipes", () => {
+  assert.equal(stripCopiedComposerRails("│ hello │"), "hello");
+  assert.equal(stripCopiedComposerRails("│ › type here     │"), "type here");
+  assert.equal(stripCopiedComposerRails("a │ b │ c"), "a │ b │ c");
 });
 
 test("composerRangeColumns maps a logical span onto padded visual columns", () => {
