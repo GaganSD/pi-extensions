@@ -52,8 +52,16 @@ class BenchmarkTests(unittest.TestCase):
                     if scenario == "supervisor_roundtrip":
                         self.assertIn({1: "BLUE", 2: "GREEN", 3: "GOLD"}[trial], text)
 
+    def test_rate_limit_errors_are_retryable_billing_is_not(self):
+        limit = bench.parent_provider_error([{"type": "message_end", "data": {"message": {
+            "stopReason": "error", "errorMessage": 'bedrock-runtime API error (429): {"type":"rate_limit_error"}'}}}])
+        self.assertTrue(bench.retryable_provider_error(limit))
+        billing = bench.parent_provider_error([{"type": "message_end", "data": {"message": {
+            "stopReason": "error", "errorMessage": "You have no credits remaining. Add credits to continue using the API."}}}])
+        self.assertFalse(bench.retryable_provider_error(billing))
+
     def test_scored_process_uses_tui_not_print_or_rpc(self):
-        model = bench.read_json(bench.ROOT / "config.json")["models"]["grok"]
+        model = bench.read_json(bench.ROOT / "config.json")["models"]["luna"]
         command = bench.pi_command(model, prompt="test prompt")
         for forbidden in ("--print", "--mode", "--no-session"):
             self.assertNotIn(forbidden, command)

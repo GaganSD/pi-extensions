@@ -2,7 +2,7 @@
 
 ## Subagents benchmark · 3 seeded trials per model
 
-**Results pending:** 5 workflow patterns × 4 models × 3 trials, compared with
+**Results pending:** 5 workflow patterns × 2 models × 3 trials, compared with
 [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents).
 No live trials have been scored yet.
 
@@ -12,7 +12,7 @@ No live trials have been scored yet.
 | Estimated startup declared-context tokens | — | — |
 | Estimated delegation-active declared-context tokens | — | — |
 | Dynamic workflow patterns verified | — / 5 | — / 5 |
-| Successful workflow episodes | — / 60 | — / 60 |
+| Successful workflow episodes | — / 30 | — / 30 |
 
 ### Token usage · median of 3 five-pattern suites
 
@@ -20,8 +20,6 @@ No live trials have been scored yet.
 | --- | ---: | ---: | ---: |
 | GPT-6 Luna · medium | — | — | — |
 | Kimi K3 · medium | — | — | — |
-| Grok 4.6 · medium | — | — | — |
-| GPT-6 Astra · high | — | — | — |
 
 Declared-context figures are character proxies for system/tool declarations,
 not billing counts; on-demand guide reads are excluded here, included in total usage.

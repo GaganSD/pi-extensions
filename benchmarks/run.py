@@ -93,7 +93,8 @@ def isolated_environment(directory, manifest, model, events, config, startup_onl
             "packages": [], "extensions": [], "skills": [], "prompts": [], "themes": [],
             "defaultProvider": model["provider"], "defaultModel": model["id"], "defaultThinkingLevel": model["thinking"],
             "defaultProjectTrust": "always", "cacheWarming": "off", "compaction": {"enabled": False},
-            "retry": {"enabled": False, "provider": {"maxRetries": 0}}, "minimalSubagents": {"timeoutMs": config["episode_timeout_seconds"] * 1000},
+            "retry": {"enabled": True, "maxRetries": 8, "baseDelayMs": 5000, "maxAgentDelayMs": 60000,
+                     "provider": {"maxRetries": 0}}, "minimalSubagents": {"timeoutMs": config["episode_timeout_seconds"] * 1000},
         })
         inherited = os.environ if credential_environment else {key: os.environ[key] for key in ("PATH", "LANG", "LC_ALL", "TMPDIR", "TMP", "TEMP") if key in os.environ}
         env = {key: value for key, value in inherited.items() if not key.startswith(("PI_SUBAGENT", "PI_BENCH_")) and key not in {
@@ -156,6 +157,23 @@ def events_from(path):
 
 
 TEARDOWN_SECONDS = 14
+RATE_LIMIT = ("429", "rate_limit", "rate limit", "too many requests", "throttl", "overloaded", "service unavailable")
+NONRETRYABLE = ("no credits remaining", "insufficient_quota", "billing", "invalid api key", "unauthorized", "authentication")
+
+
+def parent_provider_error(rows):
+    for row in rows:
+        message = row.get("data", {}).get("message", {}) if row.get("type") == "message_end" else {}
+        if message.get("stopReason") == "error":
+            return str(message.get("errorMessage") or "")
+    return ""
+
+
+def retryable_provider_error(text):
+    lower = text.lower()
+    if any(token in lower for token in NONRETRYABLE):
+        return False
+    return any(token in lower for token in RATE_LIMIT)
 
 
 def run_tui(args, workspace, env, log_path, timeout):
@@ -229,9 +247,13 @@ def run_tui(args, workspace, env, log_path, timeout):
                 rows = events_from(events_path)
                 if any(row["type"] == "episode_timeout" for row in rows) and abort_at is None:
                     abort_at = now
-                if abort_at is None and any(row["type"] == "message_end" and row["data"].get("message", {}).get("stopReason") == "error" for row in rows):
+                error = parent_provider_error(rows)
+                if abort_at is None and error and not retryable_provider_error(error):
                     abort_at = now
-                    deliver("abort", "parent provider request failed; preserve unknown usage")
+                    deliver("abort", "non-retryable parent provider error; preserve unknown usage")
+                if abort_at is None and error and any(row["type"] == "parent_settled" for row in rows):
+                    abort_at = now
+                    deliver("abort", "parent settled after provider error; retries exhausted")
                 if abort_at is None and any(row["type"] == "finish_requested" for row in rows):
                     ledger = native_ledger(root)
                     snapshot_missing = env.get("PI_BENCH_VARIANT") == "upstream" and ledger["live_snapshot"] is None
@@ -573,7 +595,7 @@ def install_signal_handlers():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("model", choices=("luna", "kimi", "grok", "astra"))
+    parser.add_argument("model", choices=tuple(read_json(ROOT / "config.json")["models"]))
     parser.add_argument("--trial", type=int, choices=(1, 2, 3))
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--smoke", action="store_true")
@@ -594,7 +616,11 @@ def main():
         os.write(descriptor, str(os.getpid()).encode())
         if args.smoke:
             order = [(1, "parallel_join", "ours"), (1, "parallel_join", "upstream")]
-        records = [run_episode(args.model, model, trial, scenario, variant, config, manifest, results, args.smoke) for trial, scenario, variant in order]
+        records = []
+        for index, (trial, scenario, variant) in enumerate(order):
+            if records and not args.smoke:
+                time.sleep(max(0, int(config.get("episode_spacing_seconds", 0))))
+            records.append(run_episode(args.model, model, trial, scenario, variant, config, manifest, results, args.smoke))
         save_json(results / ("smoke-summary.json" if args.smoke else f'summary{"-trial-" + str(args.trial) if args.trial else ""}.json'), {
             "model": model, "episodes_collected": len(records), "expected_episodes": len(order), "scored": False,
             "campaign_sha256": sha256(ROOT / ".cache/manifest.json"), "records": [record["run_id"] for record in records]})

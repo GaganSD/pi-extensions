@@ -42,8 +42,8 @@ const runtime = { node_executable: realpathSync(process.execPath), node_version:
   pi_entrypoint: piEntry, pi_version: sdk.VERSION, sdk_path: sdkPath, sdk_root: sdkRoot,
   node_sha256: hash(readFileSync(process.execPath)), sdk_inventory: inventory(sdkRoot) };
 
-function checkArtifacts(manifest) {
-  assert.equal(manifest.config_sha256, configHash, "Config changed; a new campaign is required");
+function checkArtifacts(manifest, {allowConfigChange = false} = {}) {
+  if (!allowConfigChange) assert.equal(manifest.config_sha256, configHash, "Config changed; a new campaign is required");
   for (const pkg of Object.values(manifest.packages)) {
     assert.equal(hash(readFileSync(resolve(root, pkg.archive))), pkg.archive_sha256, "Archive changed");
     for (const file of pkg.files) assert.equal(hash(readFileSync(resolve(root, pkg.directory, file.path))), file.sha256, `Distributed file changed: ${file.path}`);
@@ -60,13 +60,13 @@ function checkSealed(manifest) {
 }
 function seal(manifest) {
   for (const key of Object.keys(config.models)) assert(!existsSync(join(root, key, "results/episodes")), "Cannot reseal after scored collection begins");
-  checkArtifacts(manifest);
+  checkArtifacts(manifest, {allowConfigChange: true});
   const frozen = join(cache, "protocol");
   rmSync(frozen, { recursive: true, force: true });
   mkdirSync(frozen, { recursive: true });
   for (const path of protocolPaths) { mkdirSync(dirname(join(frozen, path)), { recursive: true }); cpSync(join(root, path), join(frozen, path)); }
   for (const pkg of Object.values(manifest.packages)) pkg.runtime_inventory = inventory(resolve(root, pkg.directory));
-  Object.assign(manifest, { schema_version: 2, sealed_at: new Date().toISOString(), protocol_sha256: protocol,
+  Object.assign(manifest, { schema_version: 2, sealed_at: new Date().toISOString(), config_sha256: configHash, protocol_sha256: protocol,
     frozen_protocol_inventory: inventory(frozen), runtime, model_routes: routes, source_home: process.env.HOME });
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   console.log("Sealed protocol, exact CLI/Node/SDK, dependencies, and sanitized model routes. No model calls.");

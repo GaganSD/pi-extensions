@@ -2,13 +2,18 @@
 
 ## Run it
 
-The local artifacts and model-folder defaults are prepared. **Wait for the review/readiness verdict before starting scored collection.** Then open four terminals:
+The local artifacts and model-folder defaults are prepared. Open **one** terminal
+at a time so the two remaining models do not compete with dropped OpenAI/Bedrock
+routes:
 
 ```sh
-cd benchmarks/luna  && pi
-cd benchmarks/kimi  && pi
-cd benchmarks/grok  && pi
-cd benchmarks/astra && pi
+cd benchmarks/luna && pi   # needs OpenAI credits; billing errors are not retried
+```
+
+When Luna finishes, then:
+
+```sh
+cd benchmarks/kimi && pi
 ```
 
 In **each** Pi session, say:
@@ -18,10 +23,10 @@ execute prompt.txt
 ```
 
 Each operator runs 30 episodes: **2 packages × 5 patterns × 3 seeded trials**.
-Four operators collect **120 fresh parent episodes**, 60 per package. Operators
-may run concurrently; each one's paired episodes run sequentially. Provider rate
-limits can still affect results. Do not compare wall-clock speed across concurrent
-operators.
+Two operators collect **60 fresh parent episodes**, 30 per package. Run them
+**sequentially**. The runner waits 45 seconds between episodes and lets Pi retry
+transient 429/overload errors with backoff. Billing/auth failures still abort.
+Do not compare wall-clock speed.
 
 To split a model's work, use `execute prompt-trial-1.txt`, then `prompt-trial-2.txt`,
 then `prompt-trial-3.txt`. These use the same episodes as `prompt.txt`, not extra
@@ -37,8 +42,6 @@ workflow: the model and the package under test do that.
 | --- | --- | --- |
 | `luna` | `openai/gpt-6-luna` | medium |
 | `kimi` | `bedrock-runtime/us.moonshotai.kimi-k3` | medium |
-| `grok` | `bedrock/xai.grok-4.6` | medium |
-| `astra` | `openai/gpt-6-astra` | high |
 
 Routes are pinned in `config.json`; the Kimi route supports medium thinking,
 unlike some alternative Kimi routes. No automatic model/provider fallback.
@@ -107,8 +110,8 @@ Also verify every child's actual selected model/thinking and fresh-session
 boundary. The parent cannot assign its own score. Missing evidence is unverified,
 not a pass. Infrastructure/model failures stay visible. Unexpected extra logical
 children and protocol violations must be reported; do not select only good runs.
-A pattern is marked fully verified only if **all 12 episodes** pass (4 models ×
-3 seeds). Report total successes **out of 60 per package** alongside the pattern
+A pattern is marked fully verified only if **all 6 episodes** pass (2 models ×
+3 seeds). Report total successes **out of 30 per package** alongside the pattern
 count; this small sample is not a population reliability estimate.
 
 The three seeded trials vary routing, loop length, and question token. They are
@@ -176,8 +179,8 @@ request reconstruction including repeated context, not counting transcript bytes
 
 ```sh
 node benchmarks/prepare.mjs --check    # Sealed protocol, CLI/Node/SDK/dependencies/routes; no model calls
-uv run --no-project benchmarks/run.py grok --dry-run
-uv run --no-project benchmarks/run.py grok --smoke  # Startup-only real TUI checks; no model calls
+uv run --no-project benchmarks/run.py luna --dry-run
+uv run --no-project benchmarks/run.py luna --smoke  # Startup-only real TUI checks; no model calls
 uv run --no-project python -m unittest discover -s benchmarks -p 'test_*.py'
 uv run --no-project benchmarks/preflight.py             # Both packages, all five native patterns
 uv run --no-project benchmarks/preflight.py --variant upstream --scenario parallel_join --lazy
