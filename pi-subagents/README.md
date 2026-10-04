@@ -37,7 +37,6 @@ Token usage includes reported parent **and child** usage, including cached token
 it is not a dollar-cost estimate. Package size uses pinned local release builds.
 Unknown/aborted usage is not free.
 [Protocol, prompts, model routes, and measurement boundaries](../benchmarks/README.md).
-[Protocol, prompts, model routes, and measurement boundaries](../benchmarks/README.md).
 
 ## What it does
 
