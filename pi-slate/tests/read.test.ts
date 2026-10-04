@@ -73,6 +73,26 @@ test("joining a later read refreshes the lead through invalidate", () => {
   assert.equal(plain(again), "read 2 files");
 });
 
+test("failed lead and follower reads show their own path and error", () => {
+  const grouper = new ReadGrouper();
+  const tool = createReadTool(grouper);
+  grouper.seeRead({ id: "a", path: "a.ts", range: "" });
+  grouper.seeRead({ id: "b", path: "b.ts", range: "" });
+  for (const id of ["a", "b"]) {
+    const args = { path: `${id}.ts` };
+    const context = { ...renderContext(id, args), isError: true };
+    assert.equal(plain(tool.renderCall!(args, theme, context)), `read ${id}.ts`);
+    for (const expanded of [false, true]) {
+      const result = tool.renderResult!(
+        { content: [{ type: "text", text: "ENOENT\nunsafe\x1b[2J" }], details: undefined },
+        { expanded, isPartial: false }, theme, context,
+      );
+      const paths = id === "a" && expanded ? "\n  a.ts\n  b.ts" : "";
+      assert.equal(plain(result), "ENOENT\nunsafe\\x1b[2J" + paths);
+    }
+  }
+});
+
 test("installRead registers read and hydrates on session events", () => {
   const names: string[] = [];
   const hooks: string[] = [];

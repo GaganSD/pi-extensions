@@ -11,6 +11,7 @@ import {
   ReadGrouper,
   readResultLines,
   replaySessionReads,
+  sanitizeReadText,
 } from "./read-group.ts";
 
 const hidden: Component = { render: () => [], invalidate() {} };
@@ -38,15 +39,22 @@ export function createReadTool(grouper: ReadGrouper, cwd = process.cwd()) {
     renderCall(args, theme, context) {
       grouper.bind(context.toolCallId, context.invalidate);
       const group = grouper.groupFor(context.toolCallId);
-      if (isHiddenRead(group, context.toolCallId)) return hidden;
+      if (!context.isError && isHiddenRead(group, context.toolCallId)) return hidden;
       const fallback = readItemFromArgs(context.toolCallId, args);
       const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-      const label = readCallText(group, fallback);
-      text.setText(theme.fg("toolTitle", theme.bold("read")) + theme.fg("accent", label.slice(4)));
+      const label = readCallText(context.isError ? undefined : group, fallback);
+      text.setText(theme.fg(context.isError ? "error" : "toolTitle", theme.bold("read")) + theme.fg("accent", label.slice(4)));
       return text;
     },
-    renderResult(_result, options, theme, context) {
+    renderResult(result, options, theme, context) {
       const group = grouper.groupFor(context.toolCallId);
+      // Self-rendered cards have no host error shell. Never hide a failed follower.
+      if (context.isError) {
+        const output = result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+        const error = theme.fg("error", output.split("\n").map(sanitizeReadText).join("\n") || "Read failed");
+        const paths = isHiddenRead(group, context.toolCallId) ? [] : readResultLines(group, options.expanded);
+        return new Text([error, ...paths.map((line) => theme.fg("muted", line))].join("\n"), 0, 0);
+      }
       if (isHiddenRead(group, context.toolCallId)) return hidden;
       const lines = readResultLines(group, options.expanded);
       if (lines.length === 0) return hidden;

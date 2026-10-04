@@ -17,8 +17,6 @@ import {
   inscribedBorder,
   inscribedTitle,
   scrollComposerByLines,
-  uninvertComposerRails,
-  stripCopiedComposerRails,
 } from "../extensions/pi-slate/composer.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 
@@ -322,6 +320,16 @@ test("scrollComposerByLines moves overflow and ignores a fully visible prompt", 
   assert.equal(editor.scrollOffset, 2);
   assert.deepEqual(editor.moveToVisualLineCalls, [[6, 4]]);
 
+  editor.scrollOffset = 0;
+  assert.equal(scrollComposerByLines(editor, -2), true);
+  assert.equal(editor.scrollOffset, 0);
+  assert.deepEqual(editor.moveToVisualLineCalls, [[6, 4]]);
+
+  editor.scrollOffset = 8;
+  assert.equal(scrollComposerByLines(editor, 2), true);
+  assert.equal(editor.scrollOffset, 8);
+  assert.deepEqual(editor.moveToVisualLineCalls, [[6, 4]]);
+
   editor.renderedVisibleLineCount = 12;
   editor.scrollOffset = 0;
   assert.equal(scrollComposerByLines(editor, 3), false);
@@ -346,17 +354,4 @@ test("a tall prompt scrolls by wheel and leaves a short prompt to the transcript
   editor.render(40);
   assert.equal(scrollComposerByLines(editor, -1), false);
 });
-
-test("uninvertComposerRails lifts reverse video off side rails", () => {
-  const line = uninvertComposerRails("\x1b[7m│ hello │\x1b[27m");
-  assert.match(line, /\x1b\[27m│\x1b\[7m/);
-  assert.doesNotMatch(line, /\x1b\[7m│/);
-});
-
-test("stripCopiedComposerRails drops framed rails and keeps other pipes", () => {
-  assert.equal(stripCopiedComposerRails("│ hello │"), "hello");
-  assert.equal(stripCopiedComposerRails("│ › type here     │"), "type here");
-  assert.equal(stripCopiedComposerRails("a │ b │ c"), "a │ b │ c");
-});
-
 

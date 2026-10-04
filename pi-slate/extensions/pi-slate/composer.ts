@@ -57,76 +57,6 @@ export function paintSelectedContent(line: string): string {
   return `${before}${REVERSE_ON}${text}${REVERSE_OFF}${after}`;
 }
 
-function sgrReverse(code: string, reverse: boolean): boolean {
-  if (!code.startsWith("\x1b[") || !code.endsWith("m")) return reverse;
-  for (const param of code.slice(2, -1).split(";")) {
-    if (param === "0" || param === "") reverse = false;
-    else if (param === "7") reverse = true;
-    else if (param === "27") reverse = false;
-  }
-  return reverse;
-}
-
-/** Keep box rails out of a fullscreen selection highlight. */
-export function uninvertComposerRails(line: string): string {
-  let reverse = false;
-  let out = "";
-  for (let index = 0; index < line.length;) {
-    ESCAPE_SEQUENCE.lastIndex = index;
-    const escape = ESCAPE_SEQUENCE.exec(line);
-    if (escape) {
-      out += escape[0];
-      reverse = sgrReverse(escape[0], reverse);
-      index += escape[0].length;
-      continue;
-    }
-    const codePoint = line.codePointAt(index);
-    if (codePoint === undefined) break;
-    const character = String.fromCodePoint(codePoint);
-    if (reverse && character === "│") out += `${REVERSE_OFF}${character}${REVERSE_ON}`;
-    else out += character;
-    index += character.length;
-  }
-  return out;
-}
-
-/** Drop framed composer rails from copied screen text. */
-export function stripCopiedComposerRails(text: string): string {
-  return text.split("\n").map((line) => {
-    if (!line.includes("│")) return line;
-    const withoutLeft = line.replace(/^\s*│(?: ›)? ?/, "");
-    if (withoutLeft === line || !/ *│\s*$/.test(withoutLeft)) return line;
-    return withoutLeft.replace(/ *│\s*$/, "");
-  }).join("\n");
-}
-
-type SelectableScreen = {
-  applySelection?: (lines: string[], layout?: unknown) => string[];
-  getActiveSelectionText?: () => string | undefined;
-  __slateRailFilter?: boolean;
-};
-
-/** Leave press/drag to Pi, but keep │ rails out of highlight and clipboard. */
-export function installComposerSelectionFilter(tui: object): void {
-  const screen = tui as SelectableScreen;
-  if (screen.__slateRailFilter) return;
-  const apply = screen.applySelection;
-  const text = screen.getActiveSelectionText;
-  if (typeof apply !== "function" && typeof text !== "function") return;
-  screen.__slateRailFilter = true;
-  if (typeof apply === "function") {
-    screen.applySelection = function (this: unknown, lines: string[], layout?: unknown) {
-      return apply.call(this, lines, layout).map(uninvertComposerRails);
-    };
-  }
-  if (typeof text === "function") {
-    screen.getActiveSelectionText = function (this: unknown) {
-      const raw = text.call(this);
-      return raw === undefined ? undefined : stripCopiedComposerRails(raw);
-    };
-  }
-}
-
 export const COMPOSER_SHELF_LINES = 4;
 
 let lastComposerFrameLines = COMPOSER_SHELF_LINES;
@@ -377,7 +307,7 @@ type ComposerScrollInternals = {
   moveToVisualLine?: (lines: ComposerVisualLine[], from: number, to: number) => void;
 };
 
-/** Scroll hidden prompt lines. Returns false when the whole prompt is already visible. */
+/** Handle wheel input for an overflowing prompt, including at its scroll boundaries. */
 export function scrollComposerByLines(editor: object, delta: number): boolean {
   if (!Number.isFinite(delta) || delta === 0) return false;
   const internals = editor as ComposerScrollInternals;
@@ -397,7 +327,7 @@ export function scrollComposerByLines(editor: object, delta: number): boolean {
   const direction = delta < 0 ? -1 : 1;
   const steps = Math.max(1, Math.round(Math.abs(delta)));
   const desiredOffset = Math.max(0, Math.min(maxOffset, currentOffset + direction * steps));
-  if (desiredOffset === currentOffset) return false;
+  if (desiredOffset === currentOffset) return true;
 
   const currentLine = typeof internals.findCurrentVisualLine === "function"
     ? internals.findCurrentVisualLine(visualLines)

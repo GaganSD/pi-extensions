@@ -208,7 +208,7 @@ export class ComposerSelectionController {
       disarmEscape();
       this.revision += 1;
     };
-    const copySelected = (): void => {
+    const copyPrompt = (): void => {
       if (!options.copy) return;
       try {
         void Promise.resolve(options.copy(editor.getExpandedText?.() ?? editor.getText())).then(
@@ -286,7 +286,7 @@ export class ComposerSelectionController {
 
       // Ctrl+C is Pi's app.clear. Never let it wipe a non-empty prompt.
       if (isCopy(data) && editor.getText().length > 0) {
-        copySelected();
+        copyPrompt();
         return;
       }
 
