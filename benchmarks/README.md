@@ -222,6 +222,9 @@ external owned-process quiescence. Cached upstream fleet/async projections can l
 completion; they are preserved but are not terminal authority. Early/blocked claims
 with live children trigger teardown, not successful collection.
 
+A child that emits no assistant message within 90 seconds is a stall: the episode
+is aborted, recorded as collected-failed, and the suite continues. The 10-minute
+deadline is the backstop. SIGINT/SIGTERM and unknown cleanup still block.
 The 10-minute deadline aborts the parent stream and requests native cancellation.
 The host tracks a random inherited ownership marker, descendants and precise PID
 birth identities across reparenting. Discovery snapshots are only hints: marker

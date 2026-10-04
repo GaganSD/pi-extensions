@@ -52,6 +52,16 @@ class BenchmarkTests(unittest.TestCase):
                     if scenario == "supervisor_roundtrip":
                         self.assertIn({1: "BLUE", 2: "GREEN", 3: "GOLD"}[trial], text)
 
+    def test_timeout_failure_is_collected_and_does_not_block_resume(self):
+        record = {"collector_status": "collected", "errors": [{"type": "episode_timeout"}],
+                  "usage_evidence": {"parse_errors": []}, "session_attestation": {"errors": []},
+                  "credential_cleanup": {"complete": True},
+                  "execution": {"exit_code": 1, "external_timeout": True, "child_stall": True,
+                                "interrupted": None, "premature_finish": False, "direct_child_escalations": [],
+                                "watchdog_errors": [], "process_cleanup": {"quiescent": True, "cleanup_state": "quiescent", "escalations": []},
+                                "native_final": {"all_terminal": True}}}
+        self.assertTrue(bench.evidence_ready(record))
+
     def test_rate_limit_errors_are_retryable_billing_is_not(self):
         limit = bench.parent_provider_error([{"type": "message_end", "data": {"message": {
             "stopReason": "error", "errorMessage": 'bedrock-runtime API error (429): {"type":"rate_limit_error"}'}}}])

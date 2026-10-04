@@ -447,17 +447,19 @@ def probe(variant, scenario, target, mode="normal", lazy=False, foreground=False
                     else:
                         assert record["usage_evidence"]["unknown_requests"] >= 1, "Aborted foreground usage was misclassified as free"
             if mode != "normal":
-                assert execution.returncode != 0 and record["collector_status"] == "incomplete", record["collector_status"]
                 assert record["execution"]["process_cleanup"]["quiescent"], record["execution"]
                 assert record["credential_cleanup"]["complete"]
                 assert not Path(bench.read_json(target / "episodes" / record["run_id"] / "runtime-location.json")["original_root"]).exists()
                 assert not list((target / "episodes" / record["run_id"] / "runtime").rglob("auth.json"))
-                if mode in {"premature", "blocked"}:
-                    assert record["execution"]["premature_finish"]
-                elif mode in {"sigint", "sigterm"}:
+                if mode in {"sigint", "sigterm"}:
+                    assert execution.returncode != 0 and record["collector_status"] == "incomplete", record["collector_status"]
                     assert record["execution"]["interrupted"] == mode.upper(), record["execution"]
                 else:
-                    assert any(row.get("type") == "episode_timeout" for row in record["errors"]), record["errors"]
+                    assert execution.returncode == 0 and record["collector_status"] == "collected", record["collector_status"]
+                    if mode in {"premature", "blocked"}:
+                        assert record["execution"]["premature_finish"]
+                    else:
+                        assert any(row.get("type") == "episode_timeout" for row in record["errors"]), record["errors"]
                 if mode in {"parent_stream", "detached_stream"}:
                     assert record["usage_evidence"]["unknown_requests"] >= 1, record["usage_evidence"]
                 return {"variant": variant, "scenario": scenario, "failure_probe": mode, "foreground": foreground, "quiescent": True, "scored": False}

@@ -116,7 +116,8 @@ def isolated_environment(directory, manifest, model, events, config, startup_onl
                     "PI_OFFLINE": "1", "PI_SKIP_VERSION_CHECK": "1", "PI_TELEMETRY": "0", "TERM": "xterm-256color",
                     "PI_IMAGE_PROTOCOL": "none", "PI_BENCH_EVENTS": str(events), "PI_BENCH_CONTROL": str(root / "control.json"),
                     "PI_BENCH_MODEL": json.dumps(expected), "PI_BENCH_STARTUP_ONLY": "1" if startup_only else "0",
-                    "PI_BENCH_TIMEOUT_SECONDS": str(config["episode_timeout_seconds"])})
+                    "PI_BENCH_TIMEOUT_SECONDS": str(config["episode_timeout_seconds"]),
+                    "PI_BENCH_CHILD_STALL_SECONDS": str(config.get("child_stall_seconds", 0))})
         return env
     except BaseException:
         credentials_cleanup(root)
@@ -157,6 +158,20 @@ def events_from(path):
 
 
 TEARDOWN_SECONDS = 14
+
+
+def child_assistant_progress(root):
+    # Role presence only; never log or return transcript text.
+    for path in Path(root).rglob("*.jsonl"):
+        if path.name in {"events.jsonl", "baseline-events.jsonl"}:
+            continue
+        try:
+            text = path.read_text()
+        except OSError:
+            continue
+        if '"role":"assistant"' in text.replace(" ", ""):
+            return True
+    return False
 RATE_LIMIT = ("429", "rate_limit", "rate limit", "too many requests", "throttl", "overloaded", "service unavailable")
 NONRETRYABLE = ("no credits remaining", "insufficient_quota", "billing", "invalid api key", "unauthorized", "authentication")
 
@@ -188,8 +203,8 @@ def run_tui(args, workspace, env, log_path, timeout):
             os.execvpe(args[0], args, env)
         finally:
             os._exit(127)
-    status, abort_at, finish_at = None, None, None
-    premature, external_timeout, interrupted = False, False, None
+    status, abort_at, finish_at, children_at = None, None, None, None
+    premature, external_timeout, interrupted, child_stall = False, False, None, False
     ownership_seen = False
     direct_escalations, watchdog_errors = [], []
     direct_unknown = False
@@ -230,6 +245,13 @@ def run_tui(args, workspace, env, log_path, timeout):
         with open(log_path, "wb") as output:
             while status is None and not direct_unknown:
                 now = time.monotonic()
+                if children_at is None and native_ledger(root)["runs"]:
+                    children_at = now
+                stall = int(env.get("PI_BENCH_CHILD_STALL_SECONDS") or 0)
+                if abort_at is None and stall and children_at is not None and now - children_at > stall and not child_assistant_progress(root):
+                    child_stall = True
+                    abort_at = now
+                    deliver("abort", "child produced no assistant output before stall deadline")
                 if abort_at is None and (INTERRUPTED or now - started > timeout):
                     interrupted = INTERRUPTED
                     external_timeout = not bool(INTERRUPTED)
@@ -328,7 +350,8 @@ def run_tui(args, workspace, env, log_path, timeout):
         diagnostic("native_ledger", error)
         final_native = {"all_terminal": False, "runs": [], "errors": [{"error": type(error).__name__}]}
     return {"exit_code": os.waitstatus_to_exitcode(status) if status is not None else None,
-            "external_timeout": external_timeout, "interrupted": interrupted, "premature_finish": premature, "parent_ownership_observed": ownership_seen,
+            "external_timeout": external_timeout, "interrupted": interrupted, "premature_finish": premature, "child_stall": child_stall,
+            "parent_ownership_observed": ownership_seen,
             "elapsed_seconds": round(time.monotonic() - started, 3), "process_cleanup": cleanup, "direct_child_escalations": direct_escalations,
             "watchdog_errors": watchdog_errors, "native_final": final_native}
 
@@ -445,16 +468,25 @@ def session_attestation(directory, package, model, parent_ids, parent_prompt):
 
 
 def evidence_ready(record):
-    # Resume must validate evidence requirements, not a previously assigned label.
-    return (record.get("collector_status") == "collected" and not record.get("errors")
+    # Terminal scenario failures (timeout/stall/blocked claim) are collected
+    # evidence and must not freeze the rest of the suite.
+    errors = record.get("errors") or []
+    collector_fault = [row for row in errors if isinstance(row, dict) and (
+        row.get("collector_error") or row.get("type") in {"preflight_error", "invalid_result", "control_error"})]
+    timed_out = (record.get("execution", {}).get("external_timeout") or record.get("execution", {}).get("child_stall")
+                 or any(isinstance(row, dict) and row.get("type") == "episode_timeout" for row in errors))
+    attestation_ok = timed_out or not (record.get("session_attestation") or {}).get("errors")
+    return (record.get("collector_status") == "collected"
+        and not collector_fault and attestation_ok
         and "usage_evidence" in record and not record["usage_evidence"].get("parse_errors")
-        and "session_attestation" in record and not record["session_attestation"].get("errors")
+        and "session_attestation" in record
         and record.get("credential_cleanup", {}).get("complete") is True
         and record.get("execution", {}).get("process_cleanup", {}).get("quiescent") is True
+        and record.get("execution", {}).get("process_cleanup", {}).get("cleanup_state") != "unknown"
         and not record.get("execution", {}).get("watchdog_errors")
-        and record["execution"].get("exit_code") == 0
+        and record["execution"].get("exit_code") is not None
         and record["execution"].get("native_final", {}).get("all_terminal") is True
-        and not any(record["execution"].get(key) for key in ("external_timeout", "interrupted", "premature_finish", "direct_child_escalations"))
+        and not record["execution"].get("direct_child_escalations")
         and not record["execution"]["process_cleanup"].get("escalations"))
 
 
@@ -528,6 +560,7 @@ def run_episode(model_key, model, trial, scenario, variant, config, manifest, re
         assert startup is not None, "Package failed before recorder startup"
         assert {"subagent", "subagents_enable"} & {tool["name"] for tool in startup["tools"]}, "Delegation tool absent"
         errors = [row for row in rows if row["type"] in {"preflight_error", "invalid_result", "episode_timeout", "control_error"}]
+        collector_faults = [row for row in errors if row["type"] != "episode_timeout"]
         claim = read_json(workspace / "result.json") if (workspace / "result.json").exists() else None
         requests = [row["data"] for row in rows if row["type"] == "request_context"]
         active = next((request for request in requests if any(tool["name"] == "subagent" for tool in request["tools"])), None)
@@ -538,15 +571,20 @@ def run_episode(model_key, model, trial, scenario, variant, config, manifest, re
                 "first_request_declared_package_delta": footprint(requests[0]) - footprint(baseline_snapshot) if requests else None,
                 "delegation_active_declared_package_delta": footprint(active) - footprint(baseline_snapshot) if active else None,
                 "scope": "declared system/tool context only; on-demand guide/skill message reads are excluded here but included in total usage"}})
-        good = (execution["exit_code"] == 0 and not execution["external_timeout"] and not execution["interrupted"]
-                and not execution["premature_finish"] and not execution["direct_child_escalations"] and execution["process_cleanup"]["quiescent"]
-                and execution["native_final"]["all_terminal"] and not execution["process_cleanup"]["escalations"]
-                and not errors and (smoke or claim is not None))
+        contained = (execution["process_cleanup"]["quiescent"] and execution["native_final"]["all_terminal"]
+                     and not execution["direct_child_escalations"] and not execution["process_cleanup"]["escalations"]
+                     and not execution["watchdog_errors"])
+        good = (execution["exit_code"] == 0 and not execution["external_timeout"] and not execution.get("child_stall")
+                and not execution["interrupted"] and not execution["premature_finish"] and contained
+                and not collector_faults and (smoke or claim is not None))
         record["usage_evidence"] = collect_usage(runtime_root)
         record["session_attestation"] = session_attestation(runtime_root, package, model,
             {baseline_snapshot["session_id"], startup["session_id"]}, prompt)
-        good = good and not record["usage_evidence"]["parse_errors"] and not record["session_attestation"]["errors"] and not execution["watchdog_errors"]
-        record["collector_status"] = "collected" if good else "incomplete"
+        good = good and not record["usage_evidence"]["parse_errors"] and not record["session_attestation"]["errors"]
+        failed_closed = (contained and not record["usage_evidence"]["parse_errors"] and execution["exit_code"] is not None
+                         and (execution["external_timeout"] or execution.get("child_stall") or any(row["type"] == "episode_timeout" for row in errors)
+                              or (claim or {}).get("outcome") == "blocked"))
+        record["collector_status"] = "collected" if good or failed_closed else "incomplete"
     except BaseException as error:
         record["collector_status"] = "incomplete"
         record["errors"].append({"collector_error": type(error).__name__, "message": str(error)})
