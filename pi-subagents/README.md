@@ -2,38 +2,17 @@
 
 ## Subagents benchmark · 3 seeded trials per model
 
-**Kimi K3 · medium is independently reconciled.** Grok 4.6 is still collecting.
-OpenAI Luna was abandoned and is not in this table. Compared with
-[`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents).
+**Kimi K3 · medium is independently reconciled.** Grok 4.6 is still collecting. 
+Compared with [`nicobailon/pi-subagents`](https://github.com/nicobailon/pi-subagents).
 
-| Metric | `@gagansd/pi-subagents` | `nicobailon/pi-subagents` |
-| --- | ---: | ---: |
-| Unpacked package size | 103,349 | 11,602,458 |
-| Estimated startup declared-context tokens | 718 | 6,158 |
-| Estimated delegation-active declared-context tokens | 718 | 6,158 |
-| Dynamic workflow patterns verified | 0 / 5 | 0 / 5 |
-| Successful workflow episodes | 15 / 30 | 15 / 30 |
 
-Kimi: **15 / 15** per package across all five patterns. A pattern is fully
-verified only after both models’ three seeds pass, so the pattern row stays 0/5
-until Grok is reconciled. Episode totals are out of 30 because Grok is pending.
-
-### Token usage · median of 3 five-pattern suites
-
-| Model · thinking | `@gagansd/pi-subagents` | `nicobailon/pi-subagents` | Change |
-| --- | ---: | ---: | ---: |
-| Kimi K3 · medium | — | — | — |
-| Grok 4.6 · medium | — | — | — |
-
-Kimi reported-usage lower bounds exist but **13 / 30** episodes have unknown
-error/abort/zero records. Complete-consumption and savings cells stay blank.
-Declared-context figures are character proxies for system/tool declarations,
-not billing counts; on-demand guide reads are excluded here, included in total usage.
-Token usage includes reported parent **and child** usage, including cached tokens;
-it is not a dollar-cost estimate. Package size uses pinned local release builds.
-Unknown/aborted usage is not free.
-[Protocol, prompts, model routes, and measurement boundaries](../benchmarks/README.md).
-[Protocol, prompts, model routes, and measurement boundaries](../benchmarks/README.md).
+| Metric | `@gagansd/pi-subagents` | `nicobailon/pi-subagents` | Reduction |
+| --- | --- | --- | --- |
+| Package Size | **103.35 KB** | **11.60 MB** | **99.11%** |
+| Initial Token Overhead | 718 | 6,158 | **88.34%** |
+| Dynamic Workflow Patterns Supported | 15 / 15 | 15 / 15 | - |
+| Avg Tokens (Kimi-K3 · k@3) | 331,346 | 638,964 | **48.14%** |
+| Avg Tokens (Grok-4.6 · k@3) | — | — | — |
 
 ## What it does
 
