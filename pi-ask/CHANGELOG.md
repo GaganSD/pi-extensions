@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- README screenshots load from the repo on GitHub; `npm pack` rewrites them to the versioned npm CDN
+- README screenshots use stable GitHub URLs on GitHub, npm, and the Pi gallery; packing no longer rewrites the README
 
 ## 0.1.2
 

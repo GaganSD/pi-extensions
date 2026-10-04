@@ -4,11 +4,11 @@ Gives your agent a way to interview you in a structured form — brainstorming, 
 
 One skill (~20-token description), built for context minimisation.
 
-![Multi-select](assets/multi.png)
+![Multi-select](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-ask/assets/multi.png)
 
-![Single-select](assets/single.png)
+![Single-select](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-ask/assets/single.png)
 
-![Text](assets/text.png)
+![Text](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-ask/assets/text.png)
 
 ## Install
 

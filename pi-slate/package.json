@@ -1,7 +1,7 @@
 {
   "name": "pi-slate",
   "version": "0.1.9",
-  "description": "Quiet Pi TUI: header, footer, sidebar, and a muted dark theme.",
+  "description": "A minimal-TUI with rich-graphics support that adds zero-context bloat",
   "type": "module",
   "license": "MIT",
   "author": "Gagan Devagiri",
@@ -39,8 +39,6 @@
     "typecheck": "tsc --noEmit",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",
-    "prepack": "node ../scripts/readme-cdn.mjs pack",
-    "postpack": "node ../scripts/readme-cdn.mjs unpack",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck"
   },
   "peerDependencies": {

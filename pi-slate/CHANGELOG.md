@@ -6,13 +6,13 @@ Scroll a long prompt, copy it without wiping the draft, and collapse consecutive
 
 ### Composer
 
-- Wheel over an overflowing prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
+- Wheel over an overflowing prompt scrolls hidden lines without spilling into the transcript at either boundary; a fully visible prompt still gives the wheel to the transcript
 - `Ctrl+C` copies a non-empty prompt, including collapsed `[paste #N]` bodies, and leaves the draft in place
 - Empty `Ctrl+C` still reaches Pi (`app.clear`)
 - `Ctrl+X` stays Pi's `app.message.copy`
 - Drop a large prompt with `Ctrl+A` then Backspace, or `Esc` `Esc`
 - Drag-select uses Pi's screen selection again
-- Composer `│` rails stay out of the highlight and the clipboard
+- Leave screen selection untouched; prompt copy excludes frame characters
 - Copy confirmation is one `Copied!` flash, same as drag-select
 
 ### Transcript
@@ -20,11 +20,13 @@ Scroll a long prompt, copy it without wiping the draft, and collapse consecutive
 - Consecutive `read` cards share one line: `read x.md`, then `read 2 files`
 - Expand / `Ctrl+O` lists the paths
 - A user message, later-turn assistant text, or any other tool starts a new streak
+- Failed reads remain visible, including failures in a grouped card
 - Grouping is O(1) per event and one O(N) pass on session restore
 
 ### Docs
 
-- README screenshots load from the repo on GitHub; `npm pack` rewrites them to the versioned npm CDN
+- Use Markdown screenshots and stable GitHub URLs so GitHub, npm, and the Pi gallery render all seven images without pack-time README mutations
+- Update the package subtitle
 
 ## 0.1.8
 
