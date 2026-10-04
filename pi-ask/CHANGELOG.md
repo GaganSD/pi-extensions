@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- README screenshots load from the repo on GitHub; `npm pack` rewrites them to the versioned npm CDN
+
 ## 0.1.2
 
 - README screenshots served from the npm CDN

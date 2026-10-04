@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-overview.png" alt="Slate standard mode with the sidebar and context dock" />
+  <img src="assets/slate-overview.png" alt="Slate standard mode with the sidebar and context dock" />
 </p>
 
 ## Setup
@@ -44,7 +44,7 @@ Vertical mode is the default. It unmounts the sidebar, gives chat the full windo
 The tall vertical screenshot is constrained so it does not dominate the page:
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-vertical.png" alt="Slate vertical mode with the sidebar unmounted" height="420" />
+  <img src="assets/slate-vertical.png" alt="Slate vertical mode with the sidebar unmounted" height="420" />
 </p>
 
 ### Diff
@@ -60,11 +60,11 @@ Native schemas, mutation queue, errors, and model-facing text are unchanged. Wri
 Consecutive `read` cards collapse into one line: `read x.md` stays as-is, then `read 2 files`. `Ctrl+O` lists the paths. A user message, assistant text from a later turn, or any other tool starts a new streak.
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-yaml.png" alt="Split YAML edit with word-level emphasis" />
+  <img src="assets/slate-diff-yaml.png" alt="Split YAML edit with word-level emphasis" />
 </p>
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/GaganSD/pi-extensions@26a9e68/pi-slate/assets/slate-diff-rust.png" alt="Split Rust edit with syntax highlighting" />
+  <img src="assets/slate-diff-rust.png" alt="Split Rust edit with syntax highlighting" />
 </p>
 
 Previews are bounded: 256 KiB snapshots, 2,000 parsed rows, 16 collapsed / 400 expanded. Binary or oversized previous content shows a notice, not a fake overwrite.
@@ -76,7 +76,7 @@ Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 > Usage: Caret-peek over text to display. Click Preview to copy a path. Double-click to open or edit. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-media.png" alt="Chat with image tokens and the sidebar image preview" />
+  <img src="assets/slate-media.png" alt="Chat with image tokens and the sidebar image preview" />
 </p>
 
 ### Interactive Observability
@@ -86,7 +86,7 @@ Inspect work-tree files and recent request activity directly from the terminal.
 > Usage: Single-click to preview files or drill into activity categories. Double-click to open files in your editor. Expand activity entries to inspect detailed tool executions.
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-observability.png" alt="Sidebar files and last-turn activity" />
+  <img src="assets/slate-observability.png" alt="Sidebar files and last-turn activity" />
 </p>
 
 ### Session Context Overview
@@ -100,7 +100,7 @@ Slate keeps usage and spend visible without sending context to your LLM.
 - Context usage may be estimated when provider usage is unavailable.
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-context.png" alt="Context usage, spend, skills, and MCP count" width="567" />
+  <img src="assets/slate-context.png" alt="Context usage, spend, skills, and MCP count" width="567" />
 </p>
 
 ### Update Notices

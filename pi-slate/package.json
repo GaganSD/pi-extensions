@@ -1,6 +1,6 @@
 {
   "name": "pi-slate",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Quiet Pi TUI: header, footer, sidebar, and a muted dark theme.",
   "type": "module",
   "license": "MIT",
@@ -39,6 +39,8 @@
     "typecheck": "tsc --noEmit",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "pack:check": "npm pack --dry-run",
+    "prepack": "node ../scripts/readme-cdn.mjs pack",
+    "postpack": "node ../scripts/readme-cdn.mjs unpack",
     "prepublishOnly": "npm run audit:prod && npm test && npm run typecheck"
   },
   "peerDependencies": {
@@ -67,7 +69,7 @@
     "themes": [
       "./themes/*.json"
     ],
-    "image": "https://cdn.jsdelivr.net/npm/pi-slate@0.1.7/assets/slate-overview.png"
+    "image": "https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-overview.png"
   },
   "dependencies": {
     "diff": "^9.0.0",

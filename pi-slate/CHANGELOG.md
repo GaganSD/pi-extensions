@@ -2,14 +2,29 @@
 
 ## 0.1.9
 
-Scroll a large prompt, copy it with `Ctrl+C`, and keep composer rails out of screen selections. Consecutive `read` cards collapse into one line.
+Scroll a long prompt, copy it without wiping the draft, and collapse consecutive `read` cards.
 
-- Consecutive reads share one transcript line (`read x.md`, then `read 2 files`); expand lists the paths
-- Mouse wheel over the prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
-- `Ctrl+C` copies a non-empty prompt and does not clear it; empty `Ctrl+C` still reaches Pi
-- `Ctrl+X` is left to Pi; drop a large prompt with `Ctrl+A` then Backspace, or `Esc` `Esc`
+### Composer
+
+- Wheel over an overflowing prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
+- `Ctrl+C` copies a non-empty prompt, including collapsed `[paste #N]` bodies, and leaves the draft in place
+- Empty `Ctrl+C` still reaches Pi (`app.clear`)
+- `Ctrl+X` stays Pi's `app.message.copy`
+- Drop a large prompt with `Ctrl+A` then Backspace, or `Esc` `Esc`
+- Drag-select uses Pi's screen selection again
+- Composer `│` rails stay out of the highlight and the clipboard
 - Copy confirmation is one `Copied!` flash, same as drag-select
-- Drag-select uses Pi's screen selection again; `│` rails stay out of the highlight and clipboard
+
+### Transcript
+
+- Consecutive `read` cards share one line: `read x.md`, then `read 2 files`
+- Expand / `Ctrl+O` lists the paths
+- A user message, later-turn assistant text, or any other tool starts a new streak
+- Grouping is O(1) per event and one O(N) pass on session restore
+
+### Docs
+
+- README screenshots load from the repo on GitHub; `npm pack` rewrites them to the versioned npm CDN
 
 ## 0.1.8
 

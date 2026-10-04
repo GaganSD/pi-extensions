@@ -36,6 +36,8 @@
     "test": "node --test --experimental-strip-types tests/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run",
+    "prepack": "node ../scripts/readme-cdn.mjs pack",
+    "postpack": "node ../scripts/readme-cdn.mjs unpack",
     "prepublishOnly": "npm test && npm run typecheck"
   },
   "peerDependencies": {
