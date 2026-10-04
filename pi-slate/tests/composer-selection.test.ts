@@ -12,7 +12,7 @@ import {
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import { TuiBase } from "../node_modules/@earendil-works/pi-tui/dist/tui.js";
-import { paintSelectedContent, sliceComposerText } from "../extensions/pi-slate/composer.ts";
+import { paintSelectedContent } from "../extensions/pi-slate/composer.ts";
 import {
   ComposerSelectionController,
   pasteTokenAtCursor,
@@ -418,12 +418,4 @@ test("press and drag stay unhandled so Pi can select screen text", () => {
   assert.equal(drag?.capture, undefined);
   assert.deepEqual(copied, []);
   selection.dispose();
-});
-
-test("sliceComposerText keeps the ordered prompt range", () => {
-  assert.equal(sliceComposerText("hello", { start: { line: 0, col: 1 }, end: { line: 0, col: 4 } }), "ell");
-  assert.equal(
-    sliceComposerText("ab\ncd", { start: { line: 1, col: 2 }, end: { line: 0, col: 1 } }),
-    "b\ncd",
-  );
 });
