@@ -22,7 +22,7 @@ test("Slate loads through Pi's real extension loader and renders completed tools
       await handler({ type: "session_shutdown" }, { mode: "print" });
     }
   });
-  assert.deepEqual([...extension.tools.keys()].sort(), ["edit", "write"]);
+  assert.deepEqual([...extension.tools.keys()].sort(), ["edit", "read", "write"]);
   initTheme("dark", false);
   const ctx = { cwd, mode: "tui", tools: [], executeTool: async () => { throw new Error("unused"); } } as unknown as ExtensionToolContext;
   const ui = { requestRender() {} } as TUI;
@@ -49,4 +49,20 @@ test("Slate loads through Pi's real extension loader and renders completed tools
       for (const line of lines) assert.ok(visibleWidth(line) <= width, `host overflow at ${width}`);
     }
   }
+  const read = extension.tools.get("read")!.definition;
+  for (const handler of extension.handlers.get("tool_call") ?? []) {
+    await handler({ type: "tool_call", toolName: "read", toolCallId: "r1", input: { path: "a.ts" } }, ctx);
+    await handler({ type: "tool_call", toolName: "read", toolCallId: "r2", input: { path: "b.ts" } }, ctx);
+  }
+  const lead = new ToolExecutionComponent("read", "r1", { path: "a.ts" }, undefined, read, ui, cwd);
+  const follow = new ToolExecutionComponent("read", "r2", { path: "b.ts" }, undefined, read, ui, cwd);
+  for (const host of [lead, follow]) {
+    host.setArgsComplete();
+    host.markExecutionStarted();
+    host.updateResult({ content: [{ type: "text", text: "ok" }], isError: false });
+  }
+  assert.match(lead.render(80).map(stripVTControlCharacters).join("\n"), /read 2 files/);
+  assert.deepEqual(follow.render(80).map(stripVTControlCharacters), []);
+  lead.setExpanded(true);
+  assert.match(lead.render(80).map(stripVTControlCharacters).join("\n"), /a\.ts/);
 });

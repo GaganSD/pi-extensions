@@ -2,8 +2,9 @@
 
 ## 0.1.9
 
-Scroll a large prompt, copy it with `Ctrl+C`, and keep composer rails out of screen selections.
+Scroll a large prompt, copy it with `Ctrl+C`, and keep composer rails out of screen selections. Consecutive `read` cards collapse into one line.
 
+- Consecutive reads share one transcript line (`read x.md`, then `read 2 files`); expand lists the paths
 - Mouse wheel over the prompt scrolls hidden lines; a fully visible prompt still gives the wheel to the transcript
 - `Ctrl+C` copies a non-empty prompt and does not clear it; empty `Ctrl+C` still reaches Pi
 - `Ctrl+X` is left to Pi; drop a large prompt with `Ctrl+A` then Backspace, or `Esc` `Esc`

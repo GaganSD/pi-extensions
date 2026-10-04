@@ -19,6 +19,7 @@ import { copyWithFeedback } from "./copy-feedback.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
 import { installDiff } from "./diff.ts";
+import { installRead } from "./read.ts";
 import { GitStatusPoller } from "./git-status.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
 import { GitDiffPreviewLoader } from "./git-diff.ts";
@@ -196,6 +197,7 @@ class BranchFooter implements Component {
 export default function piSlate(pi: ExtensionAPI): void {
   let config = loadConfig();
   installDiff(pi);
+  installRead(pi);
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
   const selection = new ComposerSelectionController();
