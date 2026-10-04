@@ -129,12 +129,12 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 | Select all prompt text | `Ctrl+A` |
 | Copy the prompt | `Ctrl+C` |
 | Scroll a long prompt | Mouse wheel over the composer |
-| Replace selection | Type, Backspace, or paste |
+| Replace or drop a large prompt | `Ctrl+A` then Backspace, or `Esc` `Esc` |
 | Submit selected prompt | `Enter` |
 | Clear the prompt | `Esc` `Esc` |
 | Expand or collapse a paste | Click the `[paste #N]` token |
 
-`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. `Ctrl+C` copies the full prompt, including hidden lines and collapsed `[paste #N]` bodies, and leaves the text in place. Drag-selecting anywhere uses Pi's screen selection again — composer `│` rails stay out of the highlight and the copy. Wheel over the composer scrolls overflow; wheel outside it still scrolls the transcript. Large pastes stay collapsed as `[paste #N]` until you click that token. Image tokens stay as `[image-N]`. Submit text is unchanged.
+`Ctrl+A` selects the whole prompt instead of jumping to the line start; `Home` still does that. `Ctrl+C` copies the full prompt, including hidden lines and collapsed `[paste #N]` bodies, and leaves the text in place. `Ctrl+X` is left to Pi (`app.message.copy`). To remove a large prompt, copy first if you need it, then `Ctrl+A` Backspace or `Esc` `Esc`. Drag-selecting anywhere uses Pi's screen selection again — composer `│` rails stay out of the highlight and the copy. Wheel over the composer scrolls overflow; wheel outside it still scrolls the transcript. Large pastes stay collapsed as `[paste #N]` until you click that token. Image tokens stay as `[image-N]`. Submit text is unchanged.
 
 ## Commands
 

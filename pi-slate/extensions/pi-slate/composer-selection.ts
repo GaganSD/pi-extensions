@@ -58,10 +58,6 @@ function isCopy(data: string): boolean {
   return matchesKey(data, "ctrl+c") || matchesKey(data, "super+c") || matchesKey(data, "ctrl+shift+c");
 }
 
-function isCut(data: string): boolean {
-  return matchesKey(data, "ctrl+x") || matchesKey(data, "super+x") || matchesKey(data, "ctrl+shift+x");
-}
-
 function isPrintable(data: string): boolean {
   return data.length > 0 && !/[\x00-\x1f\x7f]/.test(data);
 }
@@ -212,19 +208,11 @@ export class ComposerSelectionController {
       disarmEscape();
       this.revision += 1;
     };
-    const copySelected = (cut: boolean): void => {
+    const copySelected = (): void => {
       if (!options.copy) return;
-      const rawText = editor.getText();
-      const expandedText = editor.getExpandedText?.() ?? rawText;
-      const revision = this.revision;
       try {
-        void Promise.resolve(options.copy(expandedText)).then(
-          () => {
-            if (cut && this.installed?.editor === editor && this.revision === revision && editor.getText() === rawText) {
-              editor.setText("");
-              options.requestRender?.();
-            }
-          },
+        void Promise.resolve(options.copy(editor.getExpandedText?.() ?? editor.getText())).then(
+          undefined,
           (error: unknown) => options.onCopyError?.(error),
         );
       } catch (error) {
@@ -298,11 +286,7 @@ export class ComposerSelectionController {
 
       // Ctrl+C is Pi's app.clear. Never let it wipe a non-empty prompt.
       if (isCopy(data) && editor.getText().length > 0) {
-        copySelected(false);
-        return;
-      }
-      if (this.selected && options.copy && isCut(data)) {
-        copySelected(true);
+        copySelected();
         return;
       }
 

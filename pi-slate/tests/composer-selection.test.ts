@@ -173,10 +173,10 @@ test("Kitty and xterm printable keys replace selection using the public TUI API"
   }
 });
 
-test("Ctrl+C with text does not reach Pi clear; unselected Ctrl+X still does", () => {
+test("Ctrl+X always reaches Pi, even after select-all", () => {
   const editor = new FakeEditor("hello");
   attach(editor);
-  editor.handleInput("\x03");
+  editor.handleInput(SELECT_ALL);
   editor.handleInput("\x18");
   assert.deepEqual(editor.inputCalls, ["\x18"]);
   assert.equal(editor.getText(), "hello");
