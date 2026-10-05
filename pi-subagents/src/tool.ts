@@ -175,6 +175,5 @@ Children have fixed tools and applicable instruction files, but no parent histor
 Do not launch tasks needing unavailable capabilities or policies. Modes are inspect (read-only) and edit (shell/write), not OS sandboxes.
 Use list with the target cwd to inspect profiles. Reserve returned workspaces until settled; parallel writers need separate existing worktrees.
 Questions/results wake this parent: yield, do not poll. Use exact run IDs; reply also needs the current question ID.
-status lists live/recent runs; status(id) gives control state, resolved model/thinking, and evidence paths. /subagents provides human control.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.
-Committed-range review needs a supplied diff. No resume, model fallback, recursive delegation or workflow runner.`;
+Committed-range review needs a supplied diff.`;

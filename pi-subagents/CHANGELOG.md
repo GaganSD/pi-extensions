@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Shorten the model-facing `subagent` description: drop the status-output and `/subagents` sentences, and the list of actions that are already absent from the schema.
+- Document that children cannot use extension-registered providers, and that `list` omits invalid user/project profiles without a hint.
 - Publish a reproducible comparison of `@gagansd/pi-subagents` against
   `nicobailon/pi-subagents` on five parent-composed workflows.
 - Report unpacked package size, declared-context overhead, and character-proxy

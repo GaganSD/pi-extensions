@@ -38,4 +38,9 @@ Then `/reload`. Built for Pi **1.0.x**.
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
+## Notes
+
+- Child models come from the agent dir `auth.json` and `models.json` only. A provider registered only by an extension is unavailable; launch fails with "Exact native model … is unavailable".
+- `list` shows profiles that loaded. Invalid user or project profiles (extra frontmatter keys, `Reviewer`-style names, name/filename mismatch) are skipped with no hint.
+
 **Note:** I've stressed tested the library to work well locally. TODO: Improve UI & Developer Experience. Support Cloud Sub-agents. Message me if you feedback, TIA!
