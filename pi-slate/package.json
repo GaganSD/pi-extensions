@@ -1,6 +1,6 @@
 {
   "name": "pi-slate",
-  "version": "0.1.10",
+  "version": "0.1.9",
   "description": "A minimal-TUI with rich-graphics support that adds zero-context bloat",
   "type": "module",
   "license": "MIT",

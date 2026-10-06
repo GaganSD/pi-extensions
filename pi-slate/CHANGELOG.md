@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-## 0.1.10
-
-Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.
-
-- pi-slate: focused mode replaces vertical mode (`/slate focused`); the unused `@earendil-works/pi-ai` and `typebox` peers are dropped
-- All packages: Pi dev/peer pins to 1.0.0, TypeScript to 7.0.2, typebox to 1.3.34
-- pi-subagents: yaml to 2.9.1
-- Actions: setup-node v7.0.0, upload-artifact v7.0.1, download-artifact v8.0.1
-
 ### Renamed
 
 - The default sidebar-hidden layout is now focused mode: `/slate vertical` is `/slate focused` (menu, completions, and the saved `focused` config key)
