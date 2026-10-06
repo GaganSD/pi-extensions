@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
-import { affectedPackages } from "./ci.mjs";
+import { affectedPackages, ciMatrix } from "./ci.mjs";
 import { root } from "./lib.mjs";
 import { packages } from "./packages.mjs";
 import { validateContents } from "./package.mjs";
@@ -14,6 +14,23 @@ test("package changes select only their packages; shared changes select all", ()
   for (const file of ["package-lock.json", ".github/workflows/ci.yml", "scripts/packages.mjs", ".gitleaks.toml", ".release/plan.json"]) {
     assert.deepEqual(affectedPackages([file]), Object.keys(packages));
   }
+});
+
+test("the matrix adds cross-platform legs only when pi-web-search is affected", () => {
+  const ask = ciMatrix(["pi-ask"]);
+  assert.deepEqual(ask, [{ package: "pi-ask", os: "ubuntu-latest", node: "24", kind: "package" }]);
+
+  const web = ciMatrix(["pi-web-search"]);
+  const standard = web.filter(leg => leg.kind === "package");
+  const compat = web.filter(leg => leg.kind === "compat");
+  assert.deepEqual(standard, [{ package: "pi-web-search", os: "ubuntu-latest", node: "24", kind: "package" }]);
+  assert.deepEqual(compat.map(leg => [leg.os, leg.node, leg.pi]), [
+    ["ubuntu-latest", "22.19.0", "0.99.0"],
+    ["windows-latest", "24.x", "0.99.0"],
+    ["macos-latest", "24.x", "1.0.0"],
+  ]);
+
+  assert.deepEqual(ciMatrix([]), []);
 });
 
 test("test suites partition every test exactly once and contain real integration tests", () => {
