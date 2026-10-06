@@ -162,7 +162,7 @@ Slate adds no new model-facing tools, prompts, or model calls. Highlighted `edit
 
 - Pi Coding Agent and a modern terminal that can render Kitty or iTerm2 image protocol, such as Ghostty or Warp.
 - Disable other UI extensions or ask your agent to merge them. Slate replaces Pi's header, footer, and editor. Extensions that replace the same surfaces may conflict.
-- Copy a bug report with `/slate bug`
+- Copy a bug report with `/slate bug`.
 
 ## License
 
