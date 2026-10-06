@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Refresh the Pi 1.0.0 and TypeScript 7.0.2 dev pins and validate packaged imports with the TypeScript 7 scanner
+
 ## 0.2.0
 
 Improve code fallbacks and first-run setup.

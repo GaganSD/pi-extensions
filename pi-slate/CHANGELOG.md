@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Renamed
+
+- The default sidebar-hidden layout is now focused mode: `/slate vertical` is `/slate focused` (menu, completions, and the saved `focused` config key)
+- The saved `vertical` setting is not migrated; focused mode remains the default
+
+### Changed
+
+- Drop the unused `@earendil-works/pi-ai` and `typebox` peers
+- Refresh dev tooling to Pi 1.0.0 and TypeScript 7.0.2
+
 ## 0.1.9
 
 Scroll a long prompt, copy it without wiping the draft, and collapse consecutive `read` cards.

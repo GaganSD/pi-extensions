@@ -3,6 +3,7 @@
 ## Unreleased
 
 - README screenshots use stable GitHub URLs on GitHub, npm, and the Pi gallery; packing no longer rewrites the README
+- Refresh the Pi 1.0.0 and TypeScript 7.0.2 dev pins
 
 ## 0.1.2
 

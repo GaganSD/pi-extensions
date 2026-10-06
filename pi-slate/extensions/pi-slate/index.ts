@@ -31,8 +31,8 @@ import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import {
   countSkillCommands,
-  formatVerticalContextResources,
-  formatVerticalContextTokens,
+  formatFocusedContextResources,
+  formatFocusedContextTokens,
   mainColumnWidth,
   mergeMcpServerMaps,
   parseMcpEnabledCount,
@@ -80,7 +80,7 @@ type SlateConfig = {
   density: "comfortable" | "compact";
   footer: "standard" | "minimal";
   sidebarPercent?: number;
-  vertical?: boolean;
+  focused?: boolean;
   messageLength?: number | "all";
   modelDisplay?: ModelDisplay;
   themeApplied?: boolean;
@@ -91,7 +91,7 @@ const CONFIG_PATH = join(getAgentDir(), "pi-slate.json");
 const DEFAULT_CONFIG: SlateConfig = {
   density: "comfortable",
   footer: "standard",
-  vertical: true,
+  focused: true,
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -136,7 +136,7 @@ function loadConfig(): SlateConfig {
       density: value.density === "compact" ? "compact" : "comfortable",
       footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
-      vertical: value.vertical !== false,
+      focused: value.focused !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
@@ -220,8 +220,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   const tokenRate = new TokenRateTracker();
   const updates = new UpdateWatcher();
   let contextEdge = {
-    tokens: formatVerticalContextTokens(null, null, null),
-    resources: formatVerticalContextResources(null, 0, 0),
+    tokens: formatFocusedContextTokens(null, null, null),
+    resources: formatFocusedContextResources(null, 0, 0),
   };
   let requestRender = (_force = false) => {};
 
@@ -266,8 +266,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSkillsLoaded(skills);
     sidebar.setMcpConnected(mcp);
     contextEdge = {
-      tokens: formatVerticalContextTokens(tokens, percent, tokenRate.rate()),
-      resources: formatVerticalContextResources(spend, skills, mcp),
+      tokens: formatFocusedContextTokens(tokens, percent, tokenRate.rate()),
+      resources: formatFocusedContextResources(spend, skills, mcp),
     };
   };
   pi.events.on("subagent:async-complete", refreshFiles);
@@ -303,7 +303,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSelectedPreview(undefined);
     sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
     sidebar.setPreferredWidth(config.sidebarPercent);
-    sidebar.setHidden(config.vertical === true);
+    sidebar.setHidden(config.focused === true);
     sidebar.setActions({
       persistWidth: (percent) => {
         try {
@@ -402,7 +402,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             thinking: current.thinkingLevel,
             footer: config.footer,
             theme: current.ui.theme,
-            ...(config.vertical !== false ? { context: contextEdge } : {}),
+            ...(config.focused !== false ? { context: contextEdge } : {}),
           };
         },
         {
@@ -516,7 +516,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       saveConfig(next);
       config = next;
       sidebar.setPreferredWidth(config.sidebarPercent);
-      sidebar.setHidden(config.vertical === true);
+      sidebar.setHidden(config.focused === true);
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
       requestRender(true);
@@ -710,13 +710,13 @@ export default function piSlate(pi: ExtensionAPI): void {
     await fileBug(ctx);
   };
 
-  const applyVertical = (ctx: ExtensionContext, value?: boolean): void => {
-    const on = value ?? !config.vertical;
-    apply({ ...config, vertical: on }, on ? "Vertical mode on" : "Vertical mode off", ctx);
+  const applyFocused = (ctx: ExtensionContext, value?: boolean): void => {
+    const on = value ?? !config.focused;
+    apply({ ...config, focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
   };
 
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar, vertical mode, message length, theme, or file a bug",
+    description: "Density, footer, sidebar, focused mode, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -727,11 +727,11 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Vertical", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Focused", "Message length", "Theme", "File a bug"]);
         if (setting === "Density") kind = "density";
         else if (setting === "Footer") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
-        else if (setting === "Vertical") kind = "vertical";
+        else if (setting === "Focused") kind = "focused";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "File a bug") kind = "bug-menu";
@@ -752,13 +752,13 @@ export default function piSlate(pi: ExtensionAPI): void {
         return;
       }
 
-      if (kind === "vertical") {
-        applyVertical(ctx, parsed.kind === "vertical" ? parsed.value : undefined);
+      if (kind === "focused") {
+        applyFocused(ctx, parsed.kind === "focused" ? parsed.value : undefined);
         return;
       }
 
       if (parsed.kind === "width") {
-        apply(withSidebarPercent({ ...config, vertical: false }, parsed.width), widthMessage(parsed.width), ctx);
+        apply(withSidebarPercent({ ...config, focused: false }, parsed.width), widthMessage(parsed.width), ctx);
         return;
       }
 
@@ -800,7 +800,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       const picked = await pickWidth(ctx);
       if (!picked) return;
-      apply(withSidebarPercent({ ...config, vertical: false }, picked.width), widthMessage(picked.width), ctx);
+      apply(withSidebarPercent({ ...config, focused: false }, picked.width), widthMessage(picked.width), ctx);
     },
   });
 }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Refresh the Pi 1.0.0, TypeScript 7.0.2, and yaml 2.9.1 pins and accept @types/node 26 assertion signatures
 - Publish a reproducible comparison of `@gagansd/pi-subagents` against
   `nicobailon/pi-subagents` on five parent-composed workflows.
 - Report unpacked package size, declared-context overhead, and character-proxy
