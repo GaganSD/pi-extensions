@@ -203,7 +203,8 @@ For each affected package:
 - `snyk test --severity-threshold=high --dev` fails the job on high or critical
   advisories. One scan is enough because `--dev` includes production **and**
   development dependencies; Pi packages publish TypeScript source, so dev
-  dependencies stay on the build path.
+  dependencies stay on the build path. Transient Snyk API errors (exit code 2)
+  are retried three times; advisories (exit code 1) fail immediately.
 - `snyk monitor` refreshes the package's snapshot in the Snyk web UI. It runs
   only on `main` pushes (`github.event_name == 'push'`) and is best-effort, so
   a Snyk outage cannot freeze a release.

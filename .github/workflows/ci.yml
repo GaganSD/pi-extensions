@@ -119,10 +119,21 @@ jobs:
       # Snyk is the single dependency gate: one scan covers production and
       # development dependencies. Skipped on fork PRs, where GitHub withholds
       # secrets.
+      # Exit 1 means advisories (fail); exit 2 is a retryable API error, so
+      # retry before letting a Snyk outage fail the build.
       - if: matrix.kind != 'compat' && env.SNYK_TOKEN != ''
         name: Snyk dependency scan (production and development)
         working-directory: ${{ matrix.package }}
-        run: snyk test --severity-threshold=high --dev
+        run: |
+          set +e
+          for attempt in 1 2 3; do
+            snyk test --severity-threshold=high --dev
+            status=$?
+            if [ "$status" -eq 0 ] || [ "$status" -eq 1 ]; then exit "$status"; fi
+            echo "Snyk transient failure (exit $status); retry $attempt/3"
+            sleep 15
+          done
+          exit "$status"
       - if: matrix.kind != 'compat' && env.SNYK_TOKEN != '' && github.event_name == 'push'
         name: Snyk monitor on main (best effort)
         working-directory: ${{ matrix.package }}
