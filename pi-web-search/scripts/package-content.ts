@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { isBuiltin } from "node:module";
 import { posix } from "node:path";
-import ts from "typescript";
+import { SyntaxKind } from "typescript/unstable/ast";
+import { createScanner } from "typescript/unstable/ast/scanner";
 
 export const packageAllowlist = ["src", "README.md", "LICENSE", "llms.txt", "docs"];
 const hostPeers = ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"];
@@ -42,7 +43,6 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 	for (const [path, contents] of files) {
 		assert.ok(isAllowedPackagePath(path), `Unexpected package file: ${path}`);
 		if (!path.startsWith("src/")) continue;
-		const source = ts.createSourceFile(path, contents, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 		const checkImport = (specifier: string) => {
 			if (specifier.startsWith(".")) {
 				const target = posix.normalize(posix.join(posix.dirname(path), specifier));
@@ -54,16 +54,37 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 			const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
 			assert.ok(Object.hasOwn(manifest.peerDependencies, name), `${path}: undeclared external import ${specifier}`);
 		};
-		const visit = (node: ts.Node): void => {
-			if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-				if (node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) checkImport(node.moduleSpecifier.text);
-			} else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-				assert.ok(node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0]), `${path}: dynamic imports must use literal packaged paths`);
-				checkImport((node.arguments[0] as ts.StringLiteral).text);
+		const scanner = createScanner(true, undefined, contents);
+		let declaration: "import" | "export" | undefined;
+		for (let token = scanner.scan(); token !== SyntaxKind.EndOfFile; token = scanner.scan()) {
+			if (token === SyntaxKind.ImportKeyword) {
+				const next = scanner.scan();
+				if (next === SyntaxKind.OpenParenToken) {
+					const argument = scanner.scan();
+					assert.ok(argument === SyntaxKind.StringLiteral, `${path}: dynamic imports must use literal packaged paths`);
+					checkImport(scanner.getTokenValue());
+					continue;
+				}
+				if (next === SyntaxKind.StringLiteral) {
+					checkImport(scanner.getTokenValue());
+					continue;
+				}
+				declaration = "import";
+				continue;
 			}
-			ts.forEachChild(node, visit);
-		};
-		visit(source);
+			if (token === SyntaxKind.ExportKeyword) {
+				declaration = "export";
+				continue;
+			}
+			if (token === SyntaxKind.FromKeyword && declaration !== undefined) {
+				const next = scanner.scan();
+				assert.ok(next === SyntaxKind.StringLiteral, `${path}: import and export specifiers must be string literals`);
+				checkImport(scanner.getTokenValue());
+				declaration = undefined;
+				continue;
+			}
+			if (token === SyntaxKind.SemicolonToken) declaration = undefined;
+		}
 	}
 }
 

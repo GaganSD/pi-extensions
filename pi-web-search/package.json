@@ -56,12 +56,12 @@
     "typebox": { "optional": true }
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.99.0",
-    "@earendil-works/pi-coding-agent": "0.99.0",
-    "@earendil-works/pi-tui": "0.99.0",
-    "@types/node": "25.6.0",
-    "typebox": "1.3.7",
-    "typescript": "5.9.3"
+    "@earendil-works/pi-ai": "1.0.0",
+    "@earendil-works/pi-coding-agent": "1.0.0",
+    "@earendil-works/pi-tui": "1.0.0",
+    "@types/node": "26.6.3",
+    "typebox": "1.3.34",
+    "typescript": "7.0.2"
   },
   "pi": {
     "extensions": [

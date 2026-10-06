@@ -69,7 +69,7 @@ test("real SDK: fresh read-only session, inherited instructions, no ambient tool
   const [id] = await f.manager.launch([prepareNative(f.options)]);
   await f.manager.settled(id!);
   const result = f.manager.status(id!);
-  assert.equal(result.state, "completed", result.error);
+  assert.equal(result.state, "completed", result.error ?? "no error");
   assert(observed);
   assert.deepEqual(getCurrentTools(observed.messages).map(tool => tool.name).sort(), [...INSPECT_TOOLS].sort());
   const prompt = getCurrentSystemPrompt(observed.messages);
@@ -92,7 +92,7 @@ test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t
   const options = { ...f.options, task: { agent: "worker", task: "Implement fixture" }, profile: f.profiles.get("worker")! };
   const [id] = await f.manager.launch([prepareNative(options)]);
   await f.manager.settled(id!);
-  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error);
+  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.deepEqual(names.sort(), [...EDIT_TOOLS].sort());
   assert.throws(() => prepareNative({ ...options, task: { ...options.task, model: "fixture/missing" } }), /unavailable/);
   assert.throws(() => prepareNative({ ...options, scopedModels: ["different/provider"] }), /scope/);
@@ -131,7 +131,7 @@ test("real SDK: contact_supervisor round trip and run-owned reply", async t => {
   await until(() => f.manager.status(id!).state === "waiting_for_parent");
   await f.manager.reply(id!, f.manager.status(id!).question!.id, "Use the existing API");
   await f.manager.settled(id!);
-  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error);
+  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.equal(calls, 2);
 });
 
@@ -151,7 +151,7 @@ test("real SDK: disabled shell calls cannot mutate a review workspace", async t 
     : response(model, [{ type: "text", text: "The shell tool was unavailable; report inspection limitations." }]));
   const [id] = await f.manager.launch([prepareNative(f.options)]);
   await f.manager.settled(id!);
-  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error);
+  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.equal(f.manager.status(id!).toolErrors, 1);
   await assert.rejects(readFile(path.join(f.cwd, "FORBIDDEN")));
 });
@@ -168,7 +168,7 @@ test("real SDK: intermediate agent_end during retry is not final completion", as
   const [id] = await f.manager.launch([prepareNative(f.options)]);
   await f.manager.settled(id!);
   assert.equal(calls, 2);
-  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error);
+  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.match(await readFile(f.manager.status(id!).reportPath!, "utf8"), /same model/);
 });
 
@@ -187,7 +187,7 @@ test("real SDK: stopping bash cancels its process tree before releasing workspac
   }
   assert(pid && pid > 1);
   await f.manager.stop(id!);
-  assert.equal(f.manager.status(id!).state, "cancelled", f.manager.status(id!).error);
+  assert.equal(f.manager.status(id!).state, "cancelled", f.manager.status(id!).error ?? "no error");
   await until(() => { try { process.kill(pid!, 0); return false; } catch { return true; } });
   assert.equal(f.manager.activeCount, 0);
   assert((f.manager.status(id!).usage?.input ?? 0) >= 5, "cancellation retains usage before disposal");
@@ -217,7 +217,7 @@ test("real SDK: committed-range review reads a supplied artifact; live diff is l
   await writeFile(artifact, await git(f.cwd, ["diff", baseline!, "HEAD"]));
   const [id] = await f.manager.launch([prepareNative({ ...f.options, task: { agent: "reviewer", task: `Review ${artifact}` } })]);
   await f.manager.settled(id!);
-  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error);
+  assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.equal(calls, 3);
   assert(sawEmptyWorkingTree);
   assert(sawArtifact);
