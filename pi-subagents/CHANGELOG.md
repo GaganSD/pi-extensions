@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-## 0.0.2
-
-Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.
-
-- pi-slate: focused mode replaces vertical mode (`/slate focused`); the unused `@earendil-works/pi-ai` and `typebox` peers are dropped
-- All packages: Pi dev/peer pins to 1.0.0, TypeScript to 7.0.2, typebox to 1.3.34
-- pi-subagents: yaml to 2.9.1
-- Actions: setup-node v7.0.0, upload-artifact v7.0.1, download-artifact v8.0.1
-
 - Refresh the Pi 1.0.0, TypeScript 7.0.2, and yaml 2.9.1 pins and accept @types/node 26 assertion signatures
 - Publish a reproducible comparison of `@gagansd/pi-subagents` against
   `nicobailon/pi-subagents` on five parent-composed workflows.
