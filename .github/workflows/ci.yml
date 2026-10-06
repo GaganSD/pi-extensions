@@ -77,6 +77,8 @@ jobs:
     name: Package / ${{ matrix.package }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -92,7 +94,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             ${{ matrix.package }}/package-lock.json
-      - run: npm install --global npm@12.0.0 --ignore-scripts --no-audit --no-fund
+      - run: npm install --global npm@12.0.0 snyk@1.1307.4 --ignore-scripts --no-audit --no-fund
       - name: Install tooling
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Install package
@@ -105,8 +107,18 @@ jobs:
         run: npm run test:unit --prefix "${{ matrix.package }}"
       - name: Integration tests
         run: npm run test:integration --prefix "${{ matrix.package }}"
-      - name: Security audit (including development dependencies)
-        run: npm audit --prefix "${{ matrix.package }}" --audit-level=high
+      # Snyk replaces `npm audit` as the package dependency gate: one scan
+      # covers production and development dependencies. Skipped on fork PRs,
+      # where GitHub withholds secrets.
+      - name: Snyk dependency scan (production and development)
+        if: env.SNYK_TOKEN != ''
+        working-directory: ${{ matrix.package }}
+        run: snyk test --severity-threshold=high --dev
+      - name: Snyk monitor on main (best effort)
+        if: env.SNYK_TOKEN != '' && github.event_name == 'push'
+        working-directory: ${{ matrix.package }}
+        run: snyk monitor --dev
+        continue-on-error: true
       - name: Build and smoke-test npm artifact
         run: npm run build --prefix "${{ matrix.package }}"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -122,28 +134,13 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     uses: ./.github/workflows/pi-web-search.yml
 
-  snyk:
-    needs: changes
-    if: needs.changes.outputs.has_packages == 'true'
-    name: Snyk / ${{ matrix.package }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        package: ${{ fromJSON(needs.changes.outputs.packages) }}
-    secrets: inherit
-    uses: ./.github/workflows/snyk.yml
-    with:
-      package: ${{ matrix.package }}
-
   secrets:
     uses: ./.github/workflows/secret-scan.yml
 
   passed:
     name: CI passed
     if: always()
-    needs: [changes, tooling, packages, web-compatibility, snyk, secrets]
+    needs: [changes, tooling, packages, web-compatibility, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -158,8 +155,7 @@ jobs:
             }
             const expected = {
               packages: jobs.changes.outputs.has_packages === "true",
-              "web-compatibility": jobs.changes.outputs.web === "true",
-              "snyk": jobs.changes.outputs.has_packages === "true"
+              "web-compatibility": jobs.changes.outputs.web === "true"
             };
             for (const [name, required] of Object.entries(expected)) {
               if (jobs[name].result !== (required ? "success" : "skipped")) process.exit(1);

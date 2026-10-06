@@ -16,7 +16,8 @@ Each affected package runs:
 1. Lockfile installation with `npm ci --ignore-scripts`.
 2. ESLint and TypeScript checking.
 3. Separate unit and integration suites.
-4. `npm audit --audit-level=high`, **including development dependencies**.
+4. A Snyk Open Source scan (`--severity-threshold=high --dev`) covering
+   production **and** development dependencies.
 5. An actual `npm pack`, content checks, clean-consumer installation, and Pi
    registration smoke test against the installed artifact.
 6. Upload of the validated tarball and SHA-512 integrity metadata.
@@ -49,7 +50,7 @@ npm run lint --prefix pi-ask
 npm run typecheck --prefix pi-ask
 npm run test:unit --prefix pi-ask
 npm run test:integration --prefix pi-ask
-npm audit --prefix pi-ask --audit-level=high
+npm audit --prefix pi-ask --audit-level=high   # quick local proxy; CI uses Snyk
 npm run build --prefix pi-ask
 npm run test:tooling
 ```
@@ -109,8 +110,8 @@ unpublished. Finish or recover an outstanding release before preparing another.
 
 ### Publication and recovery
 
-Publication starts only when **main's CI jobs succeed**, including secret
-scanning. It requires both a valid generated plan on the release commit and a
+Publication starts only when **main's CI jobs succeed**, including the Snyk
+scan and secret scanning. It requires both a valid generated plan on the release commit and a
 merged `release/next` PR from this repository. A direct push with version edits
 is not publication authorization.
 
@@ -187,36 +188,42 @@ Complete these steps before the first release:
 
 ## Snyk dependency scan
 
-`.github/workflows/snyk.yml` is a reusable workflow that runs on every
-affected package when `ci.yml` detects changes. The `passed` job requires it
-alongside `npm audit`, secret scanning, and the existing test lanes.
+Snyk runs inside the `Package / <name>` matrix job in `ci.yml`, after the
+lockfile install, so it reuses that job's checkout and install instead of
+adding another runner. There is no separate Snyk workflow.
 
-Each run installs the Snyk CLI via `snyk/actions/setup@master`, then runs:
+For each affected package:
 
-- `snyk test --severity-threshold=high --dev=false` against the package's
-  installed production dependencies.
-- `snyk test --severity-threshold=high --dev=true` against the same lockfile's
-  development dependencies. (Pi packages are source-published, so dev deps
-  remain on the build path.)
-- `snyk monitor` snapshots the lockfile to Snyk so newly disclosed advisories
-  surface in the Snyk web UI without re-scanning history.
+- `snyk test --severity-threshold=high --dev` fails the job on high or critical
+  advisories. One scan is enough because `--dev` includes production **and**
+  development dependencies; Pi packages publish TypeScript source, so dev
+  dependencies stay on the build path.
+- `snyk monitor` refreshes the package's snapshot in the Snyk web UI. It runs
+  only on `main` pushes (`github.event_name == 'push'`) and is best-effort, so
+  a Snyk outage cannot freeze a release.
 
-`snyk test` blocks the pipeline on high or critical advisories. `snyk monitor`
-is best-effort so a Snyk outage cannot freeze the release.
+The scanner is pinned as `snyk@1.1307.4` in the same `npm install --global`
+line as `npm@12.0.0`. Pinning the npm package is stronger than
+`snyk/actions/*@master`, whose Docker image tag is mutable, and it avoids
+pulling a Docker image for every matrix leg. Bump that version deliberately in
+`ci.yml`.
 
-The workflow requires a repository secret named `SNYK_TOKEN`. Generate one at
-<https://app.snyk.io/account> → Auth Token. Set it under
-Settings → Secrets and variables → Actions. For a personal account, leaving
-`SNYK_ORG` unset
-is fine — Snyk falls back to the authenticated user's default org. Add it as a
-repository variable only when the token must report under a specific org.
+Snyk requires the repository secret `SNYK_TOKEN`. Generate one at
+<https://app.snyk.io/account> → Auth Token and set it under
+Settings → Secrets and variables → Actions. Fork pull requests cannot read
+repository secrets, so the Snyk steps are skipped there; the tooling and secret
+lanes still run. `publish.yml` passes `secrets: inherit` to `ci.yml` so the
+scan also gates `main`. Add `--org=<id>` to the two commands only when the
+token must report under a specific organization.
 
-Snyk's free tier covers public repositories without a monthly test limit. Add
-`SNYK_TOKEN` once and the workflow runs on every CI build thereafter.
+Snyk's free tier covers public repositories without a monthly test limit.
+
+## Dependency and Actions updates
 
 Dependabot proposes weekly Actions and npm updates. Actions use commit SHA
 pins. The Gitleaks binary version and SHA-256 checksum in
-`scripts/install-gitleaks.sh` must be updated together.
+`scripts/install-gitleaks.sh` must be updated together. Dependabot does not
+track the pinned Snyk CLI version in `ci.yml`; bump it manually.
 
 ## Secret scanning
 
