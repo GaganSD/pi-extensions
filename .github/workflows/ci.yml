@@ -19,7 +19,7 @@ jobs:
     outputs:
       packages: ${{ steps.detect.outputs.packages }}
       has_packages: ${{ steps.detect.outputs.has_packages }}
-      web: ${{ steps.detect.outputs.web }}
+      matrix: ${{ steps.detect.outputs.matrix }}
       base: ${{ steps.base.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,54 +74,65 @@ jobs:
   packages:
     needs: changes
     if: needs.changes.outputs.has_packages == 'true'
-    name: Package / ${{ matrix.package }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.label && format('Package / {0} ({1})', matrix.package, matrix.label) || format('Package / {0}', matrix.package) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
     strategy:
       fail-fast: false
-      matrix:
-        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Standard package lane (current Node and Pi, Linux).
+      - if: matrix.kind != 'compat'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - if: matrix.kind != 'compat'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: |
             package-lock.json
             ${{ matrix.package }}/package-lock.json
-      - run: npm install --global npm@12.0.0 snyk@1.1307.4 --ignore-scripts --no-audit --no-fund
-      - name: Install tooling
+      - if: matrix.kind != 'compat'
+        run: npm install --global npm@12.0.0 snyk@1.1307.4 --ignore-scripts --no-audit --no-fund
+      - if: matrix.kind != 'compat'
+        name: Install tooling
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install package
+      - if: matrix.kind != 'compat'
+        name: Install package
         run: npm ci --prefix "${{ matrix.package }}" --ignore-scripts --no-audit --no-fund
-      - name: Lint
+      - if: matrix.kind != 'compat'
+        name: Lint
         run: npm run lint --prefix "${{ matrix.package }}"
-      - name: Typecheck
+      - if: matrix.kind != 'compat'
+        name: Typecheck
         run: npm run typecheck --prefix "${{ matrix.package }}"
-      - name: Unit tests
+      - if: matrix.kind != 'compat'
+        name: Unit tests
         run: npm run test:unit --prefix "${{ matrix.package }}"
-      - name: Integration tests
+      - if: matrix.kind != 'compat'
+        name: Integration tests
         run: npm run test:integration --prefix "${{ matrix.package }}"
-      # Snyk replaces `npm audit` as the package dependency gate: one scan
-      # covers production and development dependencies. Skipped on fork PRs,
-      # where GitHub withholds secrets.
-      - name: Snyk dependency scan (production and development)
-        if: env.SNYK_TOKEN != ''
+      # Snyk is the single dependency gate: one scan covers production and
+      # development dependencies. Skipped on fork PRs, where GitHub withholds
+      # secrets.
+      - if: matrix.kind != 'compat' && env.SNYK_TOKEN != ''
+        name: Snyk dependency scan (production and development)
         working-directory: ${{ matrix.package }}
         run: snyk test --severity-threshold=high --dev
-      - name: Snyk monitor on main (best effort)
-        if: env.SNYK_TOKEN != '' && github.event_name == 'push'
+      - if: matrix.kind != 'compat' && env.SNYK_TOKEN != '' && github.event_name == 'push'
+        name: Snyk monitor on main (best effort)
         working-directory: ${{ matrix.package }}
         run: snyk monitor --dev
         continue-on-error: true
-      - name: Build and smoke-test npm artifact
+      - if: matrix.kind != 'compat'
+        name: Build and smoke-test npm artifact
         run: npm run build --prefix "${{ matrix.package }}"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - if: matrix.kind != 'compat'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: npm-${{ matrix.package }}
           path: .artifacts/${{ matrix.package }}/
@@ -129,10 +140,37 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  web-compatibility:
-    needs: changes
-    if: needs.changes.outputs.web == 'true'
-    uses: ./.github/workflows/pi-web-search.yml
+      # Cross-platform and Pi-version compatibility lane. The checkout path
+      # deliberately contains spaces to catch path-handling regressions.
+      - if: matrix.kind == 'compat'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: package validation workspace
+          persist-credentials: false
+      - if: matrix.kind == 'compat'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: package validation workspace/pi-web-search/package-lock.json
+      - if: matrix.kind == 'compat'
+        name: Install
+        working-directory: package validation workspace/pi-web-search
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      # npm 12 avoids Pi 1.0's vulnerable shrinkwrapped brace-expansion version.
+      - if: matrix.kind == 'compat' && matrix.pi == '1.0.0'
+        name: Install Pi 1.0
+        working-directory: package validation workspace/pi-web-search
+        run: npx --yes npm@12.0.0 install --ignore-scripts --no-audit --no-fund --save-dev @earendil-works/pi-coding-agent@1.0.0 @earendil-works/pi-ai@1.0.0 @earendil-works/pi-tui@1.0.0
+      - if: matrix.kind == 'compat'
+        name: Typecheck
+        working-directory: package validation workspace/pi-web-search
+        run: npm run typecheck
+      # pack:check runs all runtime tests against the tarball. Do not run them twice.
+      - if: matrix.kind == 'compat'
+        name: Test package and runtime
+        working-directory: package validation workspace/pi-web-search
+        run: npm test -- tests/package && npm run pack:check
 
   secrets:
     uses: ./.github/workflows/secret-scan.yml
@@ -140,7 +178,7 @@ jobs:
   passed:
     name: CI passed
     if: always()
-    needs: [changes, tooling, packages, web-compatibility, secrets]
+    needs: [changes, tooling, packages, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -154,8 +192,7 @@ jobs:
               if (jobs[name].result !== "success") process.exit(1);
             }
             const expected = {
-              packages: jobs.changes.outputs.has_packages === "true",
-              "web-compatibility": jobs.changes.outputs.web === "true"
+              packages: jobs.changes.outputs.has_packages === "true"
             };
             for (const [name, required] of Object.entries(expected)) {
               if (jobs[name].result !== (required ? "success" : "skipped")) process.exit(1);

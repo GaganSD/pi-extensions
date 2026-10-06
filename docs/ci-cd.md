@@ -22,6 +22,12 @@ Each affected package runs:
    registration smoke test against the installed artifact.
 6. Upload of the validated tarball and SHA-512 integrity metadata.
 
+`scripts/ci.mjs` expands `pi-web-search` into three extra compatibility legs in
+the same `Package` matrix: Linux and Windows on Pi 0.99, macOS on Pi 1.0. Those
+legs install the pinned Pi version, typecheck, and run the package and tarball
+tests. Their checkout path deliberately contains spaces to catch path-handling
+regressions.
+
 These packages intentionally publish TypeScript source, so building means
 producing and validating the npm artifact, not introducing a transpilation step.
 The clean consumer omits host peer packages: Pi supplies those. Runtime
@@ -35,9 +41,9 @@ integration lane includes cross-module contracts, registration, filesystem,
 process, and package-load checks. New cross-component tests should be listed in
 that lane rather than merely renamed to claim integration coverage.
 
-The existing web-search Linux/Windows/macOS and Pi compatibility matrix remains
-a required reusable workflow when web-search or shared tooling changes. Live
-search-provider tests are intentionally not release gates.
+There is no separate web-compatibility workflow: the compatibility legs ride
+in the `Package` matrix so one job list covers every package and every supported
+runtime. Live search-provider tests are intentionally not release gates.
 
 ### Local checks
 
