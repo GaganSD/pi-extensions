@@ -22,11 +22,9 @@ Each affected package runs:
    registration smoke test against the installed artifact.
 6. Upload of the validated tarball and SHA-512 integrity metadata.
 
-`scripts/ci.mjs` expands `pi-web-search` into three extra compatibility legs in
-the same `Package` matrix: Linux and Windows on Pi 0.99, macOS on Pi 1.0. Those
-legs install the pinned Pi version, typecheck, and run the package and tarball
-tests. Their checkout path deliberately contains spaces to catch path-handling
-regressions.
+`scripts/ci.mjs` produces exactly one `Package / <name>` leg per affected
+package, so each package reports a single combined check on current Node and Pi.
+There is no separate platform or Pi-version compatibility matrix.
 
 These packages intentionally publish TypeScript source, so building means
 producing and validating the npm artifact, not introducing a transpilation step.
@@ -41,9 +39,7 @@ integration lane includes cross-module contracts, registration, filesystem,
 process, and package-load checks. New cross-component tests should be listed in
 that lane rather than merely renamed to claim integration coverage.
 
-There is no separate web-compatibility workflow: the compatibility legs ride
-in the `Package` matrix so one job list covers every package and every supported
-runtime. Live search-provider tests are intentionally not release gates.
+Live search-provider tests are intentionally not release gates.
 
 ### Local checks
 
@@ -204,7 +200,7 @@ For each affected package:
   advisories. One scan is enough because `--dev` includes production **and**
   development dependencies; Pi packages publish TypeScript source, so dev
   dependencies stay on the build path. Transient Snyk API errors (exit code 2)
-  are retried three times; advisories (exit code 1) fail immediately.
+  are retried five times; advisories (exit code 1) fail immediately.
 - `snyk monitor` refreshes the package's snapshot in the Snyk web UI. It runs
   only on `main` pushes (`github.event_name == 'push'`) and is best-effort, so
   a Snyk outage cannot freeze a release.

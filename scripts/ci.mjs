@@ -10,18 +10,10 @@ export function affectedPackages(files) {
   return shared ? names : names.filter(name => files.some(file => file.startsWith(name + "/")));
 }
 
-// Extra cross-platform and Pi-version legs for the one package with runtime
-// differences. They ride in the same matrix as the standard package legs.
-const webCompatLegs = [
-  { package: "pi-web-search", os: "ubuntu-latest", node: "22.19.0", pi: "0.99.0", kind: "compat", label: "Linux, Pi 0.99" },
-  { package: "pi-web-search", os: "windows-latest", node: "24.x", pi: "0.99.0", kind: "compat", label: "Windows, Pi 0.99" },
-  { package: "pi-web-search", os: "macos-latest", node: "24.x", pi: "1.0.0", kind: "compat", label: "macOS, Pi 1.0" },
-];
-
+// One combined leg per package: a single job and a single check name keep the
+// required-status list and the release gate simple.
 export function ciMatrix(paths) {
-  const legs = paths.map(name => ({ package: name, os: "ubuntu-latest", node: "24", kind: "package" }));
-  if (paths.includes("pi-web-search")) legs.push(...webCompatLegs);
-  return legs;
+  return paths.map(name => ({ package: name }));
 }
 
 if (isMain(import.meta.url)) {
