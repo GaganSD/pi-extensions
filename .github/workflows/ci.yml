@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      packages: ${{ steps.detect.outputs.packages }}
       has_packages: ${{ steps.detect.outputs.has_packages }}
       matrix: ${{ steps.detect.outputs.matrix }}
       base: ${{ steps.base.outputs.sha }}

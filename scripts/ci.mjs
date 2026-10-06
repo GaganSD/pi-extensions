@@ -29,7 +29,7 @@ if (isMain(import.meta.url)) {
   if (!/^[a-f0-9]{40}$/.test(head ?? "")) throw new Error("Expected a full head SHA");
   const paths = !base || /^0+$/.test(base) ? Object.keys(packages)
     : affectedPackages(git("diff", "--name-only", "--no-renames", base, head).split("\n").filter(Boolean));
-  const output = `packages=${JSON.stringify(paths)}\nhas_packages=${paths.length > 0}\nmatrix=${JSON.stringify({ include: ciMatrix(paths) })}\n`;
+  const output = `has_packages=${paths.length > 0}\nmatrix=${JSON.stringify({ include: ciMatrix(paths) })}\n`;
   process.stdout.write(output);
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, output);
 }
