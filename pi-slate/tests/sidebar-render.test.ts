@@ -195,7 +195,7 @@ test("theme invalidation and root remounting keep correct cache lifetimes", (t) 
   f.assertFrame();
 });
 
-test("vertical mode hides the sidebar and gives chat the full width", (t) => {
+test("focused mode hides the sidebar and gives chat the full width", (t) => {
   const preferred: { value?: number } = { value: SIDEBAR_HIDDEN };
   const f = fixture(t, 5, "auto", preferred);
   f.assertFrame();

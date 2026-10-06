@@ -58,7 +58,7 @@ function attachSidebar(columns = 140) {
   return { sidebar, overlays, hidden, tui };
 }
 
-test("vertical mode unmounts the sidebar overlay", () => {
+test("focused mode unmounts the sidebar overlay", () => {
   const { sidebar, overlays, hidden } = attachSidebar();
   sidebar.render(28);
   assert.equal(overlays[0]?.visible?.(140, 24), true);

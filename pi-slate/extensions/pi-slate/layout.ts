@@ -110,7 +110,7 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
-export function formatVerticalContextTokens(
+export function formatFocusedContextTokens(
   tokens: number | null | undefined,
   percent: number | null | undefined,
   rate: number | null | undefined,
@@ -136,7 +136,7 @@ export function formatContextResources(
   return `${formatSpend(spend)} · ${formatSkillsLoaded(skills)} · ${formatMcpEnabled(mcpCount ?? 0)}`;
 }
 
-export function formatVerticalContextResources(
+export function formatFocusedContextResources(
   spend: number | null | undefined,
   skills: number,
   mcpCount: number | null,
@@ -279,7 +279,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | vertical [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -302,9 +302,9 @@ const SLATE_COMPLETIONS = [
   "width narrow",
   "width medium",
   "width wide",
-  "vertical",
-  "vertical on",
-  "vertical off",
+  "focused",
+  "focused on",
+  "focused off",
   "message-length",
   "message-length default",
   "message-length all",
@@ -323,7 +323,7 @@ export type SlateArgs =
   | { ok: true; kind: "footer"; value?: "standard" | "minimal" }
   | { ok: true; kind: "width-menu" }
   | { ok: true; kind: "width"; width?: number }
-  | { ok: true; kind: "vertical"; value?: boolean }
+  | { ok: true; kind: "focused"; value?: boolean }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
@@ -374,9 +374,9 @@ export function parseSlateArgs(raw: string): SlateArgs {
       ? { ok: true, kind: "width" }
       : { ok: true, kind: "width", width: parsed.percent };
   }
-  if (head === "vertical") {
-    if (!tail) return { ok: true, kind: "vertical" };
-    if (tail === "on" || tail === "off") return { ok: true, kind: "vertical", value: tail !== "on" };
+  if (head === "focused") {
+    if (!tail) return { ok: true, kind: "focused" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "focused", value: tail === "on" };
     return { ok: false };
   }
   if (head === "message-length") {

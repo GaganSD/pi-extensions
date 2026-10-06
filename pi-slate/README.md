@@ -29,17 +29,17 @@ Explore extension settings using `/slate` after installation. Releases: [CHANGEL
 
 Slate renders cleanly into your terminal and stays customizable without adding new model-facing tools, prompts, or model calls.
 
-### Vertical-first Workspace
+### Focused-first Workspace
 
-Vertical mode is the default. It unmounts the sidebar, gives chat the full window, and keeps the prompt compact.
+Focused mode is the default. It unmounts the sidebar, gives chat the full window, and keeps the prompt compact.
 
-- `/slate vertical [on|off]` sets the saved vertical-mode state.
+- `/slate focused [on|off]` sets the saved focused-mode state.
 - Choosing a sidebar width returns to standard sidebar mode.
 - Working status stays on the left of the prompt's top edge.
 - When skills or MCPs are present, spend and nonzero counts stay on the right of the prompt's top edge.
 - Token usage uses the compact footer format: `47,349 tokens (5%) · 845 tokens/sec`.
 
-![Slate vertical mode with the sidebar unmounted](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-vertical.png)
+![Slate focused mode with the sidebar unmounted](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
 
 ### Diff
 
@@ -80,7 +80,7 @@ Inspect work-tree files and recent request activity directly from the terminal.
 Slate keeps usage and spend visible without sending context to your LLM.
 
 - Standard mode keeps detailed token, rate, spend, skill, and MCP facts in the sidebar's Context dock.
-- Vertical mode uses the shorter prompt-edge format and hides the resource summary when no skills or MCP servers are loaded.
+- Focused mode uses the shorter prompt-edge format and hides the resource summary when no skills or MCP servers are loaded.
 - MCP counts come from Pi's native global `mcp.json` and project `.pi/mcp.json` files.
 - Project MCP entries override global entries with the same name; `enabled: false` and `disabled: true` are respected.
 - Context usage may be estimated when provider usage is unavailable.
@@ -128,7 +128,7 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 | Setting | Commands | Effect |
 | --- | --- | --- |
-| Vertical | `/slate vertical [on\|off]` | Set vertical mode. Vertical mode hides the sidebar; standard mode restores it. |
+| Focused | `/slate focused [on\|off]` | Set focused mode. Focused mode hides the sidebar; standard mode restores it. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
@@ -162,8 +162,8 @@ Slate adds no new model-facing tools, prompts, or model calls. Highlighted `edit
 
 - Pi Coding Agent and a modern terminal that can render Kitty or iTerm2 image protocol, such as Ghostty or Warp.
 - Disable other UI extensions or ask your agent to merge them. Slate replaces Pi's header, footer, and editor. Extensions that replace the same surfaces may conflict.
-- Copy a bug report with `/slate bug`.
+- Copy a bug report with `/slate bug`
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © [Gagan Devagiri](https://github.com/GaganSD)
