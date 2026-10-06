@@ -122,13 +122,28 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     uses: ./.github/workflows/pi-web-search.yml
 
+  snyk:
+    needs: changes
+    if: needs.changes.outputs.has_packages == 'true'
+    name: Snyk / ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.changes.outputs.packages) }}
+    secrets: inherit
+    uses: ./.github/workflows/snyk.yml
+    with:
+      package: ${{ matrix.package }}
+
   secrets:
     uses: ./.github/workflows/secret-scan.yml
 
   passed:
     name: CI passed
     if: always()
-    needs: [changes, tooling, packages, web-compatibility, secrets]
+    needs: [changes, tooling, packages, web-compatibility, snyk, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -143,7 +158,8 @@ jobs:
             }
             const expected = {
               packages: jobs.changes.outputs.has_packages === "true",
-              "web-compatibility": jobs.changes.outputs.web === "true"
+              "web-compatibility": jobs.changes.outputs.web === "true",
+              "snyk": jobs.changes.outputs.has_packages === "true"
             };
             for (const [name, required] of Object.entries(expected)) {
               if (jobs[name].result !== (required ? "success" : "skipped")) process.exit(1);

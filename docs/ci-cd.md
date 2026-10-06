@@ -185,6 +185,35 @@ Complete these steps before the first release:
    They protect supported credential formats before GitHub accepts a push;
    the Actions scanner is not a replacement.
 
+## Snyk dependency scan
+
+`.github/workflows/snyk.yml` is a reusable workflow that runs on every
+affected package when `ci.yml` detects changes. The `passed` job requires it
+alongside `npm audit`, secret scanning, and the existing test lanes.
+
+Each run installs the Snyk CLI via `snyk/actions/setup@master`, then runs:
+
+- `snyk test --severity-threshold=high --dev=false` against the package's
+  installed production dependencies.
+- `snyk test --severity-threshold=high --dev=true` against the same lockfile's
+  development dependencies. (Pi packages are source-published, so dev deps
+  remain on the build path.)
+- `snyk monitor` snapshots the lockfile to Snyk so newly disclosed advisories
+  surface in the Snyk web UI without re-scanning history.
+
+`snyk test` blocks the pipeline on high or critical advisories. `snyk monitor`
+is best-effort so a Snyk outage cannot freeze the release.
+
+The workflow requires a repository secret named `SNYK_TOKEN`. Generate one at
+<https://app.snyk.io/account> → Auth Token. Set it under
+Settings → Secrets and variables → Actions. For a personal account, leaving
+`SNYK_ORG` unset
+is fine — Snyk falls back to the authenticated user's default org. Add it as a
+repository variable only when the token must report under a specific org.
+
+Snyk's free tier covers public repositories without a monthly test limit. Add
+`SNYK_TOKEN` once and the workflow runs on every CI build thereafter.
+
 Dependabot proposes weekly Actions and npm updates. Actions use commit SHA
 pins. The Gitleaks binary version and SHA-256 checksum in
 `scripts/install-gitleaks.sh` must be updated together.
