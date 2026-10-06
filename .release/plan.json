@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "sourceSha": "95d5a1e4d46c56057fef7e219ef652ffa588dc8e",
+  "notes": "Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.\n\n- pi-slate: focused mode replaces vertical mode (`/slate focused`); the unused `@earendil-works/pi-ai` and `typebox` peers are dropped\n- All packages: Pi dev/peer pins to 1.0.0, TypeScript to 7.0.2, typebox to 1.3.34\n- pi-subagents: yaml to 2.9.1\n- Actions: setup-node v7.0.0, upload-artifact v7.0.1, download-artifact v8.0.1",
+  "packages": [
+    {
+      "path": "pi-ask",
+      "name": "@gagansd/pi-ask",
+      "from": "0.1.2",
+      "to": "0.1.3",
+      "bump": "patch"
+    },
+    {
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.1.9",
+      "to": "0.1.10",
+      "bump": "patch"
+    },
+    {
+      "path": "pi-subagents",
+      "name": "@gagansd/pi-subagents",
+      "from": "0.0.1",
+      "to": "0.0.2",
+      "bump": "patch"
+    },
+    {
+      "path": "pi-web-search",
+      "name": "@gagansd/pi-web-search",
+      "from": "0.2.0",
+      "to": "0.2.1",
+      "bump": "patch"
+    }
+  ]
+}
