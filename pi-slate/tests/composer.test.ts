@@ -100,6 +100,9 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
     100,
   );
   assert.equal(minimal.right, "");
+  assert.match(minimal.left, new RegExp(`\\[PID-${process.pid}\\]`));
+
+  assert.match(wide.left, new RegExp(`\\[PID-${process.pid}\\]`));
 
   const narrow = composerLabels(
     { project: "pi-configs", branch: "main", model: "grok-4.6", thinking: "medium", footer: "standard" },

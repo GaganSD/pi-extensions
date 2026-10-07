@@ -145,6 +145,9 @@ export function inscribedBorder(
   return `${paint(open)}${leftText}${paint("─".repeat(fill))}${rightText}${paint(close)}`;
 }
 
+/** Pi agent process id, read once: it never changes during the session. */
+const AGENT_PID = process.pid;
+
 export function composerLabels(
   input: {
     project: string;
@@ -160,7 +163,8 @@ export function composerLabels(
   const visible = footerVisibility(width);
   const project = theme.fg("accent", input.project);
   const branch = visible.showBranch && input.branch ? theme.fg("muted", ` / ${input.branch}`) : "";
-  const projectLabel = ` ${project}${branch} `;
+  const pid = theme.fg("dim", ` [PID-${AGENT_PID}]`);
+  const projectLabel = ` ${project}${branch}${pid} `;
   if (input.footer === "minimal") return { left: projectLabel, right: "" };
 
   const parts: string[] = [];
