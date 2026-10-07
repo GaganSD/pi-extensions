@@ -18,7 +18,10 @@ Tiny yet powerful, benchmarked sub-agents for Pi
 | Avg Tokens for 5 tasks (Kimi-K3 · k@3) | 331,346 | 638,964 | **48.14%** |
 | Avg Tokens for 5 tasks (Grok-4.6 · k@3) | 256,451 | 979,286 | **73.81%** |
 
-Both models ran through the same five dynamic workflow tasks using different subagents packages. 
+These frozen figures are from a prior measured campaign, not measurements or a
+rebenchmark of this new release's changed artifact. Both models ran through the
+same five dynamic workflow tasks using different subagents packages. See the
+[benchmark methodology](https://github.com/GaganSD/pi-extensions/blob/main/benchmarks/README.md).
 
 ## Installation
 
@@ -44,9 +47,11 @@ Running rows show `worker · PID-12345 01a11744… · 12%/272K`.
 Sub-agents are **in-process native Pi SDK sessions**: every row shares the owning
 agent's real OS PID, not a separate worker process. The shortened ID is the native
 session ID (prefixes expand to distinguish live sessions), **not** the run UUID.
-Clicks and down-arrow controls still route by the exact run UUID; the inspector
-shows that UUID and the full native session ID. Full IDs and the latest observed
-context estimate remain in `run.json`, including failed/cancelled runs.
+The displayed native-session prefix cannot be supplied to `/subagents`: the
+command requires a run UUID or its prefix. Use the `/subagents` picker, a click,
+or Down, or copy the run UUID from the inspector, which also shows the full
+native session ID. Full IDs and the latest observed context estimate remain in
+`run.json`, including failed/cancelled runs.
 
 The percentage is Pi's **estimated current context occupancy** divided by the
 selected model's context window, not cumulative billed tokens. Limits use decimal
