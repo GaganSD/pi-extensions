@@ -115,7 +115,7 @@ export function formatCompactTokenCount(tokens: number | null | undefined): stri
   if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "—";
   const n = Math.max(0, Math.round(tokens));
   if (n < 1000) return `${n}`;
-  if (n < 1_000_000) {
+  if (Math.round(n / 1000) < 1000) {
     const k = n / 1000;
     return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
   }

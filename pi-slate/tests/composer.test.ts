@@ -5,6 +5,7 @@ import { Editor, visibleWidth, type EditorTheme, type TUI } from "@earendil-work
 import { formatFocusedContextResources, formatFocusedContextTokens } from "../extensions/pi-slate/layout.ts";
 import {
   chromePaint,
+  ComposerEditor,
   paintSelectedContent,
   composerContextEdge,
   composerLabels,
@@ -19,6 +20,7 @@ import {
   scrollComposerByLines,
 } from "../extensions/pi-slate/composer.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
 const theme = {
   fg: (_name: string, text: string) => text,
@@ -216,10 +218,54 @@ test("top edge right suffix stays pinned and survives truncation", () => {
   assert.ok(stripVTControlCharacters(alone).endsWith(`${pid} ╮`));
 });
 
+test("top edge fits every width with ANSI and wide suffixes", () => {
+  for (const suffix of ["PID-123456", "\x1b[90mPID-123456\x1b[0m", "進行中🚀"]) {
+    for (let width = 0; width <= 80; width++) {
+      const line = composerStatusContextEdge("$7.47 · 14 skills", width, (text) => text, 12, "Retrying...", undefined, suffix);
+      assert.equal(visibleWidth(line), width, `width ${width}: ${JSON.stringify(line)}`);
+    }
+  }
+});
+
+test("live status receives only its body budget and renders once", () => {
+  const budgets: number[] = [];
+  const line = composerStatusContextEdge("many resources", 30, (text) => text, 0, "", (width) => {
+    budgets.push(width);
+    return width >= 16 ? "Long status text" : "retry";
+  }, "PID-123456");
+  assert.deepEqual(budgets, [11]);
+  assert.match(line, /retry/);
+  assert.equal(visibleWidth(line), 30);
+});
+
+test("overflow count stays visible before static resource decorations", () => {
+  const line = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 30, (text) => text, 12);
+  assert.match(line, /↑ 12 more/);
+  assert.equal(visibleWidth(line), 30);
+});
+
 test("composer top border omits the PID suffix when PID display is off", () => {
   const off = composerStatusContextEdge("$7.47 · 14 skills", 80, (text) => text, 0, "", undefined, "");
   assert.doesNotMatch(stripVTControlCharacters(off), /PID-/);
   assert.ok(stripVTControlCharacters(off).endsWith("╮"));
+});
+
+test("composer editor renders PID only when enabled and hides it if it cannot fit", () => {
+  let showPid: boolean | undefined;
+  const editor = new ComposerEditor(
+    { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI,
+    { borderColor: (text) => text } as EditorTheme,
+    new KeybindingsManager(),
+    () => ({ project: "slate", branch: null, model: undefined, footer: "standard", theme, showPid }),
+  );
+  assert.doesNotMatch(stripVTControlCharacters(editor.render(80)[0] ?? ""), /PID-/);
+  showPid = true;
+  assert.match(stripVTControlCharacters(editor.render(80)[0] ?? ""), new RegExp(`PID-${process.pid}`));
+  const narrow = editor.render(8);
+  assert.doesNotMatch(stripVTControlCharacters(narrow[0] ?? ""), /PID-/);
+  for (const line of narrow) assert.equal(visibleWidth(line), 8);
+  showPid = false;
+  assert.doesNotMatch(stripVTControlCharacters(editor.render(80)[0] ?? ""), /PID-/);
 });
 
 test("empty composer frames sides and prompt without a hint row", () => {

@@ -11,6 +11,7 @@ import {
   countSkillCommands,
   formatContextResources,
   formatContextTokens,
+  formatCompactTokenCount,
   formatInteger,
   formatMcpEnabled,
   formatPercent,
@@ -108,6 +109,15 @@ test("sidebar context labels match the OpenCode-style facts", () => {
   assert.equal(formatSpend(null), "$0.00");
   assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
   assert.equal(formatContextTokens(null, null, null), "— tokens · —% used · — tokens/sec");
+});
+
+test("compact token counts handle missing values and rounding across units", () => {
+  for (const [input, expected] of [
+    [undefined, "—"], [null, "—"], [NaN, "—"], [Infinity, "—"], [-42, "0"],
+    [0, "0"], [845.4, "845"], [999.4, "999"], [999.5, "1k"],
+    [16_005, "16k"], [47_349, "47.3k"], [100_000, "100k"],
+    [999_499, "999k"], [999_500, "1M"], [1_000_000, "1M"], [2_550_000, "2.6M"],
+  ]) assert.equal(formatCompactTokenCount(input), expected, String(input));
 });
 
 test("focused context tokens use compact percent placement", () => {

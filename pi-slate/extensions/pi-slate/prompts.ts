@@ -11,7 +11,7 @@ import {
 import {
   Container,
   Input,
-  matchesKey,
+  truncateToWidth,
   type SelectItem,
   SelectList,
   Spacer,
@@ -35,7 +35,7 @@ const parsePrompt = (id: string, source: string): Prompt => {
 
   return {
     id,
-    name: pickString(frontmatter.name),
+    name: pickString(frontmatter.name)?.replace(/[\r\n]+/g, " "),
     description: pickString(frontmatter.description),
     content: body,
   };
@@ -50,7 +50,7 @@ const loadPrompt =
     return parsePrompt(id, source);
   };
 
-const loadPrompts = async (pi: ExtensionAPI): Promise<Prompt[]> => {
+const loadPrompts = async (pi: ExtensionAPI, ctx: ExtensionContext): Promise<Prompt[]> => {
   const paths = pi
     .getCommands()
     .filter((command) => command.source === ("prompt" as const))
@@ -58,7 +58,13 @@ const loadPrompts = async (pi: ExtensionAPI): Promise<Prompt[]> => {
 
   const settled = await Promise.allSettled(paths.map((path) => loadPrompt(readFile)(path)));
 
-  return settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
+  const skipped = settled.filter((result) => result.status === "rejected").length;
+  if (skipped > 0) ctx.ui.notify(`Skipped ${skipped} unreadable prompt template${skipped === 1 ? "" : "s"}.`, "warning");
+  return settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []))
+    .sort((left, right) => (left.name || left.id).localeCompare(right.name || right.id, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }));
 };
 
 const filterPrompts = (prompts: Prompt[]) => (query: string) => {
@@ -78,20 +84,7 @@ const queryPrompts = (prompts: Prompt[]) => (query: string) =>
     value: prompt.content,
   }));
 
-const isListKey = (data: string): boolean =>
-  matchesKey(data, "up") ||
-  matchesKey(data, "down") ||
-  matchesKey(data, "return") ||
-  matchesKey(data, "escape");
-
 const buildList = (items: SelectItem[]): SelectList => {
-  items = items.sort((left, right) =>
-    left.label.localeCompare(right.label, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    }),
-  );
-
   return new SelectList(
     items,
     5, // maxVisible
@@ -107,7 +100,7 @@ const buildContainer = (theme: Theme) => (search: Input, list: SelectList) => {
 
   panel.addChild(search);
   panel.addChild(new Spacer(1));
-  panel.addChild(list);
+  panel.addChild(list.getSelectedItem() ? list : new Text("No matching prompts", 1, 0));
   panel.addChild(new Spacer(1));
 
   panel.addChild(new Text("↑↓ choose · Enter insert · Esc close", 1, 0));
@@ -120,7 +113,7 @@ const openPromptsOverlay =
   (prompts: Prompt[]) =>
   async (ctx: ExtensionContext): Promise<void> => {
     const selected = await ctx.ui.custom<string | undefined>(
-      (tui, theme, _keybindings, done) => {
+      (tui, theme, keybindings, done) => {
         const search = new Input();
         search.onEscape = () => done(undefined);
 
@@ -130,7 +123,7 @@ const openPromptsOverlay =
         list.onSelect = (item) => done(item.value);
         list.onCancel = () => done(undefined);
 
-        const render = (width: number) => panel.render(width);
+        const render = (width: number) => panel.render(width).map((line) => truncateToWidth(line, width, ""));
         const invalidate = () => panel.invalidate();
 
         const handleSearch = (data: string) => {
@@ -148,7 +141,8 @@ const openPromptsOverlay =
         };
 
         const handleInput = (data: string) => {
-          if (isListKey(data)) {
+          if ((["tui.select.up", "tui.select.down", "tui.select.confirm", "tui.select.cancel"] as const)
+            .some((action) => keybindings.matches(data, action))) {
             list.handleInput(data);
           } else {
             handleSearch(data);
@@ -178,8 +172,20 @@ const openPromptsOverlay =
   };
 
 export const installPromptPicker = (pi: ExtensionAPI): void => {
+  let open = false;
   const handler = async (ctx: ExtensionContext): Promise<void> => {
-    await openPromptsOverlay(await loadPrompts(pi))(ctx);
+    if (ctx.mode !== "tui" || open) return;
+    open = true;
+    try {
+      const prompts = await loadPrompts(pi, ctx);
+      if (prompts.length === 0) {
+        ctx.ui.notify("No readable prompt templates. Add templates and run /reload.", "info");
+        return;
+      }
+      await openPromptsOverlay(prompts)(ctx);
+    } finally {
+      open = false;
+    }
   };
 
   pi.registerCommand("prompts", {
@@ -187,7 +193,7 @@ export const installPromptPicker = (pi: ExtensionAPI): void => {
     handler: async (_args, ctx) => handler(ctx),
   });
 
-  pi.registerShortcut("ctrl+shift+p", {
+  pi.registerShortcut("ctrl+alt+p", {
     description: "Pick a prompt",
     handler,
   });

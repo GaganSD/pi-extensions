@@ -270,31 +270,19 @@ export function composerStatusContextEdge(
 
   const innerWidth = width - 2;
   const more = hiddenLineCount > 0 ? paint(` ↑ ${hiddenLineCount} more `) : "";
-  const suffix = rightSuffix ? ` ${rightSuffix} ` : "";
-  const suffixWidth = visibleWidth(suffix);
-  let right = resources ? ` ${resources} ` : "";
-  const rightWidth = () => visibleWidth(right) + suffixWidth;
   const minFill = 1;
   const prefix = paint("── ");
-  const statusAt = (budget: number): string => {
-    const body = renderStatus ? renderStatus(Math.max(0, budget)) : status;
-    return body ? `${prefix}${body} ` : "";
-  };
-
-  let left = statusAt(innerWidth - minFill - suffixWidth);
-  while (visibleWidth(left) + rightWidth() + minFill > innerWidth && visibleWidth(right) > 0) {
-    right = truncateToWidth(right, Math.max(0, visibleWidth(right) - 1), "");
-  }
-  const remaining = innerWidth - rightWidth() - minFill;
-  left = statusAt(remaining);
-  if (!left && more) left = more;
-  else if (left && more && visibleWidth(left) + visibleWidth(more) + rightWidth() + minFill <= innerWidth) {
-    left = `${left}${more}`;
-  }
-  while (visibleWidth(left) + rightWidth() + minFill > innerWidth && visibleWidth(left) > 0) {
-    left = truncateToWidth(left, Math.max(0, visibleWidth(left) - 1), "");
-  }
-  const fill = Math.max(minFill, innerWidth - visibleWidth(left) - rightWidth());
+  let suffix = rightSuffix ? ` ${rightSuffix} ` : "";
+  // Omit the optional PID rather than overflow the frame or leave no room for status.
+  if (visibleWidth(suffix) + minFill + (status || renderStatus ? 5 : 0) > innerWidth) suffix = "";
+  const suffixWidth = visibleWidth(suffix);
+  const leftBudget = innerWidth - minFill - suffixWidth;
+  const bodyBudget = Math.max(0, leftBudget - visibleWidth(prefix) - 1);
+  const body = renderStatus ? renderStatus(bodyBudget) : status;
+  let left = truncateToWidth(body ? `${prefix}${body} ` : more, leftBudget, "");
+  if (body && more && visibleWidth(left) + visibleWidth(more) <= leftBudget) left += more;
+  const right = truncateToWidth(resources ? ` ${resources} ` : "", leftBudget - visibleWidth(left), "");
+  const fill = innerWidth - visibleWidth(left) - visibleWidth(right) - suffixWidth;
   return `${paint("╭")}${left}${paint("─".repeat(fill))}${right}${suffix}${paint("╮")}`;
 }
 
