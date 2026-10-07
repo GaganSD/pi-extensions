@@ -202,10 +202,10 @@ test("live status keeps its label when resources are long", () => {
 });
 
 test("top edge right suffix stays pinned and survives truncation", () => {
-  const pid = `[PID-${process.pid}]`;
+  const pid = `PID-${process.pid}`;
   const wide = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 80, (text) => text, 0, "", undefined, pid);
   assert.equal(visibleWidth(wide), 80);
-  assert.match(wide, new RegExp(`2 MCPs +${pid.replace(/[[\]]/g, (c) => `\\${c}`)} ╮$`));
+  assert.match(wide, new RegExp(`2 MCPs +${pid} ╮$`));
 
   const narrow = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 30, (text) => text, 0, "", undefined, pid);
   assert.equal(visibleWidth(narrow), 30);

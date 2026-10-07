@@ -389,7 +389,7 @@ export class ComposerEditor extends CustomEditor {
     const renderStatus = this.embedWorkingStatus
       ? (statusWidth: number) => composerStatusLabel(this.statusIndicator, src.theme, statusWidth)
       : undefined;
-    const pidLabel = src.theme.fg("dim", `[PID-${AGENT_PID}]`);
+    const pidLabel = src.theme.fg("dim", `PID-${AGENT_PID}`);
     return composerStatusContextEdge(
       src.context ? src.theme.fg("dim", src.context.resources) : "",
       width,
