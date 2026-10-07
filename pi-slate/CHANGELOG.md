@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- `/prompts` and `Ctrl+Alt+P` open a searchable prompt-template picker. Search by filename, name, description, or body; Enter inserts into the composer without sending. Esc or Ctrl+C leaves your draft unchanged. Pi's configured selection keys are supported.
+- Templates are reread when the picker opens. Unreadable files are reported and skipped; missing or empty names fall back to filenames.
+- `/slate pid [on|off]` toggles a saved agent process-ID label on the composer's top edge. Off by default; hidden when the frame is too narrow.
+
+### Changed
+
+- Focused-mode context uses `2%/250k tokens · ↑↓42`: usage percentage, context-window size, and estimated streamed tokens per second. Skill and MCP labels are shorter.
+- Composer borders keep status and overflow indicators ahead of resource labels and fit narrow terminal widths, including with PID display enabled.
+
 ## 0.1.10
 
 Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.

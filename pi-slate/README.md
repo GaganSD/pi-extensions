@@ -34,10 +34,11 @@ Slate renders cleanly into your terminal and stays customizable without adding n
 Focused mode is the default. It unmounts the sidebar, gives chat the full window, and keeps the prompt compact.
 
 - `/slate focused [on|off]` sets the saved focused-mode state.
+- `/slate pid [on|off]` toggles the agent PID label on the prompt's top edge; it stays off by default.
 - Choosing a sidebar width returns to standard sidebar mode.
 - Working status stays on the left of the prompt's top edge.
 - When skills or MCPs are present, spend and nonzero counts stay on the right of the prompt's top edge.
-- Token usage uses the compact footer format: `47,349 tokens (5%) · 845 tokens/sec`.
+- The context footer shows usage percentage, context-window size, and estimated streamed tokens per second: `5%/1M tokens · ↑↓845`.
 
 ![Slate focused mode with the sidebar unmounted](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
 
@@ -106,6 +107,12 @@ Black Metal is the install default. Catppuccin Mocha styles: Default, Quiet, Mau
 
 Selection is saved and also appears in `/settings`.
 
+### Prompt Templates
+
+`/prompts` or `Ctrl+Alt+P` opens a searchable picker of Pi's loaded prompt templates. Search by filename, name, description, or body; use ↑↓ to choose and Enter to insert at the composer cursor. Esc or Ctrl+C closes without changing your draft. Configured Pi selection keys are respected.
+
+The picker rereads templates when opened, reports unreadable files, and uses the filename when `name:` is missing or empty. Add new templates through Pi's prompt directories or settings, then run `/reload`. Inserting a template does not send a message or expand argument placeholders; edit those before submitting. If your terminal does not send the shortcut, use `/prompts`.
+
 ### Composer Keys
 
 These work from the prompt after `pi install npm:pi-slate`. No terminal configuration.
@@ -124,11 +131,12 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 ## Commands
 
-`/slate` with no args opens the settings picker.
+`/slate` with no args opens the settings picker. `/prompts` opens the prompt-template picker.
 
 | Setting | Commands | Effect |
 | --- | --- | --- |
 | Focused | `/slate focused [on\|off]` | Set focused mode. Focused mode hides the sidebar; standard mode restores it. |
+| PID display | `/slate pid [on\|off]` | Show the agent process ID on the composer's top edge. Off by default; omitted when the frame is too narrow. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |

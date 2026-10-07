@@ -110,12 +110,26 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
+/** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k", 1000000 -> "1M". */
+export function formatCompactTokenCount(tokens: number | null | undefined): string {
+  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "—";
+  const n = Math.max(0, Math.round(tokens));
+  if (n < 1000) return `${n}`;
+  if (Math.round(n / 1000) < 1000) {
+    const k = n / 1000;
+    return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+  }
+  const m = n / 1_000_000;
+  return `${m >= 100 ? Math.round(m) : Math.round(m * 10) / 10}M`;
+}
+
+/** Pi-style context label: `2%/250k tokens · ↑↓42`. */
 export function formatFocusedContextTokens(
-  tokens: number | null | undefined,
   percent: number | null | undefined,
   rate: number | null | undefined,
+  contextWindow: number | null | undefined,
 ): string {
-  return `${formatTokenCount(tokens)} (${formatPercent(percent)}) · ${formatTokenRate(rate)}`;
+  return `${formatPercent(percent)}/${formatCompactTokenCount(contextWindow)} tokens · ↑↓${formatCompactTokenCount(rate)}`;
 }
 
 export function formatMcpEnabled(count: number): string {
@@ -146,8 +160,8 @@ export function formatFocusedContextResources(
   if (skillCount === 0 && serverCount === 0) return "";
 
   const parts = [formatSpend(spend)];
-  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"} loaded`);
-  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"} enabled`);
+  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"}`);
+  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"}`);
   return parts.join(" · ");
 }
 
@@ -279,7 +293,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -305,6 +319,9 @@ const SLATE_COMPLETIONS = [
   "focused",
   "focused on",
   "focused off",
+  "pid",
+  "pid on",
+  "pid off",
   "message-length",
   "message-length default",
   "message-length all",
@@ -324,6 +341,7 @@ export type SlateArgs =
   | { ok: true; kind: "width-menu" }
   | { ok: true; kind: "width"; width?: number }
   | { ok: true; kind: "focused"; value?: boolean }
+  | { ok: true; kind: "pid"; value?: boolean }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
@@ -377,6 +395,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (head === "focused") {
     if (!tail) return { ok: true, kind: "focused" };
     if (tail === "on" || tail === "off") return { ok: true, kind: "focused", value: tail === "on" };
+    return { ok: false };
+  }
+  if (head === "pid") {
+    if (!tail) return { ok: true, kind: "pid" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "pid", value: tail === "on" };
     return { ok: false };
   }
   if (head === "message-length") {

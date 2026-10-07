@@ -11,6 +11,7 @@ import {
   countSkillCommands,
   formatContextResources,
   formatContextTokens,
+  formatCompactTokenCount,
   formatInteger,
   formatMcpEnabled,
   formatPercent,
@@ -110,9 +111,19 @@ test("sidebar context labels match the OpenCode-style facts", () => {
   assert.equal(formatContextTokens(null, null, null), "— tokens · —% used · — tokens/sec");
 });
 
+test("compact token counts handle missing values and rounding across units", () => {
+  for (const [input, expected] of [
+    [undefined, "—"], [null, "—"], [NaN, "—"], [Infinity, "—"], [-42, "0"],
+    [0, "0"], [845.4, "845"], [999.4, "999"], [999.5, "1k"],
+    [16_005, "16k"], [47_349, "47.3k"], [100_000, "100k"],
+    [999_499, "999k"], [999_500, "1M"], [1_000_000, "1M"], [2_550_000, "2.6M"],
+  ]) assert.equal(formatCompactTokenCount(input), expected, String(input));
+});
+
 test("focused context tokens use compact percent placement", () => {
-  assert.equal(formatFocusedContextTokens(3485, 2.4, 42.4), "3,485 tokens (2%) · 42 tokens/sec");
-  assert.equal(formatFocusedContextTokens(null, null, null), "— tokens (—%) · — tokens/sec");
+  assert.equal(formatFocusedContextTokens(2.4, 42.4, 250_000), "2%/250k tokens · ↑↓42");
+  assert.equal(formatFocusedContextTokens(2.4, 42.4, 1_000_000), "2%/1M tokens · ↑↓42");
+  assert.equal(formatFocusedContextTokens(null, null, null), "—%/— tokens · ↑↓—");
   assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
 });
 
@@ -223,6 +234,15 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("focused on"), { ok: true, kind: "focused", value: true });
   assert.deepEqual(parseSlateArgs("focused off"), { ok: true, kind: "focused", value: false });
   assert.deepEqual(parseSlateArgs("focused nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("pid"), { ok: true, kind: "pid" });
+  assert.deepEqual(parseSlateArgs("pid on"), { ok: true, kind: "pid", value: true });
+  assert.deepEqual(parseSlateArgs("pid off"), { ok: true, kind: "pid", value: false });
+  assert.deepEqual(parseSlateArgs("pid nope"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("pid"), [
+    { value: "pid", label: "pid" },
+    { value: "pid on", label: "pid on" },
+    { value: "pid off", label: "pid off" },
+  ]);
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
   assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });
@@ -292,9 +312,9 @@ test("MCP and skill counts share the Context resource line", () => {
 test("focused context resources omit zero skill and MCP counts", () => {
   assert.equal(formatFocusedContextResources(1.234, 0, 0), "");
   assert.equal(formatFocusedContextResources(1.234, 0, null), "");
-  assert.equal(formatFocusedContextResources(1.234, 3, 0), "$1.23 · 3 skills loaded");
-  assert.equal(formatFocusedContextResources(1.234, 0, 2), "$1.23 · 2 MCPs enabled");
-  assert.equal(formatFocusedContextResources(1.234, 1, 1), "$1.23 · 1 skill loaded · 1 MCP enabled");
+  assert.equal(formatFocusedContextResources(1.234, 3, 0), "$1.23 · 3 skills");
+  assert.equal(formatFocusedContextResources(1.234, 0, 2), "$1.23 · 2 MCPs");
+  assert.equal(formatFocusedContextResources(1.234, 1, 1), "$1.23 · 1 skill · 1 MCP");
   assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
 });
 
