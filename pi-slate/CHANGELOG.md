@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.11
+
+Add a searchable prompt-template picker and optional PID display; improve compact context labels and narrow-terminal rendering.
+
 ### Added
 
 - `/prompts` and `Ctrl+Alt+P` open a searchable prompt-template picker. Search by filename, name, description, or body; Enter inserts into the composer without sending. Esc or Ctrl+C leaves your draft unchanged. Pi's configured selection keys are supported.
