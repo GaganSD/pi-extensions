@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Composer
+
+- Show the agent PID in the composer footer on the top edge as a dim `PID-1234` label, with compact focused-mode labels and no brackets around the PID
+- Pi-style context label in the footer: `2%/250k tokens · ↑↓42` — percentage over the context window plus an arrow input/output rate, with compact token sizes (845, 16k, 47.3k, 1M)
+- A status right suffix moves the composer border truncation math so the suffix and the status text stay visible together
+
+### Prompts
+
+- New `/prompts` command and `Ctrl+Shift+P` shortcut open a searchable picker of your prompt templates: type to filter, ↑↓ to choose, Enter pastes the selected prompt into the editor, Esc or Ctrl+C closes
+- The picker reads prompt templates live from session state at open time, skips unreadable or deleted template files instead of failing the whole picker, and falls back to the file id when a template has no `name:` frontmatter
+
 ## 0.1.10
 
 Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.
