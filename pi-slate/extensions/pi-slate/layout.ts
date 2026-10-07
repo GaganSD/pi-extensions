@@ -110,26 +110,26 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
-/** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k". */
+/** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k", 1000000 -> "1M". */
 export function formatCompactTokenCount(tokens: number | null | undefined): string {
   if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "—";
   const n = Math.max(0, Math.round(tokens));
   if (n < 1000) return `${n}`;
-  const k = n / 1000;
-  return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+  if (n < 1_000_000) {
+    const k = n / 1000;
+    return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+  }
+  const m = n / 1_000_000;
+  return `${m >= 100 ? Math.round(m) : Math.round(m * 10) / 10}M`;
 }
 
-export function formatCompactTokenRate(rate: number | null | undefined): string {
-  if (rate === null || rate === undefined || !Number.isFinite(rate)) return "— t/s";
-  return `${formatInteger(Math.max(0, rate))} t/s`;
-}
-
+/** Pi-style context label: `2%/250k tokens · ↑↓42`. */
 export function formatFocusedContextTokens(
-  tokens: number | null | undefined,
   percent: number | null | undefined,
   rate: number | null | undefined,
+  contextWindow: number | null | undefined,
 ): string {
-  return `${formatCompactTokenCount(tokens)} · ${formatPercent(percent)} · ${formatCompactTokenRate(rate)}`;
+  return `${formatPercent(percent)}/${formatCompactTokenCount(contextWindow)} tokens · ↑↓${formatCompactTokenCount(rate)}`;
 }
 
 export function formatMcpEnabled(count: number): string {

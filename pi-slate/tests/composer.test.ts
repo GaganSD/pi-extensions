@@ -137,14 +137,14 @@ test("focused prompt edge hides empty resource counts and shows loaded skills", 
 });
 
 test("focused composer token label uses compact percent placement", () => {
-  const tokens = formatFocusedContextTokens(47349, 5.2, 845.4);
+  const tokens = formatFocusedContextTokens(5.2, 845.4, 1_000_000);
   const labels = composerLabels(
     { project: "pi-extensions", branch: "pi-0.99", model: "kimi-k3", thinking: "medium", tokens, footer: "standard" },
     theme,
     140,
   );
-  assert.match(labels.right, /47\.3k · 5% · 845 t\/s/);
-  assert.doesNotMatch(labels.right, /tokens|5% used/);
+  assert.match(labels.right, /5%\/1M tokens · ↑↓845/);
+  assert.doesNotMatch(labels.right, /t\/s|5% used/);
 });
 
 const labelTheme = {

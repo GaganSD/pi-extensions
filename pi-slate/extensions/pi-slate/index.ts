@@ -243,14 +243,17 @@ export default function piSlate(pi: ExtensionAPI): void {
     let tokens: number | null;
     let percent: number | null;
     let spend: number;
+    let contextWindow: number | null;
     try {
+      const usage = ctx.getContextUsage();
       const resolved = resolveContextTokens(
-        ctx.getContextUsage(),
+        usage,
         ctx.sessionManager.buildContextEntries(),
         ctx.model?.contextWindow,
       );
       tokens = resolved.tokens;
       percent = resolved.percent;
+      contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? null;
       spend = sessionSpend(ctx.sessionManager.getBranch());
     } catch {
       return;
@@ -266,7 +269,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.setSkillsLoaded(skills);
     sidebar.setMcpConnected(mcp);
     contextEdge = {
-      tokens: formatFocusedContextTokens(tokens, percent, tokenRate.rate()),
+      tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
       resources: formatFocusedContextResources(spend, skills, mcp),
     };
   };

@@ -111,9 +111,9 @@ test("sidebar context labels match the OpenCode-style facts", () => {
 });
 
 test("focused context tokens use compact percent placement", () => {
-  assert.equal(formatFocusedContextTokens(3485, 2.4, 42.4), "3.5k · 2% · 42 t/s");
-  assert.equal(formatFocusedContextTokens(845, 2.4, 42.4), "845 · 2% · 42 t/s");
-  assert.equal(formatFocusedContextTokens(null, null, null), "— · —% · — t/s");
+  assert.equal(formatFocusedContextTokens(2.4, 42.4, 250_000), "2%/250k tokens · ↑↓42");
+  assert.equal(formatFocusedContextTokens(2.4, 42.4, 1_000_000), "2%/1M tokens · ↑↓42");
+  assert.equal(formatFocusedContextTokens(null, null, null), "—%/— tokens · ↑↓—");
   assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
 });
 
