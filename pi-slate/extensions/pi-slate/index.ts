@@ -18,6 +18,7 @@ import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
 import { copyWithFeedback } from "./copy-feedback.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
+import { installPromptPicker } from "./prompts.ts";
 import { installDiff } from "./diff.ts";
 import { installRead } from "./read.ts";
 import { GitStatusPoller } from "./git-status.ts";
@@ -198,6 +199,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let config = loadConfig();
   installDiff(pi);
   installRead(pi);
+  installPromptPicker(pi);
   const sidebar = new Sidebar();
   const images = installImagePlaceholders(pi, sidebar);
   const selection = new ComposerSelectionController();
