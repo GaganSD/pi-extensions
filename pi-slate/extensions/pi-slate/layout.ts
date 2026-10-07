@@ -110,12 +110,26 @@ export function formatContextTokens(
   return `${formatTokenCount(tokens)} · ${formatPercent(percent)} used · ${formatTokenRate(rate)}`;
 }
 
+/** Compact thousands: 845 -> "845", 16005 -> "16k", 47349 -> "47.3k". */
+export function formatCompactTokenCount(tokens: number | null | undefined): string {
+  if (tokens === null || tokens === undefined || !Number.isFinite(tokens)) return "—";
+  const n = Math.max(0, Math.round(tokens));
+  if (n < 1000) return `${n}`;
+  const k = n / 1000;
+  return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
+}
+
+export function formatCompactTokenRate(rate: number | null | undefined): string {
+  if (rate === null || rate === undefined || !Number.isFinite(rate)) return "— t/s";
+  return `${formatInteger(Math.max(0, rate))} t/s`;
+}
+
 export function formatFocusedContextTokens(
   tokens: number | null | undefined,
   percent: number | null | undefined,
   rate: number | null | undefined,
 ): string {
-  return `${formatTokenCount(tokens)} (${formatPercent(percent)}) · ${formatTokenRate(rate)}`;
+  return `${formatCompactTokenCount(tokens)} · ${formatPercent(percent)} · ${formatCompactTokenRate(rate)}`;
 }
 
 export function formatMcpEnabled(count: number): string {
@@ -146,8 +160,8 @@ export function formatFocusedContextResources(
   if (skillCount === 0 && serverCount === 0) return "";
 
   const parts = [formatSpend(spend)];
-  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"} loaded`);
-  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"} enabled`);
+  if (skillCount > 0) parts.push(`${skillCount} ${skillCount === 1 ? "skill" : "skills"}`);
+  if (serverCount > 0) parts.push(`${serverCount} ${serverCount === 1 ? "MCP" : "MCPs"}`);
   return parts.join(" · ");
 }
 

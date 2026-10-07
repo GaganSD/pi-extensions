@@ -100,9 +100,6 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
     100,
   );
   assert.equal(minimal.right, "");
-  assert.match(minimal.left, new RegExp(`\\[PID-${process.pid}\\]`));
-
-  assert.match(wide.left, new RegExp(`\\[PID-${process.pid}\\]`));
 
   const narrow = composerLabels(
     { project: "pi-configs", branch: "main", model: "grok-4.6", thinking: "medium", footer: "standard" },
@@ -116,7 +113,7 @@ test("composer labels hide model on minimal footer and at narrow widths", () => 
 
 test("focused context sits on the composer top edge", () => {
   const line = composerContextEdge(
-    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    "$7.47 · 14 skills · 2 MCPs",
     80,
     (text) => text,
   );
@@ -124,7 +121,7 @@ test("focused context sits on the composer top edge", () => {
   assert.equal(line.at(-1), "╮");
   assert.doesNotMatch(line, /tokens/);
   assert.match(line, /\$7\.47/);
-  const squeezed = composerContextEdge("$7.47 · 14 skills loaded", 28, (text) => text, 3);
+  const squeezed = composerContextEdge("$7.47 · 14 skills", 28, (text) => text, 3);
   assert.equal(visibleWidth(squeezed), 28);
   assert.match(squeezed, /↑ 3 more/);
 });
@@ -135,8 +132,8 @@ test("focused prompt edge hides empty resource counts and shows loaded skills", 
   assert.doesNotMatch(empty, /0 skills|0 MCP|\$1\.23/);
 
   const withSkill = composerContextEdge(formatFocusedContextResources(1.234, 1, 0), 80, (text) => text);
-  assert.match(withSkill, /\$1\.23 · 1 skill loaded/);
-  assert.doesNotMatch(withSkill, /0 MCP|0 skills/);
+  assert.match(withSkill, /\$1\.23 · 1 skill/);
+  assert.doesNotMatch(withSkill, /loaded|enabled|0 MCP|0 skills/);
 });
 
 test("focused composer token label uses compact percent placement", () => {
@@ -146,8 +143,8 @@ test("focused composer token label uses compact percent placement", () => {
     theme,
     140,
   );
-  assert.match(labels.right, /47,349 tokens \(5%\) · 845 tokens\/sec/);
-  assert.doesNotMatch(labels.right, /5% used/);
+  assert.match(labels.right, /47\.3k · 5% · 845 t\/s/);
+  assert.doesNotMatch(labels.right, /tokens|5% used/);
 });
 
 const labelTheme = {
@@ -174,7 +171,7 @@ test("composerStatusLabel keeps Pi colors for other status kinds", () => {
 
 test("working status stays left of the focused context edge", () => {
   const line = composerStatusContextEdge(
-    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    "$7.47 · 14 skills · 2 MCPs",
     80,
     (text) => text,
     0,
@@ -183,12 +180,12 @@ test("working status stays left of the focused context edge", () => {
   assert.equal(visibleWidth(line), 80);
   assert.match(line, /^╭── pondering\.\.\./);
   assert.ok(line.indexOf("pondering") < line.indexOf("$7.47"));
-  assert.match(line, /\$7\.47 · 14 skills loaded · 2 MCPs enabled ╮$/);
+  assert.match(line, /\$7\.47 · 14 skills · 2 MCPs ╮$/);
 });
 
 test("live status keeps its label when resources are long", () => {
   const line = composerStatusContextEdge(
-    "$7.47 · 14 skills loaded · 2 MCPs enabled",
+    "$7.47 · 14 skills · 2 MCPs",
     64,
     (text) => text,
     0,
@@ -201,7 +198,22 @@ test("live status keeps its label when resources are long", () => {
   const plain = stripVTControlCharacters(line);
   assert.equal(visibleWidth(line), 64);
   assert.match(plain, /Retrying \(2\/5\)/);
-  assert.ok(!plain.includes("2 MCPs enabled"));
+  assert.ok(!plain.includes("2 MCPs"));
+});
+
+test("top edge right suffix stays pinned and survives truncation", () => {
+  const pid = `[PID-${process.pid}]`;
+  const wide = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 80, (text) => text, 0, "", undefined, pid);
+  assert.equal(visibleWidth(wide), 80);
+  assert.match(wide, new RegExp(`2 MCPs +${pid.replace(/[[\]]/g, (c) => `\\${c}`)} ╮$`));
+
+  const narrow = composerStatusContextEdge("$7.47 · 14 skills · 2 MCPs", 30, (text) => text, 0, "", undefined, pid);
+  assert.equal(visibleWidth(narrow), 30);
+  assert.ok(stripVTControlCharacters(narrow).endsWith(`${pid} ╮`));
+
+  const alone = composerStatusContextEdge("", 40, (text) => text, 0, "", undefined, pid);
+  assert.equal(visibleWidth(alone), 40);
+  assert.ok(stripVTControlCharacters(alone).endsWith(`${pid} ╮`));
 });
 
 test("empty composer frames sides and prompt without a hint row", () => {

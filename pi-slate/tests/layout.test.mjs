@@ -111,8 +111,9 @@ test("sidebar context labels match the OpenCode-style facts", () => {
 });
 
 test("focused context tokens use compact percent placement", () => {
-  assert.equal(formatFocusedContextTokens(3485, 2.4, 42.4), "3,485 tokens (2%) · 42 tokens/sec");
-  assert.equal(formatFocusedContextTokens(null, null, null), "— tokens (—%) · — tokens/sec");
+  assert.equal(formatFocusedContextTokens(3485, 2.4, 42.4), "3.5k · 2% · 42 t/s");
+  assert.equal(formatFocusedContextTokens(845, 2.4, 42.4), "845 · 2% · 42 t/s");
+  assert.equal(formatFocusedContextTokens(null, null, null), "— · —% · — t/s");
   assert.equal(formatContextTokens(3485, 2.4, 42.4), "3,485 tokens · 2% used · 42 tokens/sec");
 });
 
@@ -292,9 +293,9 @@ test("MCP and skill counts share the Context resource line", () => {
 test("focused context resources omit zero skill and MCP counts", () => {
   assert.equal(formatFocusedContextResources(1.234, 0, 0), "");
   assert.equal(formatFocusedContextResources(1.234, 0, null), "");
-  assert.equal(formatFocusedContextResources(1.234, 3, 0), "$1.23 · 3 skills loaded");
-  assert.equal(formatFocusedContextResources(1.234, 0, 2), "$1.23 · 2 MCPs enabled");
-  assert.equal(formatFocusedContextResources(1.234, 1, 1), "$1.23 · 1 skill loaded · 1 MCP enabled");
+  assert.equal(formatFocusedContextResources(1.234, 3, 0), "$1.23 · 3 skills");
+  assert.equal(formatFocusedContextResources(1.234, 0, 2), "$1.23 · 2 MCPs");
+  assert.equal(formatFocusedContextResources(1.234, 1, 1), "$1.23 · 1 skill · 1 MCP");
   assert.equal(formatContextResources(null, 0, null), "$0.00 · 0 skills loaded · 0 MCPs enabled");
 });
 

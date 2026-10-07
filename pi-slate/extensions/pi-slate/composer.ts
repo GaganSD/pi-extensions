@@ -163,8 +163,7 @@ export function composerLabels(
   const visible = footerVisibility(width);
   const project = theme.fg("accent", input.project);
   const branch = visible.showBranch && input.branch ? theme.fg("muted", ` / ${input.branch}`) : "";
-  const pid = theme.fg("dim", ` [PID-${AGENT_PID}]`);
-  const projectLabel = ` ${project}${branch}${pid} `;
+  const projectLabel = ` ${project}${branch} `;
   if (input.footer === "minimal") return { left: projectLabel, right: "" };
 
   const parts: string[] = [];
@@ -262,6 +261,7 @@ export function composerStatusContextEdge(
   hiddenLineCount = 0,
   status = "",
   renderStatus?: (width: number) => string,
+  rightSuffix = "",
 ): string {
   if (width <= 0) return "";
   if (width === 1) return paint("╭");
@@ -269,7 +269,10 @@ export function composerStatusContextEdge(
 
   const innerWidth = width - 2;
   const more = hiddenLineCount > 0 ? paint(` ↑ ${hiddenLineCount} more `) : "";
+  const suffix = rightSuffix ? ` ${rightSuffix} ` : "";
+  const suffixWidth = visibleWidth(suffix);
   let right = resources ? ` ${resources} ` : "";
+  const rightWidth = () => visibleWidth(right) + suffixWidth;
   const minFill = 1;
   const prefix = paint("── ");
   const statusAt = (budget: number): string => {
@@ -277,21 +280,21 @@ export function composerStatusContextEdge(
     return body ? `${prefix}${body} ` : "";
   };
 
-  let left = statusAt(innerWidth - minFill);
-  while (visibleWidth(left) + visibleWidth(right) + minFill > innerWidth && visibleWidth(right) > 0) {
+  let left = statusAt(innerWidth - minFill - suffixWidth);
+  while (visibleWidth(left) + rightWidth() + minFill > innerWidth && visibleWidth(right) > 0) {
     right = truncateToWidth(right, Math.max(0, visibleWidth(right) - 1), "");
   }
-  const remaining = innerWidth - visibleWidth(right) - minFill;
+  const remaining = innerWidth - rightWidth() - minFill;
   left = statusAt(remaining);
   if (!left && more) left = more;
-  else if (left && more && visibleWidth(left) + visibleWidth(more) + visibleWidth(right) + minFill <= innerWidth) {
+  else if (left && more && visibleWidth(left) + visibleWidth(more) + rightWidth() + minFill <= innerWidth) {
     left = `${left}${more}`;
   }
-  while (visibleWidth(left) + visibleWidth(right) + minFill > innerWidth && visibleWidth(left) > 0) {
+  while (visibleWidth(left) + rightWidth() + minFill > innerWidth && visibleWidth(left) > 0) {
     left = truncateToWidth(left, Math.max(0, visibleWidth(left) - 1), "");
   }
-  const fill = Math.max(minFill, innerWidth - visibleWidth(left) - visibleWidth(right));
-  return `${paint("╭")}${left}${paint("─".repeat(fill))}${right}${paint("╮")}`;
+  const fill = Math.max(minFill, innerWidth - visibleWidth(left) - rightWidth());
+  return `${paint("╭")}${left}${paint("─".repeat(fill))}${right}${suffix}${paint("╮")}`;
 }
 
 type WorkingStatusIndicatorParameter = Parameters<CustomEditor["setWorkingStatusIndicator"]>[0];
@@ -386,17 +389,16 @@ export class ComposerEditor extends CustomEditor {
     const renderStatus = this.embedWorkingStatus
       ? (statusWidth: number) => composerStatusLabel(this.statusIndicator, src.theme, statusWidth)
       : undefined;
-    if (src.context || this.statusIndicator) {
-      return composerStatusContextEdge(
-        src.context ? src.theme.fg("dim", src.context.resources) : "",
-        width,
-        paint,
-        hiddenLineCount,
-        "",
-        renderStatus,
-      );
-    }
-    return paint("╭") + super.renderTopBorder(width - 2, hiddenLineCount) + paint("╮");
+    const pidLabel = src.theme.fg("dim", `[PID-${AGENT_PID}]`);
+    return composerStatusContextEdge(
+      src.context ? src.theme.fg("dim", src.context.resources) : "",
+      width,
+      paint,
+      hiddenLineCount,
+      "",
+      renderStatus,
+      pidLabel,
+    );
   }
 
   protected renderBottomBorder(width: number, hiddenLineCount: number): string {
