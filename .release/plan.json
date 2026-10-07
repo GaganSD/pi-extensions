@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "sourceSha": "22b372257cd920b79dc99e3786b8fd3078876fba",
-  "notes": "Add a searchable prompt-template picker and optional PID display; improve compact context labels and narrow-terminal rendering.",
+  "sourceSha": "97cfddfe1bb681f551428d2a6d784bd910e813fe",
+  "notes": "Fix provider-neutral tool-schema compatibility and add live native session telemetry.\n\n- Give the `subagent` input schema an explicit object root while retaining its six closed action branches and runtime validation. Resolves the reproduced OpenCode Go/DeepSeek request failure without model-specific exceptions or a Pi-core change.\n- Adopt agent/sub-agent terminology. **Migration:** `contact_supervisor` is renamed to `contact_agent`, and `waiting_for_parent` to `waiting_for_agent`; no legacy aliases are retained. Existing run artifacts remain evidence, not resumable sessions.\n- Show role, shared owning-process PID, unique native session ID, and current context occupancy in live widget rows. Context estimates remain separate from cumulative billed usage, with exact run UUIDs retained for controls and full identity/usage available in inspection and evidence.\n- Cache estimates at finalized native lifecycle boundaries, never on rendering, timer ticks, or individual streaming deltas. Unknown startup/compaction/failed estimates stay unknown; estimator and observer exceptions cannot fail a run.\n- Cover prefix collisions, narrow terminals, control-character sanitization, zero/overflow/invalid estimates, cancellation, disposal, and recovery with regression tests.\n",
   "packages": [
     {
-      "path": "pi-slate",
-      "name": "pi-slate",
-      "from": "0.1.10",
-      "to": "0.1.11",
+      "path": "pi-subagents",
+      "name": "@gagansd/pi-subagents",
+      "from": "0.0.2",
+      "to": "0.0.3",
       "bump": "patch"
     }
   ]

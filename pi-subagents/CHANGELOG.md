@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.0.3
+
+Fix provider-neutral tool-schema compatibility and add live native session telemetry.
+
+- Give the `subagent` input schema an explicit object root while retaining its six closed action branches and runtime validation. Resolves the reproduced OpenCode Go/DeepSeek request failure without model-specific exceptions or a Pi-core change.
+- Adopt agent/sub-agent terminology. **Migration:** `contact_supervisor` is renamed to `contact_agent`, and `waiting_for_parent` to `waiting_for_agent`; no legacy aliases are retained. Existing run artifacts remain evidence, not resumable sessions.
+- Show role, shared owning-process PID, unique native session ID, and current context occupancy in live widget rows. Context estimates remain separate from cumulative billed usage, with exact run UUIDs retained for controls and full identity/usage available in inspection and evidence.
+- Cache estimates at finalized native lifecycle boundaries, never on rendering, timer ticks, or individual streaming deltas. Unknown startup/compaction/failed estimates stay unknown; estimator and observer exceptions cannot fail a run.
+- Cover prefix collisions, narrow terminals, control-character sanitization, zero/overflow/invalid estimates, cancellation, disposal, and recovery with regression tests.
+
 - Show live shared-PID, native-session, and context rows with best-effort cached
   estimates; estimator failures display unknown usage and observer errors cannot
   fail a run.
