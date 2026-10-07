@@ -116,7 +116,7 @@ test("actual OpenAI-completions serialization preserves object-root union in onP
   const seen: string[] = [];
   for await (const event of events) seen.push(event.type);
   const result = await events.result();
-  assert.equal(result.stopReason, "stop", result.errorMessage);
+  assert.equal(result.stopReason, "stop", result.errorMessage ?? "OpenAI-completions fixture did not stop normally");
   assert(seen.includes("text_delta"));
   assert.equal(requests, 1);
   assert.deepEqual(body, payload);

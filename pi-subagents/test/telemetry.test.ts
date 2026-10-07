@@ -135,7 +135,7 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
     assert.equal(writes, before, "display does not write metadata");
     finish.resolve();
     await manager.settled(id!);
-    assert.equal(manager.status(id!).state, "completed", manager.status(id!).error);
+    assert.equal(manager.status(id!).state, "completed", manager.status(id!).error ?? "Telemetry fixture run did not complete");
     assert.equal(store.reports.get(id!), "Evidence report");
     assert.equal(stats, 1, "evidence is collected only by final cleanup");
     assert.equal(writes, before + 1, "only final lifecycle metadata is added");
