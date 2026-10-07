@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth, type Component, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { isLive, type RunRecord } from "./types.ts";
 
 // Terminal control sequences, bidi controls, and line breaks are not UI content.
@@ -29,17 +29,53 @@ export function mark(run: RunRecord): string {
   return "";
 }
 
-export function rowText(run: RunRecord): string {
-  const bits = [run.id.slice(0, 8), run.agent, formatElapsed(run.elapsedMs)];
+export function formatContext(run: RunRecord): string {
+  const usage = run.contextUsage;
+  const window = usage?.contextWindow;
+  const validWindow = window != null && Number.isFinite(window) && window > 0;
+  const tokens = usage?.tokens, percent = usage?.percent;
+  const known = validWindow && tokens != null && Number.isFinite(tokens) && tokens >= 0
+    && percent != null && Number.isFinite(percent) && percent >= 0;
+  const compact = (value: number) => value >= 1_000_000 ? `${Number((value / 1_000_000).toFixed(1))}M`
+    : value >= 1000 ? `${Number((value / 1000).toFixed(1))}K` : String(value);
+  // Do not round a small overflow back down to an apparently safe 100%.
+  const percentage = known ? percent > 100 ? Math.max(100.1, Number(percent.toFixed(1))) : Math.round(percent) : "?";
+  return `${percentage}%/${validWindow ? compact(window) : "?"}`;
+}
+
+function sessionPrefix(run: RunRecord, peers: RunRecord[], minimum: number): string {
+  const id = plain(run.sessionId ?? "", 128);
+  if (!id) return "starting";
+  let length = Math.min(minimum, id.length);
+  while (length < id.length && peers.some(peer => peer.id !== run.id && peer.sessionId
+    && plain(peer.sessionId, 128).startsWith(id.slice(0, length)))) length++;
+  return id.slice(0, length) + (length < id.length ? "…" : "");
+}
+
+/** Paint only value snapshots, adapting optional decoration before context fields. */
+export function rowText(run: RunRecord, width = Infinity, peers: RunRecord[] = []): string {
+  const agent = plain(run.agent, 32);
+  const pid = run.pid !== undefined && Number.isSafeInteger(run.pid) && run.pid > 0 ? `PID-${run.pid}` : "PID-?";
+  const context = formatContext(run);
   const extra = mark(run);
-  if (extra) bits.push(extra);
-  return plain(bits.join("  "));
+  // 'starting' already conveys unknown native identity; do not repeat an ellipsis flag.
+  const flag = extra && !(extra === "…" && !run.sessionId) ? ` ${extra}` : "";
+  const full = `${agent} · ${pid} ${sessionPrefix(run, peers, 8)} · ${context}${flag}`;
+  if (visibleWidth(full) <= width) return full;
+  const identity = `${pid} ${sessionPrefix(run, peers, 4)}`;
+  const tail = ` · ${identity} · ${context}${flag}`;
+  const room = width - visibleWidth(tail);
+  if (room > 0) return truncateToWidth(agent, room, "…") + tail;
+  for (const line of [`${identity} ${context}${flag}`, `${pid} ${context}${flag}`, `${context}${flag}`]) {
+    if (visibleWidth(line) <= width) return line;
+  }
+  return truncateToWidth(`${context}${flag}`, Math.max(1, width), "");
 }
 
 export function rows(runs: RunRecord[]): string[] {
   const live = runs.filter(run => isLive(run.state));
   if (!live.length) return [];
-  const body = live.map(rowText);
+  const body = live.map(run => rowText(run, Infinity, live));
   return live.length === 1 ? [`↓  ${body[0]}`] : [`↓  ${live.length}`, ...body];
 }
 
@@ -103,15 +139,11 @@ export class SubagentWidget implements Component {
       lines.push(th.fg(this.blocked ? "error" : "accent", truncateToWidth(plain(head), inner)));
     }
     for (const run of live) {
-      const prefix = live.length === 1 ? "↓  " : "   ";
+      const decoration = live.length === 1 ? "↓  " : "   ";
+      const prefix = visibleWidth(decoration + rowText(run, Infinity, live)) <= inner ? decoration : "";
+      const line = prefix + rowText(run, inner - visibleWidth(prefix), live);
       const extra = mark(run);
-      const id = th.fg("dim", run.id.slice(0, 8));
-      const agent = th.fg("accent", plain(run.agent, 32));
-      const time = th.fg("dim", formatElapsed(run.elapsedMs));
-      const flagColor = extra === "ask" ? "warning" : "error";
-      const flag = extra ? th.fg(flagColor, extra) : "";
-      const line = [prefix + id, agent, time, flag].filter(Boolean).join("  ");
-      lines.push(truncateToWidth(line, inner));
+      lines.push(th.fg(extra === "ask" ? "warning" : extra === "stop" || extra === "!" ? "error" : "accent", line));
     }
     if (this.blocked && live.length) lines.push(th.fg("error", truncateToWidth("cleanup unknown — launches blocked", inner)));
     return lines;

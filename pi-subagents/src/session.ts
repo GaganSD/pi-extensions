@@ -2,26 +2,39 @@ import path from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager,
-  type AgentSession, type ModelRuntime, type ToolDefinition,
+  type AgentSession, type ContextUsage, type ModelRuntime, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
-import type { Child, PreparedTask, Profile, RunContext, Task, Thinking } from "./types.ts";
+import type { ContextEstimate, SubAgent, PreparedTask, Profile, RunContext, Task, Telemetry, Thinking } from "./types.ts";
 
-export const INSPECT_TOOLS = ["read", "grep", "find", "ls", "diff", "contact_supervisor"];
+export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
+  const limit = usage?.contextWindow ?? window;
+  const contextWindow = limit !== undefined && Number.isFinite(limit) && limit > 0 ? limit : null;
+  const known = contextWindow !== null && usage?.tokens !== null && usage?.tokens !== undefined
+    && Number.isFinite(usage.tokens) && usage.tokens >= 0
+    && usage.percent !== null && Number.isFinite(usage.percent) && usage.percent >= 0;
+  return { tokens: known ? usage!.tokens : null, contextWindow, percent: known ? usage!.percent : null };
+}
+
+function publishTelemetry(context: RunContext, snapshot: Telemetry): void {
+  try { context.telemetry?.(snapshot); } catch { /* Optional display observers never determine execution success. */ }
+}
+
+export const INSPECT_TOOLS = ["read", "grep", "find", "ls", "diff", "contact_agent"];
 export const EDIT_TOOLS = [...INSPECT_TOOLS, "bash", "edit", "write"];
 const QuestionParams = Type.Object({ message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false });
-const BOUNDARY = `You are a leaf child, not the parent. Perform only your task. You cannot delegate or resume other agents.
-Use contact_supervisor for missing decisions; do not improvise around missing required safety policy or tools.
+const BOUNDARY = `You are a sub-agent, not the agent. Perform only your task. You cannot delegate or resume other agents.
+Use contact_agent for missing decisions; do not improvise around missing required safety policy or tools.
 Your tools run with the host's OS permissions, not in a sandbox. Stay in your assigned workspace and scope.
 Return your report normally. The host saves it; do not write a report file yourself or send a completion question.
-Do not claim checks passed without evidence. The parent, not you, decides acceptance.`;
+Do not claim checks passed without evidence. The agent, not you, decides acceptance.`;
 
-export function supervisorTool(context: RunContext): ToolDefinition<typeof QuestionParams> {
+export function contactAgentTool(context: RunContext): ToolDefinition<typeof QuestionParams> {
   return {
-    name: "contact_supervisor", label: "Ask parent",
-    description: "Ask the owning parent one material question and wait for its reply. Not for routine progress or completion. Cancellation/deadline ends the wait.",
+    name: "contact_agent", label: "Ask agent",
+    description: "Ask the owning agent one material question and wait for its reply. Not for routine progress or completion. Cancellation/deadline ends the wait.",
     parameters: QuestionParams,
     async execute(_id, args, signal) {
       return { content: [{ type: "text", text: await context.ask(args.message, signal) }], details: undefined };
@@ -36,23 +49,23 @@ export interface NativeOptions {
   profile: Profile;
   cwd: string;
   workspace: string;
-  parentModel?: string;
-  parentThinking: Thinking;
+  agentModel?: string;
+  agentThinking: Thinking;
   scopedModels: readonly string[];
 }
 
 /** Model and policy resolution happens before the manager admits any batch member. */
 export function prepareNative(options: NativeOptions): PreparedTask {
   const { runtime, task, profile } = options;
-  const name = task.model ?? profile.model ?? options.parentModel;
-  if (!name) throw new Error("No model selected; configure the parent or profile");
+  const name = task.model ?? profile.model ?? options.agentModel;
+  if (!name) throw new Error("No model selected; configure the agent or profile");
   const separator = name.indexOf("/");
   if (separator < 1) throw new Error(`Exact native model '${name}' is unavailable; no aliases, virtual models, or fallback`);
   const model = runtime.getPhysicalModel(name.slice(0, separator), name.slice(separator + 1));
   if (!model) throw new Error(`Exact native model '${name}' is unavailable; no aliases, virtual models, or fallback`);
-  if (options.scopedModels.length && !options.scopedModels.includes(name)) throw new Error(`Model '${name}' is outside the parent's model scope`);
+  if (options.scopedModels.length && !options.scopedModels.includes(name)) throw new Error(`Model '${name}' is outside the agent's model scope`);
   if (!runtime.hasConfiguredAuth(model.provider)) throw new Error(`No configured authentication for ${model.provider}`);
-  const thinking = task.thinking ?? profile.thinking ?? options.parentThinking;
+  const thinking = task.thinking ?? profile.thinking ?? options.agentThinking;
   if (!getSupportedThinkingLevels(model).includes(thinking)) throw new Error(`Thinking level '${thinking}' is unsupported by ${name}; set an explicit supported level on the task or profile`);
   // No extension discovery is allowed; only trusted global/project instruction
   // files and ordinary Pi settings are inherited. This manager never writes them.
@@ -67,6 +80,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
     ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode,
     async start(context) {
       context.signal.throwIfAborted();
+      publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
       const head = await captureHead(options.workspace, context.signal);
       const tools = profile.mode === "edit" ? EDIT_TOOLS : INSPECT_TOOLS;
       const loader = new DefaultResourceLoader({
@@ -76,38 +90,62 @@ export function prepareNative(options: NativeOptions): PreparedTask {
       });
       await loader.reload();
       context.signal.throwIfAborted();
-      if (loader.getExtensions().extensions.length || loader.getExtensions().errors.length) throw new Error("Child unexpectedly loaded extensions or extension errors");
+      if (loader.getExtensions().extensions.length || loader.getExtensions().errors.length) throw new Error("Sub-agent unexpectedly loaded extensions or extension errors");
       const { session } = await createAgentSession({
         cwd: options.cwd, agentDir: options.agentDir, modelRuntime: runtime, model, thinkingLevel: thinking,
         settingsManager: settings, resourceLoader: loader, tools,
-        customTools: [diffTool(options.workspace, head), supervisorTool(context)],
+        customTools: [diffTool(options.workspace, head), contactAgentTool(context)],
         sessionManager: SessionManager.create(options.cwd, path.join(context.directory, "transcript")),
       });
-      const child = wrapSession(session, task.task, context);
-      context.own(child);
+      const subAgent = wrapSession(session, task.task, context);
+      context.own(subAgent);
       context.signal.throwIfAborted();
       // onError may fire outside the bindExtensions stack; record, then throw here.
       let bindError: Error | undefined;
-      await session.bindExtensions({ mode: "print", onError: error => { bindError ??= new Error(`Child runtime error: ${error.error}`); } });
+      await session.bindExtensions({ mode: "print", onError: error => { bindError ??= new Error(`Sub-agent runtime error: ${error.error}`); } });
       if (bindError) throw bindError;
       context.signal.throwIfAborted();
-      if (session.model?.provider !== model.provider || session.model.id !== model.id || session.thinkingLevel !== thinking) throw new Error("Child model/thinking changed during startup");
+      if (session.model?.provider !== model.provider || session.model.id !== model.id || session.thinkingLevel !== thinking) throw new Error("Sub-agent model/thinking changed during startup");
       const active = session.getActiveToolNames();
-      if (active.length !== tools.length || tools.some(tool => !active.includes(tool))) throw new Error("Child tool set does not match the declared capability mode");
+      if (active.length !== tools.length || tools.some(tool => !active.includes(tool))) throw new Error("Sub-agent tool set does not match the declared capability mode");
       const file = session.sessionManager.getSessionFile();
-      if (!file) throw new Error("Child transcript file is unavailable");
+      if (!file) throw new Error("Sub-agent transcript file is unavailable");
       context.transcript(file);
-      return child;
+      return subAgent;
     },
   };
 }
 
 /** The prompt promise includes retries. A final SDK settlement is required too. */
-export function wrapSession(session: AgentSession, task: string, context: RunContext): Child {
+export function wrapSession(session: AgentSession, task: string, context: RunContext): SubAgent {
   let settled = false;
   let toolErrors = 0;
+  let disposed = false;
+  let refreshQueued = false;
+  if (!context.signal.aborted) publishTelemetry(context, {
+    pid: process.pid, sessionId: session.sessionId,
+    contextUsage: contextEstimate(undefined, session.model?.contextWindow),
+  });
+  // message_end is emitted BEFORE SDK persistence. Defer once so the estimate
+  // sees finalized native context. Streaming deltas never schedule a scan.
+  const refresh = () => {
+    if (!context.telemetry || refreshQueued || disposed || context.signal.aborted) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      if (disposed || context.signal.aborted) return;
+      let estimate: ContextEstimate;
+      try { estimate = contextEstimate(session.getContextUsage(), session.model?.contextWindow); }
+      catch { estimate = contextEstimate(undefined, session.model?.contextWindow); }
+      // A failed estimate invalidates confident cached usage, but later events can recover.
+      publishTelemetry(context, { pid: process.pid, sessionId: session.sessionId, contextUsage: estimate });
+    });
+  };
   const tools = new Map<string, string>();
   const unsubscribe = session.subscribe(event => {
+    if (event.type === "message_end" || event.type === "turn_start" || event.type === "turn_end"
+      || event.type === "compaction_end" || event.type === "agent_settled"
+      || (event.type === "entry_appended" && event.entry.type === "context_edit")) refresh();
     if (event.type === "message_end") {
       const line = formatMessage(event.message);
       if (line) context.preview(line);
@@ -136,14 +174,15 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
       context.signal.throwIfAborted();
       const last = session.messages.filter(message => message.role === "assistant").at(-1);
       if (!settled) throw new Error("SDK prompt returned without final settlement evidence");
-      if (!last || last.stopReason === "error" || last.stopReason === "aborted") throw new Error(last?.errorMessage || "Child failed without a final assistant response");
+      if (!last || last.stopReason === "error" || last.stopReason === "aborted") throw new Error(last?.errorMessage || "Sub-agent failed without a final assistant response");
       const report = session.getLastAssistantText();
-      if (!report?.trim()) throw new Error("Child settled without a nonempty report");
+      if (!report?.trim()) throw new Error("Sub-agent settled without a nonempty report");
       return { report, toolErrors }; // Usage is collected once, during final cleanup.
     },
     steer: message => session.steer(message),
     abort: () => session.abort(),
     dispose() {
+      disposed = true;
       context.signal.removeEventListener("abort", abort);
       unsubscribe();
       return session.dispose(); // The manager awaits teardown before confirming cleanup.

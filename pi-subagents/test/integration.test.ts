@@ -19,7 +19,7 @@ function commit(cwd: string, message: string): Promise<string> {
   return git(cwd, ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", message]);
 }
 
-test("two worktree writers run concurrently; aliases are rejected; parent integrates outside the manager", { skip: process.platform === "win32" }, async t => {
+test("two worktree writers run concurrently; aliases are rejected; agent integrates outside the manager", { skip: process.platform === "win32" }, async t => {
   const root = await temp(t);
   const repo = path.join(root, "repo"), wtA = path.join(root, "wt-a"), wtB = path.join(root, "wt-b"), linked = path.join(root, "link-a");
   await mkdir(repo); await repository(repo);
@@ -34,7 +34,7 @@ test("two worktree writers run concurrently; aliases are rejected; parent integr
   assert.equal(await canonicalDirectory(linked), await canonicalDirectory(wtA));
 
   const store = new MemoryStore();
-  const manager = new RunManager({ owner: "test-parent", config: { ...DEFAULT_CONFIG }, store });
+  const manager = new RunManager({ owner: "test-agent", config: { ...DEFAULT_CONFIG }, store });
   t.after(() => manager.shutdown());
 
   await assert.rejects(manager.launch([
@@ -79,7 +79,7 @@ test("worker-to-reviewer handoff waits for the writer; committed review uses a s
   await mkdir(repo); await repository(repo);
   const workspace = await workspaceRoot(repo);
   const store = new MemoryStore();
-  const manager = new RunManager({ owner: "test-parent", config: { ...DEFAULT_CONFIG }, store });
+  const manager = new RunManager({ owner: "test-agent", config: { ...DEFAULT_CONFIG }, store });
   t.after(() => manager.shutdown());
 
   const [worker] = await manager.launch([plan(waitForAbort, {

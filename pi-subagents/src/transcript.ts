@@ -7,7 +7,7 @@ const TAIL_BYTES = 65536;
 export function formatMessage(message: unknown): string | undefined {
   if (!message || typeof message !== "object" || Array.isArray(message)) return undefined;
   const row = message as { role?: string; content?: unknown };
-  const labels: Record<string, string> = { user: "you", assistant: "child", toolResult: "out" };
+  const labels: Record<string, string> = { user: "you", assistant: "sub-agent", toolResult: "out" };
   const label = typeof row.role === "string" ? labels[row.role] : undefined;
   if (!label) return undefined;
   const blocks = Array.isArray(row.content) ? row.content : [{ type: "text", text: row.content }];

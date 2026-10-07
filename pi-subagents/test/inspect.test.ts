@@ -19,11 +19,11 @@ test("transcript fallback reads a bounded tail and discloses oversized entries",
   assert.match((await readTranscript(file)).join("\n"), /oversized entries omitted/);
   await appendFile(file, entry("Latest complete message"));
   const tail = await readTranscript(file);
-  assert(tail.includes("child Latest complete message"));
+  assert(tail.includes("sub-agent Latest complete message"));
   assert(tail.length <= PREVIEW_LINES);
   assert(tail.every(line => line.length <= 512));
   await appendFile(file, '{"type":"message",');
-  assert((await readTranscript(file)).includes("child Latest complete message"));
+  assert((await readTranscript(file)).includes("sub-agent Latest complete message"));
   assert.deepEqual(await readTranscript(path.join(root, "missing.jsonl")), ["(transcript unavailable)"]);
 });
 
@@ -31,22 +31,22 @@ test("transcript summaries remove terminal controls and bidi and bound text work
   const line = formatEntry(JSON.parse(entry("\u001b]52;c;clipboard\u0007\u202e\u061c\u200funsafe\n" + "x".repeat(80000))))!;
   assert(!/[\u0000-\u001f\u007f-\u009f\u061c\u200e-\u200f\u202a-\u202e\u2066-\u2069]/.test(line));
   assert(line.length <= 512);
-  assert.match(line, /^child /);
+  assert.match(line, /^sub-agent /);
   assert.equal(formatEntry({ type: "session" }), undefined);
 });
 
 test("manager previews are bounded event-fed copies, not persisted transcript duplicates", async () => {
   const store = new MemoryStore();
-  const manager = new RunManager({ owner: "parent", store, config: { ...DEFAULT_CONFIG } });
+  const manager = new RunManager({ owner: "agent", store, config: { ...DEFAULT_CONFIG } });
   const [id] = await manager.launch([plan(async context => {
-    for (let i = 0; i < 100; i++) context.preview(`child ${i} ${"x".repeat(1000)}`);
+    for (let i = 0; i < 100; i++) context.preview(`sub-agent ${i} ${"x".repeat(1000)}`);
     return { report: "Final evidence", toolErrors: 0 };
   })]);
   await manager.settled(id!);
   const preview = manager.preview(id!);
   assert.equal(preview.length, PREVIEW_LINES);
-  assert(preview[0]!.startsWith("child 76 "));
-  assert(preview.at(-1)!.startsWith("child 99 "));
+  assert(preview[0]!.startsWith("sub-agent 76 "));
+  assert(preview.at(-1)!.startsWith("sub-agent 99 "));
   assert(preview.every(line => line.length <= 512));
   preview.length = 0;
   assert.equal(manager.preview(id!).length, PREVIEW_LINES);
@@ -56,11 +56,13 @@ test("manager previews are bounded event-fed copies, not persisted transcript du
 
 test("inspector renders cached content at narrow widths and keeps input visible on short terminals", () => {
   let rows = 10, reads = 0, listener = () => {}, disposed = 0;
-  let preview = ["child cached message\u001b]52;c;clipboard\u0007\u202e"];
+  let preview = ["sub-agent cached message\u001b]52;c;clipboard\u0007\u202e"];
   const record: RunRecord = {
     id: "aaaaaaaa-1111", owner: "p", agent: "worker", mode: "edit", task: "Inspect",
-    cwd: "/repo/\u001b]52;bad\u0007", workspace: "/repo", model: "fixture/test", thinking: "off", state: "waiting_for_parent",
-    startedAt: "t", elapsedMs: 1, metadataPath: "/run.json", question: { id: "q", message: "\u001b]52;bad\u0007Which API?\u202e" },
+    cwd: "/repo/\u001b]52;bad\u0007", workspace: "/repo", model: "fixture/test", thinking: "off", state: "waiting_for_agent",
+    startedAt: "t", elapsedMs: 1, metadataPath: "/run.json",
+    pid: process.pid, sessionId: "01a11744-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    contextUsage: { tokens: 32640, contextWindow: 272000, percent: 12 }, question: { id: "q", message: "\u001b]52;bad\u0007Which API?\u202e" },
   };
   const actions: InspectActions = {
     status: () => record,
@@ -80,9 +82,14 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   }
   assert.equal(reads, 1, "rendering must not fetch transcript data");
   rows = 40;
-  preview = ["child updated message"];
+  preview = ["sub-agent updated message"];
   listener();
   assert(view.render(80).some(line => line.includes("updated message")));
+  const details = view.render(120).join("\n");
+  assert(details.includes(record.id));
+  assert(details.includes(record.sessionId!));
+  assert(details.includes(`PID-${process.pid}`));
+  assert(details.includes("12%/272K"));
   rows = 4;
   const short = view.render(80);
   assert(short.length <= 3);

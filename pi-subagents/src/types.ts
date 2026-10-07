@@ -12,10 +12,13 @@ export interface Profile {
 }
 export interface Task { agent: string; task: string; cwd?: string; model?: string; thinking?: Thinking }
 export interface Config { maxConcurrent: number; maxRuns: number; timeoutMs: number }
-export type State = "starting" | "running" | "waiting_for_parent" | "cancelling"
+export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 export interface Question { id: string; message: string }
+/** Cached native SDK estimate, separate from cumulative billed Usage. */
+export interface ContextEstimate { tokens: number | null; contextWindow: number | null; percent: number | null }
+export interface Telemetry { pid: number; sessionId?: string; contextUsage: ContextEstimate }
 export interface RunRecord {
   id: string;
   owner: string;
@@ -38,14 +41,19 @@ export interface RunRecord {
   error?: string;
   notificationError?: string;
   usage?: Usage;
+  /** Shared owning-process PID; sub-agents are in-process sessions. */
+  pid?: number;
+  /** Full native Pi session ID, never the manager's run UUID. */
+  sessionId?: string;
+  contextUsage?: ContextEstimate;
   toolErrors?: number;
 }
-export interface ChildResult { report: string; usage?: Usage; toolErrors: number }
-export interface Child {
-  prompt(): Promise<ChildResult>;
+export interface SubAgentResult { report: string; usage?: Usage; toolErrors: number }
+export interface SubAgent {
+  prompt(): Promise<SubAgentResult>;
   steer(message: string): Promise<string>;
   abort(): Promise<void>;
-  evidence?(): Pick<ChildResult, "usage" | "toolErrors">;
+  evidence?(): Pick<SubAgentResult, "usage" | "toolErrors">;
   dispose(): void | Promise<void>;
 }
 export const PREVIEW_LINES = 24;
@@ -53,7 +61,9 @@ export interface RunContext {
   signal: AbortSignal;
   directory: string;
   /** Transfer cleanup ownership before startup validation can fail. */
-  own(child: Child): void;
+  own(subAgent: SubAgent): void;
+  /** Value snapshots only; UI must not retain or query native sessions. */
+  telemetry?(snapshot: Telemetry): void;
   progress(tool?: string): void;
   preview(line: string): void;
   transcript(path: string): void;
@@ -65,7 +75,7 @@ export interface PreparedTask extends Task {
   workspace: string;
   model: string;
   thinking: Thinking;
-  start(context: RunContext): Promise<Child>;
+  start(context: RunContext): Promise<SubAgent>;
 }
 export function errorText(error: unknown): string {
   return describe(error, 0);

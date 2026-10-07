@@ -54,7 +54,7 @@ def records(messages):
             continue
         for value in objects(body(message)):
             for row in nested(value):
-                if isinstance(row.get("id"), str) and row.get("state") in {"starting", "running", "waiting_for_parent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"}:
+                if isinstance(row.get("id"), str) and row.get("state") in {"starting", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"}:
                     rows[row["id"]] = row
     return rows
 
@@ -160,10 +160,11 @@ class Fixture:
         if label in {"question", "obsolete"}:
             if not tools:
                 assert not any(token in prompt for token in ("BLUE", "GREEN", "GOLD")), "Parent token leaked into fresh child"
+                tool = "contact_agent" if self.variant == "ours" else "contact_supervisor"
                 arguments = {"message": "Which token should I use?"}
-                if "reason" in available["contact_supervisor"].get("properties", {}):
+                if self.variant == "upstream" and "reason" in available[tool].get("properties", {}):
                     arguments["reason"] = "need_decision"
-                return [self.call("contact_supervisor", arguments)], None
+                return [self.call(tool, arguments)], None
             if len(tools) == 1:
                 token = re.search(r"\b(BLUE|GREEN|GOLD)\b", body(tools[-1])).group()
                 name = "choice.txt" if label == "question" else "obsolete.txt"
@@ -290,14 +291,14 @@ class Fixture:
         if self.phase == "waiting":
             current = records(messages)
             batch = [current.get(id, {"id": id, "state": "running"}) for id in self.batch]
-            if self.mode in {"premature", "blocked"} and any(row["state"] == "waiting_for_parent" for row in batch):
+            if self.mode in {"premature", "blocked"} and any(row["state"] == "waiting_for_agent" for row in batch):
                 self.answer = {"intentionally_invalid": True}
                 self.phase = "finish_answer"
                 return self.parent(payload, prompt)
-            if self.mode in {"question_timeout", "sigint", "sigterm"} and any(row["state"] == "waiting_for_parent" for row in batch):
+            if self.mode in {"question_timeout", "sigint", "sigterm"} and any(row["state"] == "waiting_for_agent" for row in batch):
                 self.phase = "held"
                 return [], "Intentionally wait without replying."
-            if any(row["state"] == "waiting_for_parent" and row["id"] not in self.handled_questions for row in batch):
+            if any(row["state"] == "waiting_for_agent" and row["id"] not in self.handled_questions for row in batch):
                 self.phase = "question_status"
                 return [self.call("subagent", {"action": "status", "id": self.batch[0]})], None
             if not all(row["state"] in {"completed", "cancelled"} for row in batch):
@@ -308,7 +309,7 @@ class Fixture:
             return [self.call("read", {"path": row["reportPath"]}) for row in batch], None
         if self.phase == "question_status":
             row = records([tools[-1]])[self.batch[0]]
-            assert row["state"] == "waiting_for_parent" and row.get("question", {}).get("id"), latest
+            assert row["state"] == "waiting_for_agent" and row.get("question", {}).get("id"), latest
             self.phase = "waiting"
             self.handled_questions.add(row["id"])
             if self.scenario == "cancel_replace":

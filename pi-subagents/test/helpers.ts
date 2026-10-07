@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import type { ArtifactStore } from "../src/artifacts.ts";
-import type { ChildResult, PreparedTask, RunContext, RunRecord } from "../src/types.ts";
+import type { SubAgentResult, PreparedTask, RunContext, RunRecord } from "../src/types.ts";
 
 export async function temp(t: TestContext): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "minimal-subagents-test-"));
@@ -47,7 +47,7 @@ export class MemoryStore implements ArtifactStore {
     return this.directory(id) + "/report.md";
   }
 }
-export function plan(prompt: (context: RunContext) => Promise<ChildResult> = async () => ({ report: "Evidence report", toolErrors: 0 }), overrides: Partial<PreparedTask> = {}): PreparedTask {
+export function plan(prompt: (context: RunContext) => Promise<SubAgentResult> = async () => ({ report: "Evidence report", toolErrors: 0 }), overrides: Partial<PreparedTask> = {}): PreparedTask {
   return {
     agent: "reviewer", mode: "inspect", task: "Review", cwd: "/repo", workspace: "/repo", model: "fixture/test", thinking: "off",
     async start(context) {
@@ -57,7 +57,7 @@ export function plan(prompt: (context: RunContext) => Promise<ChildResult> = asy
     ...overrides,
   };
 }
-export function waitForAbort(context: RunContext): Promise<ChildResult> {
+export function waitForAbort(context: RunContext): Promise<SubAgentResult> {
   return new Promise((_resolve, reject) => {
     if (context.signal.aborted) reject(context.signal.reason);
     else context.signal.addEventListener("abort", () => reject(context.signal.reason), { once: true });

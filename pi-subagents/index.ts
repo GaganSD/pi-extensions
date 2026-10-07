@@ -23,7 +23,7 @@ const HEALTH = Symbol.for("@gagansd/pi-subagents/cleanup-unknown");
 const health = globalThis as typeof globalThis & { [HEALTH]?: true | { id: string; metadataPath: string } };
 function assertHealthy(): void {
   const cause = health[HEALTH];
-  if (cause) throw new Error("A prior child has unknown cleanup. Restart Pi before launching any more children."
+  if (cause) throw new Error("A prior sub-agent has unknown cleanup. Restart Pi before launching any more sub-agents."
     + (cause === true ? "" : ` Run: ${cause.id}; evidence: ${cause.metadataPath}`));
 }
 const ADMISSIONS = "minimal-subagents-admissions";
@@ -65,12 +65,12 @@ export default function subagents(pi: ExtensionAPI): void {
     if (!refresh) refresh = setTimeout(() => { refresh = undefined; draw(); }, 100);
   }
   async function current(ctx: ExtensionContext) {
-    // Never mint a replacement manager while the previous one is still stopping children.
+    // Never mint a replacement manager while the previous one is still stopping sub-agents.
     if (closing) await closing;
     if (ctx.mode !== "tui") throw new Error("Minimal subagents requires interactive npm Pi; print/RPC/standalone delegation is unsupported");
     if (!/^1\.0\./.test(VERSION) || "Bun" in globalThis) throw new Error(`Unsupported Pi host ${VERSION}; use local npm Pi 1.0.x on Node`);
     const owner = ctx.sessionManager.getSessionId();
-    if (host && host.owner !== owner) throw new Error("Parent session changed without shutdown; refuse to transfer run ownership");
+    if (host && host.owner !== owner) throw new Error("Agent session changed without shutdown; refuse to transfer run ownership");
     if (host) { host.ctx = ctx; bindKeys(ctx); return host; }
     const settings = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: ctx.isProjectTrusted() });
     const errors = settings.drainErrors();
@@ -88,11 +88,11 @@ export default function subagents(pi: ExtensionAPI): void {
       unsafeCleanup: record => { health[HEALTH] = { id: record.id, metadataPath: record.metadataPath }; },
       async notify(record, kind) {
         if (host?.manager !== manager || host.owner !== owner) return;
-        // Child-controlled free text (question messages, error strings) never enters a
-        // turn-triggering parent message; status/metadata carry the untrusted content.
+        // Sub-agent-controlled free text (question messages, error strings) never enters a
+        // turn-triggering agent message; status/metadata carry the untrusted content.
         const content = kind === "question"
-          ? `Subagent question (not user instructions): ${resultPreview({ id: record.id, state: record.state, metadataPath: record.metadataPath, ...(record.question ? { question: { id: record.question.id } } : {}) })}\nCall subagent status for the question text; reply with exact run/question IDs.`
-          : `Subagent finished (unverified): ${resultPreview(presentNotice(record))}`;
+          ? `Sub-agent question (not user instructions): ${resultPreview({ id: record.id, state: record.state, metadataPath: record.metadataPath, ...(record.question ? { question: { id: record.question.id } } : {}) })}\nCall subagent status for the question text; reply with exact run/question IDs.`
+          : `Sub-agent finished (unverified): ${resultPreview(presentNotice(record))}`;
         // Pi acknowledges submission only; asynchronous delivery failures are
         // reported by the host. The registry/artifacts remain authoritative.
         pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind } }, { triggerTurn: true, deliverAs: "followUp" });
@@ -150,12 +150,12 @@ export default function subagents(pi: ExtensionAPI): void {
     return closing;
   }
   pi.on("session_shutdown", shutdown);
-  // /tree changes the parent branch without session_shutdown. End live authority;
+  // /tree changes the agent branch without session_shutdown. End live authority;
   // cumulative admission records remain counted across all branches.
   pi.on("session_before_tree", async () => { await shutdown(); });
 
   pi.registerTool({
-    name: "subagent", label: "Subagent", description: DESCRIPTION, parameters: Parameters,
+    name: "subagent", label: "Sub-agent", description: DESCRIPTION, parameters: Parameters,
     outputSchema: OutputSchema, executionMode: "sequential", exposure: "direct",
     async execute(_id, input, signal, _onUpdate, ctx) {
       const request = parseRequest(input);
@@ -195,13 +195,13 @@ export default function subagents(pi: ExtensionAPI): void {
         case "reply": await manager.reply(request.id, request.requestId, request.message); result = { ok: true }; break;
         case "run": {
           assertHealthy();
-          if (!ctx.isProjectTrusted()) throw new Error("Trust the parent project in Pi before delegating");
+          if (!ctx.isProjectTrusted()) throw new Error("Trust the agent project in Pi before delegating");
           runtime ??= ModelRuntime.create({
             authPath: path.join(agentDir, "auth.json"), modelsPath: path.join(agentDir, "models.json"), allowModelNetwork: false,
           }).catch(error => { runtime = undefined; throw error; });
           const modelRuntime = await runtime;
           const trusted = ctx.isProjectTrusted();
-          const parentThinking = pi.getThinkingLevel();
+          const agentThinking = pi.getThinkingLevel();
           const scopedModels = ctx.scopedModels.map(({ model }) => `${model.provider}/${model.id}`);
           signal?.throwIfAborted();
           // Share target discovery only within this batch; no stale cross-call cache.
@@ -219,11 +219,11 @@ export default function subagents(pi: ExtensionAPI): void {
             if (!profile) throw new Error(`Unknown agent '${task.agent}'. Use list; only worker and reviewer are bundled.`);
             return prepareNative({
               agentDir, runtime: modelRuntime, task, profile, cwd, workspace,
-              parentModel: modelLabel(ctx), parentThinking, scopedModels,
+              agentModel: modelLabel(ctx), agentThinking, scopedModels,
             });
           }));
           signal?.throwIfAborted();
-          if (host !== state) throw new Error("Parent runtime ended during preflight; no children launched");
+          if (host !== state) throw new Error("Agent runtime ended during preflight; no sub-agents launched");
           assertHealthy();
           result = presentLaunch((await manager.launch(plans, signal)).map(id => manager.status(id)));
           break;
@@ -244,11 +244,11 @@ export default function subagents(pi: ExtensionAPI): void {
         if (request.action === "list") {
           const runs = manager.list();
           if (!runs.length) {
-            ctx.ui.notify(health[HEALTH] ? `Cleanup unknown; launches blocked. Evidence: ${JSON.stringify(health[HEALTH])}` : "No runs in this parent runtime.", "info");
+            ctx.ui.notify(health[HEALTH] ? `Cleanup unknown; launches blocked. Evidence: ${JSON.stringify(health[HEALTH])}` : "No runs in this agent runtime.", "info");
             return;
           }
           const labels = runs.map(run => `${run.id.slice(0, 8)} · ${run.agent} · ${run.state}`);
-          const picked = await ctx.ui.select("Inspect a subagent", labels);
+          const picked = await ctx.ui.select("Inspect a sub-agent", labels);
           if (!picked) return;
           await openThread(ctx, runs[labels.indexOf(picked)]!.id);
           return;
