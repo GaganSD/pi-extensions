@@ -13,6 +13,7 @@ import { loadProfiles } from "../src/agents.ts";
 import { captureHead } from "../src/diff.ts";
 import { RunManager } from "../src/runs.ts";
 import { EDIT_TOOLS, INSPECT_TOOLS, prepareNative, type NativeOptions } from "../src/session.ts";
+import type { Telemetry } from "../src/types.ts";
 import { git } from "../src/workspace.ts";
 import { temp, until } from "./helpers.ts";
 
@@ -79,6 +80,16 @@ test("real SDK: fresh read-only session, inherited instructions, no ambient tool
   assert(!prompt.includes("NEVER_LOAD_SKILL"));
   assert.equal(observed.messages.filter(message => message.role === "user").length, 1);
   assert.equal(result.usage?.input, 5);
+  const header = JSON.parse((await readFile(result.sessionPath!, "utf8")).split("\n")[0]!);
+  assert.equal(result.sessionId, header.id, "native session identity comes from Pi, not the run manager");
+  assert.notEqual(result.sessionId, id);
+  assert.equal(result.pid, process.pid, "native sub-agents share the owning process");
+  assert.equal(result.contextUsage?.contextWindow, 64000);
+  assert.equal(result.contextUsage?.tokens, 8, "latest response context, not cumulative billing");
+  assert.equal(result.contextUsage?.percent, 8 / 64000 * 100);
+  const saved = JSON.parse(await readFile(result.metadataPath, "utf8"));
+  assert.equal(saved.sessionId, header.id);
+  assert.deepEqual(saved.contextUsage, result.contextUsage);
   assert.match(await readFile(result.reportPath!, "utf8"), /Review complete/);
   assert.match(await readFile(result.sessionPath!, "utf8"), /Review complete/);
   assert(f.manager.preview(id!).some(line => line.startsWith("you")));
@@ -113,6 +124,9 @@ test("real SDK: two inspectors have isolated cwd and task context", async t => {
   ]);
   await Promise.all(ids.map(id => f.manager.settled(id)));
   assert(ids.every(id => f.manager.status(id).state === "completed"), JSON.stringify(f.manager.list()));
+  const records = ids.map(id => f.manager.status(id));
+  assert.equal(new Set(records.map(run => run.sessionId)).size, 2);
+  assert(records.every(run => run.sessionId && run.sessionId !== run.id && run.pid === process.pid));
   assert.equal(prompts.length, 2);
   const a = prompts.find(prompt => prompt.includes("ONLY_TASK_A"))!;
   const b = prompts.find(prompt => prompt.includes("ONLY_TASK_B"))!;
@@ -129,10 +143,14 @@ test("real SDK: contact_agent round trip and run-owned reply", async t => {
   });
   const [id] = await f.manager.launch([prepareNative(f.options)]);
   await until(() => f.manager.status(id!).state === "waiting_for_agent");
+  await until(() => f.manager.status(id!).contextUsage?.tokens != null);
+  assert.equal(f.manager.status(id!).contextUsage!.contextWindow, 64000);
   await f.manager.reply(id!, f.manager.status(id!).question!.id, "Use the existing API");
   await f.manager.settled(id!);
   assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
   assert.equal(calls, 2);
+  assert.equal(f.manager.status(id!).usage!.input, 10, "billing stays cumulative");
+  assert.equal(f.manager.status(id!).contextUsage!.tokens, 8, "occupancy uses latest response only");
 });
 
 test("real SDK: provider errors and empty output cannot succeed", async t => {
@@ -191,6 +209,11 @@ test("real SDK: stopping bash cancels its process tree before releasing workspac
   await until(() => { try { process.kill(pid!, 0); return false; } catch { return true; } });
   assert.equal(f.manager.activeCount, 0);
   assert((f.manager.status(id!).usage?.input ?? 0) >= 5, "cancellation retains usage before disposal");
+  const final = f.manager.status(id!);
+  assert(final.sessionId && final.sessionId !== final.id);
+  assert.equal(final.pid, process.pid);
+  assert.equal(final.contextUsage?.contextWindow, 64000);
+  assert.equal(JSON.parse(await readFile(final.metadataPath, "utf8")).sessionId, final.sessionId);
 });
 
 test("real SDK: committed-range review reads a supplied artifact; live diff is launch HEAD", async t => {
@@ -252,7 +275,11 @@ test("real SDK: startup cleanup failure fences the manager instead of releasing 
     AgentSession.prototype.dispose = function () { dispose.call(this); throw new Error("Startup disposal unconfirmed"); };
     const [id] = await f.manager.launch([prepareNative(f.options)]);
     await f.manager.settled(id!);
-    assert.equal(f.manager.status(id!).state, "cleanup_unknown");
+    const failedStart = f.manager.status(id!);
+    assert.equal(failedStart.state, "cleanup_unknown");
+    assert(failedStart.sessionId && failedStart.sessionId !== id);
+    assert.equal(failedStart.pid, process.pid);
+    assert.equal(JSON.parse(await readFile(failedStart.metadataPath, "utf8")).sessionId, failedStart.sessionId);
     assert.equal(f.manager.activeCount, 1);
     await assert.rejects(f.manager.launch([prepareNative(f.options)]), /unknown cleanup/);
   } finally {
@@ -269,4 +296,54 @@ test("real SDK: failed runs retain reported usage without undeclared token total
   const record = f.manager.status(id!);
   assert.equal(record.state, "failed");
   assert.deepEqual(record.usage, { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, cost: 0 });
+});
+
+test("real SDK: throwing initial and scheduled telemetry observers do not fail startup or prompt", async t => {
+  const f = await fixture(t);
+  const snapshots: Telemetry[] = [];
+  let subAgent: Awaited<ReturnType<ReturnType<typeof prepareNative>["start"]>> | undefined;
+  try {
+    subAgent = await prepareNative(f.options).start({
+      signal: new AbortController().signal, directory: path.join(f.root, "observer-run"),
+      own() {}, progress() {}, preview() {}, transcript() {}, ask: async () => "answer",
+      telemetry: snapshot => { snapshots.push(snapshot); throw new Error("optional display failed"); },
+    });
+    assert.equal(snapshots[0]!.sessionId, undefined, "selected model limit is published before SDK startup");
+    assert.deepEqual(snapshots[0]!.contextUsage, { tokens: null, percent: null, contextWindow: 64000 });
+    assert(snapshots.some(snapshot => snapshot.sessionId), "native identity publication survives observer failure");
+    assert.match((await subAgent.prompt()).report, /evidence-backed/);
+    assert.equal(snapshots.at(-1)!.contextUsage.tokens, 8);
+  } finally { await subAgent?.dispose(); }
+});
+
+test("real SDK: compaction event publishes unknown occupancy until a post-compaction response", async t => {
+  const f = await fixture(t);
+  await writeFile(path.join(f.agentDir, "settings.json"), JSON.stringify({
+    retry: { enabled: false }, compaction: { enabled: false, keepRecentTokens: 0 },
+  }));
+  let native!: AgentSession;
+  const observe = (session: AgentSession) => { native = session; };
+  const original = AgentSession.prototype.bindExtensions;
+  const snapshots: Telemetry[] = [];
+  let subAgent: Awaited<ReturnType<ReturnType<typeof prepareNative>["start"]>> | undefined;
+  try {
+    AgentSession.prototype.bindExtensions = function (bindings) { observe(this); return original.call(this, bindings); };
+    subAgent = await prepareNative(f.options).start({
+      signal: new AbortController().signal, directory: path.join(f.root, "compaction-run"),
+      own() {}, progress() {}, preview() {}, transcript() {}, ask: async () => "answer",
+      telemetry: snapshot => snapshots.push(snapshot),
+    });
+  } finally { AgentSession.prototype.bindExtensions = original; }
+  try {
+    await subAgent!.prompt();
+    assert.equal(snapshots.at(-1)!.contextUsage.tokens, 8);
+    await native.compact();
+    await Promise.resolve();
+    assert.equal(snapshots.at(-1)!.contextUsage.tokens, null);
+    assert.equal(snapshots.at(-1)!.contextUsage.percent, null);
+    assert.equal(snapshots.at(-1)!.contextUsage.contextWindow, 64000);
+    await subAgent!.prompt();
+    assert.equal(snapshots.at(-1)!.contextUsage.tokens, 8);
+    assert.equal(snapshots.at(-1)!.sessionId, native.sessionManager.getSessionId());
+  } finally { await subAgent?.dispose(); }
 });

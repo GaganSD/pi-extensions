@@ -38,4 +38,23 @@ Then `/reload`. Built for Pi **1.0.x**.
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
+### Live telemetry
+
+Running rows show `worker · PID-12345 01a11744… · 12%/272K`.
+Sub-agents are **in-process native Pi SDK sessions**: every row shares the owning
+agent's real OS PID, not a separate worker process. The shortened ID is the native
+session ID (prefixes expand to distinguish live sessions), **not** the run UUID.
+Clicks and down-arrow controls still route by the exact run UUID; the inspector
+shows that UUID and the full native session ID. Full IDs and the latest observed
+context estimate remain in `run.json`, including failed/cancelled runs.
+
+The percentage is Pi's **estimated current context occupancy** divided by the
+selected model's context window, not cumulative billed tokens. Limits use decimal
+K/M. Estimates refresh at finalized message/lifecycle/compaction boundaries, not
+on each streamed token or widget paint. Unknown startup/usage displays, for example,
+`PID-12345 starting · ?%/272K` or `?%/?`; after compaction occupancy may stay unknown
+until the next response. Real zero and values over 100% are preserved. Narrow
+terminals shorten roles/IDs and drop decoration before context fields. Ask/error/
+stop indicators remain useful; elapsed time is in the inspector.
+
 **Note:** I've stressed tested the library to work well locally. TODO: Improve UI & Developer Experience. Support Cloud Sub-agents. Message me if you feedback, TIA!

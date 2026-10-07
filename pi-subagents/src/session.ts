@@ -2,12 +2,25 @@ import path from "node:path";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import {
   createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager,
-  type AgentSession, type ModelRuntime, type ToolDefinition,
+  type AgentSession, type ContextUsage, type ModelRuntime, type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { captureHead, diffTool } from "./diff.ts";
 import { formatMessage } from "./transcript.ts";
-import type { SubAgent, PreparedTask, Profile, RunContext, Task, Thinking } from "./types.ts";
+import type { ContextEstimate, SubAgent, PreparedTask, Profile, RunContext, Task, Telemetry, Thinking } from "./types.ts";
+
+export function contextEstimate(usage: ContextUsage | undefined, window?: number): ContextEstimate {
+  const limit = usage?.contextWindow ?? window;
+  const contextWindow = limit !== undefined && Number.isFinite(limit) && limit > 0 ? limit : null;
+  const known = contextWindow !== null && usage?.tokens !== null && usage?.tokens !== undefined
+    && Number.isFinite(usage.tokens) && usage.tokens >= 0
+    && usage.percent !== null && Number.isFinite(usage.percent) && usage.percent >= 0;
+  return { tokens: known ? usage!.tokens : null, contextWindow, percent: known ? usage!.percent : null };
+}
+
+function publishTelemetry(context: RunContext, snapshot: Telemetry): void {
+  try { context.telemetry?.(snapshot); } catch { /* Optional display observers never determine execution success. */ }
+}
 
 export const INSPECT_TOOLS = ["read", "grep", "find", "ls", "diff", "contact_agent"];
 export const EDIT_TOOLS = [...INSPECT_TOOLS, "bash", "edit", "write"];
@@ -67,6 +80,7 @@ export function prepareNative(options: NativeOptions): PreparedTask {
     ...task, cwd: options.cwd, workspace: options.workspace, model: name, thinking, mode: profile.mode,
     async start(context) {
       context.signal.throwIfAborted();
+      publishTelemetry(context, { pid: process.pid, contextUsage: contextEstimate(undefined, model.contextWindow) });
       const head = await captureHead(options.workspace, context.signal);
       const tools = profile.mode === "edit" ? EDIT_TOOLS : INSPECT_TOOLS;
       const loader = new DefaultResourceLoader({
@@ -106,8 +120,32 @@ export function prepareNative(options: NativeOptions): PreparedTask {
 export function wrapSession(session: AgentSession, task: string, context: RunContext): SubAgent {
   let settled = false;
   let toolErrors = 0;
+  let disposed = false;
+  let refreshQueued = false;
+  if (!context.signal.aborted) publishTelemetry(context, {
+    pid: process.pid, sessionId: session.sessionId,
+    contextUsage: contextEstimate(undefined, session.model?.contextWindow),
+  });
+  // message_end is emitted BEFORE SDK persistence. Defer once so the estimate
+  // sees finalized native context. Streaming deltas never schedule a scan.
+  const refresh = () => {
+    if (!context.telemetry || refreshQueued || disposed || context.signal.aborted) return;
+    refreshQueued = true;
+    queueMicrotask(() => {
+      refreshQueued = false;
+      if (disposed || context.signal.aborted) return;
+      let estimate: ContextEstimate;
+      try { estimate = contextEstimate(session.getContextUsage(), session.model?.contextWindow); }
+      catch { estimate = contextEstimate(undefined, session.model?.contextWindow); }
+      // A failed estimate invalidates confident cached usage, but later events can recover.
+      publishTelemetry(context, { pid: process.pid, sessionId: session.sessionId, contextUsage: estimate });
+    });
+  };
   const tools = new Map<string, string>();
   const unsubscribe = session.subscribe(event => {
+    if (event.type === "message_end" || event.type === "turn_start" || event.type === "turn_end"
+      || event.type === "compaction_end" || event.type === "agent_settled"
+      || (event.type === "entry_appended" && event.entry.type === "context_edit")) refresh();
     if (event.type === "message_end") {
       const line = formatMessage(event.message);
       if (line) context.preview(line);
@@ -144,6 +182,7 @@ export function wrapSession(session: AgentSession, task: string, context: RunCon
     steer: message => session.steer(message),
     abort: () => session.abort(),
     dispose() {
+      disposed = true;
       context.signal.removeEventListener("abort", abort);
       unsubscribe();
       return session.dispose(); // The manager awaits teardown before confirming cleanup.

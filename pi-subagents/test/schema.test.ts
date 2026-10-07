@@ -90,12 +90,13 @@ test("schema and runtime guards agree on all actions, optional fields, bounds an
 test("actual OpenAI-completions serialization preserves object-root union in onPayload and HTTP body", async () => {
   const model: Model<"openai-completions"> = {
     id: "schema-fixture", name: "Schema fixture", api: "openai-completions", provider: "fixture",
-    baseUrl: "https://fixture.invalid/v1", reasoning: false, input: ["text"],
+    baseUrl: "https://fixture.invalid/v1", reasoning: false, input: ["text"], compat: { supportsStrictMode: true },
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 64000, maxTokens: 128,
   };
   const context = normalizeContext({
     messages: [{ role: "user", content: "List profiles", timestamp: 0 }],
-    tools: [{ name: "subagent", description: DESCRIPTION, parameters: Parameters }],
+    tools: [{ name: "subagent", description: DESCRIPTION, parameters: Parameters,
+      constrainedSampling: { type: "json_schema", strict: "prefer" } }],
   });
   let payload: unknown, body: unknown, requests = 0;
   const events = stream(model, context, {
@@ -120,9 +121,10 @@ test("actual OpenAI-completions serialization preserves object-root union in onP
   assert.equal(requests, 1);
   assert.deepEqual(body, payload);
   // Narrow unknown transport data without relying on installed adapter internals.
-  const wire = body as { tools: { type: string; function: { name: string; parameters: unknown } }[] };
+  const wire = body as { tools: { type: string; function: { name: string; parameters: unknown; strict?: boolean } }[] };
   assert.equal(wire.tools.length, 1);
   assert.equal(wire.tools[0]!.type, "function");
   assert.equal(wire.tools[0]!.function.name, "subagent");
+  assert.equal(wire.tools[0]!.function.strict, false, "root action union falls back to non-strict despite strict-mode support");
   assert.deepEqual(wire.tools[0]!.function.parameters, JSON.parse(JSON.stringify(Parameters)));
 });

@@ -60,7 +60,9 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   const record: RunRecord = {
     id: "aaaaaaaa-1111", owner: "p", agent: "worker", mode: "edit", task: "Inspect",
     cwd: "/repo/\u001b]52;bad\u0007", workspace: "/repo", model: "fixture/test", thinking: "off", state: "waiting_for_agent",
-    startedAt: "t", elapsedMs: 1, metadataPath: "/run.json", question: { id: "q", message: "\u001b]52;bad\u0007Which API?\u202e" },
+    startedAt: "t", elapsedMs: 1, metadataPath: "/run.json",
+    pid: process.pid, sessionId: "01a11744-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    contextUsage: { tokens: 32640, contextWindow: 272000, percent: 12 }, question: { id: "q", message: "\u001b]52;bad\u0007Which API?\u202e" },
   };
   const actions: InspectActions = {
     status: () => record,
@@ -83,6 +85,11 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   preview = ["sub-agent updated message"];
   listener();
   assert(view.render(80).some(line => line.includes("updated message")));
+  const details = view.render(120).join("\n");
+  assert(details.includes(record.id));
+  assert(details.includes(record.sessionId!));
+  assert(details.includes(`PID-${process.pid}`));
+  assert(details.includes("12%/272K"));
   rows = 4;
   const short = view.render(80);
   assert(short.length <= 3);

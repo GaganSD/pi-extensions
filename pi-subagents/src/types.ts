@@ -16,6 +16,9 @@ export type State = "starting" | "running" | "waiting_for_agent" | "cancelling"
   | "completed" | "failed" | "cancelled" | "cleanup_unknown";
 export interface Usage { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 export interface Question { id: string; message: string }
+/** Cached native SDK estimate, separate from cumulative billed Usage. */
+export interface ContextEstimate { tokens: number | null; contextWindow: number | null; percent: number | null }
+export interface Telemetry { pid: number; sessionId?: string; contextUsage: ContextEstimate }
 export interface RunRecord {
   id: string;
   owner: string;
@@ -38,6 +41,11 @@ export interface RunRecord {
   error?: string;
   notificationError?: string;
   usage?: Usage;
+  /** Shared owning-process PID; sub-agents are in-process sessions. */
+  pid?: number;
+  /** Full native Pi session ID, never the manager's run UUID. */
+  sessionId?: string;
+  contextUsage?: ContextEstimate;
   toolErrors?: number;
 }
 export interface SubAgentResult { report: string; usage?: Usage; toolErrors: number }
@@ -54,6 +62,8 @@ export interface RunContext {
   directory: string;
   /** Transfer cleanup ownership before startup validation can fail. */
   own(subAgent: SubAgent): void;
+  /** Value snapshots only; UI must not retain or query native sessions. */
+  telemetry?(snapshot: Telemetry): void;
   progress(tool?: string): void;
   preview(line: string): void;
   transcript(path: string): void;

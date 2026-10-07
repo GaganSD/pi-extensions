@@ -1,7 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Input, matchesKey, truncateToWidth, type Component, type Focusable, type TUI } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
-import { formatElapsed, nextLive, plain } from "./ui.ts";
+import { formatContext, formatElapsed, nextLive, plain } from "./ui.ts";
 import { readTranscript } from "./transcript.ts";
 
 export type HumanCommand =
@@ -113,10 +113,11 @@ export class InspectView implements Component, Focusable {
     const inner = Math.max(1, width);
     const height = Math.max(1, Math.floor(this.tui.terminal.rows * 0.8));
     const title = record
-      ? `${record.id.slice(0, 8)} · ${record.agent} · ${record.state} · ${formatElapsed(record.elapsedMs)}`
+      ? `${record.id} · ${record.agent} · ${record.state} · ${formatElapsed(record.elapsedMs)}`
       : `${this.id.slice(0, 8)} · unavailable`;
     const lines = [
       th.fg("accent", truncateToWidth(` ${plain(title, 512)}`, inner)),
+      ...(record ? [th.fg("dim", truncateToWidth(` ${plain(`PID-${record.pid ?? "?"} · session ${record.sessionId ?? "starting"} · ${formatContext(record)}`, 512)}`, inner))] : []),
       th.fg("dim", truncateToWidth(` ${plain(record?.cwd ?? "", 4096)}`, inner)),
     ];
     if (record?.question) {

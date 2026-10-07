@@ -83,7 +83,7 @@ export class RunManager {
           const record: RunRecord = {
             id, owner: this.options.owner, agent: plan.agent, mode: plan.mode, task: plan.task,
             cwd: plan.cwd, workspace: plan.workspace, model: plan.model, thinking: plan.thinking, state: "starting",
-            startedAt: new Date().toISOString(), elapsedMs: 0,
+            startedAt: new Date().toISOString(), elapsedMs: 0, pid: process.pid,
             metadataPath: path.join(this.options.store.directory(id), "run.json"),
           };
           const run: Run = { record, preview: [], controller: new AbortController(), work: Promise.resolve(), writes: Promise.resolve(), notified: false, cleaned: false, pendingWrites: new Set() };
@@ -212,6 +212,19 @@ export class RunManager {
         own: subAgent => {
           if (run.subAgent && run.subAgent !== subAgent) throw new Error("Startup transferred more than one sub-agent");
           run.subAgent = subAgent;
+        },
+        telemetry: snapshot => {
+          // Ignore late startup/queued events after cancellation or finalization.
+          // Retain the last observed values; never fabricate late session evidence.
+          if (run.controller.signal.aborted || run.record.endedAt || !isLive(run.record.state)) return;
+          const usage = snapshot.contextUsage;
+          const prior = run.record.contextUsage;
+          if (run.record.pid === snapshot.pid && (!snapshot.sessionId || run.record.sessionId === snapshot.sessionId)
+            && prior?.tokens === usage.tokens && prior?.contextWindow === usage.contextWindow && prior?.percent === usage.percent) return;
+          run.record.pid = snapshot.pid;
+          if (snapshot.sessionId) run.record.sessionId = snapshot.sessionId;
+          run.record.contextUsage = { ...usage };
+          this.changed(); // Cached UI update only; lifecycle writes persist the latest snapshot.
         },
         progress: tool => { if (!run.controller.signal.aborted) { run.record.currentTool = tool; this.changed(); } },
         preview: line => {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Show live shared-PID, native-session, and context rows with best-effort cached
+  estimates; estimator failures display unknown usage and observer errors cannot
+  fail a run.
+
 - Give the `subagent` input schema an explicit object root for provider-neutral
   compatibility, preserving the closed six-action union and runtime guards.
 - Use agent/sub-agent terminology in code, prompts, UI, documentation, and tests.
