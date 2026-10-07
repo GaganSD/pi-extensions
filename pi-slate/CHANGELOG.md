@@ -2,17 +2,16 @@
 
 ## Unreleased
 
-### Composer
+### Added
 
-- Show the agent PID in the composer footer on the top edge as a dim `PID-1234` label, with compact focused-mode labels and no brackets around the PID
-- `/slate pid on` and `/slate pid off` control the PID label: it stays hidden by default and only appears when you explicitly turn it on
-- Pi-style context label in the footer: `2%/250k tokens · ↑↓42` — percentage over the context window plus an arrow input/output rate, with compact token sizes (845, 16k, 47.3k, 1M)
-- A status right suffix moves the composer border truncation math so the suffix and the status text stay visible together
+- `/prompts` and `Ctrl+Alt+P` open a searchable prompt-template picker. Search by filename, name, description, or body; Enter inserts into the composer without sending. Esc or Ctrl+C leaves your draft unchanged. Pi's configured selection keys are supported.
+- Templates are reread when the picker opens. Unreadable files are reported and skipped; missing or empty names fall back to filenames.
+- `/slate pid [on|off]` toggles a saved agent process-ID label on the composer's top edge. Off by default; hidden when the frame is too narrow.
 
-### Prompts
+### Changed
 
-- New `/prompts` command and `Ctrl+Shift+P` shortcut open a searchable picker of your prompt templates: type to filter, ↑↓ to choose, Enter pastes the selected prompt into the editor, Esc or Ctrl+C closes
-- The picker reads prompt templates live from session state at open time, skips unreadable or deleted template files instead of failing the whole picker, and falls back to the file id when a template has no `name:` frontmatter
+- Focused-mode context uses `2%/250k tokens · ↑↓42`: usage percentage, context-window size, and estimated streamed tokens per second. Skill and MCP labels are shorter.
+- Composer borders keep status and overflow indicators ahead of resource labels and fit narrow terminal widths, including with PID display enabled.
 
 ## 0.1.10
 
