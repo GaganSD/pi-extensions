@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Give the `subagent` input schema an explicit object root for provider-neutral
+  compatibility, preserving the closed six-action union and runtime guards.
+- Use agent/sub-agent terminology in code, prompts, UI, documentation, and tests.
+  Machine contracts now use `contact_agent` and `waiting_for_agent` (no legacy
+  aliases); retained run artifacts remain evidence, not resumable runtime state.
+- Document reviewed local Pi synchronization and smoke-testing for personal use;
+  publishing still requires an explicit request.
+
 ## 0.0.2
 
 Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.
@@ -13,11 +21,11 @@ Maintenance release: refresh the Pi, TypeScript, and GitHub Actions pins.
 
 - Refresh the Pi 1.0.0, TypeScript 7.0.2, and yaml 2.9.1 pins and accept @types/node 26 assertion signatures
 - Publish a reproducible comparison of `@gagansd/pi-subagents` against
-  `nicobailon/pi-subagents` on five parent-composed workflows.
+  `nicobailon/pi-subagents` on five agent-composed workflows.
 - Report unpacked package size, declared-context overhead, and character-proxy
   suite tokens (`ceil(JS UTF-16 / 4)`, median of three five-task suites) for
   Kimi K3 and Grok 4.6. These are not provider billing counts.
-- Collect each episode in a real interactive Pi TUI. Stall mute children after
+- Collect each episode in a real interactive Pi TUI. Stall mute sub-agents after
   90s, keep failed episodes in the suite, and leave incomplete evidence in place.
 - Add package CI, on-demand npm publish, Dependabot, and secret scanning.
 - Set the npm package subtitle to “Tiny yet powerful, benchmarked sub-agents for Pi”.
@@ -31,9 +39,9 @@ First public release as `@gagansd/pi-subagents`.
   case-insensitive `GIT_*` environment leaks, force a C locale, and preserve stderr/exit
   detail on Git failures. Resolve symlinks before the write-conflict overlap check.
 - Fix run lifecycle races: a failed question notification no longer aborts an already
-  answered child, stop deadlines never rewrite a published terminal state, child abort is
+  answered sub-agent, stop deadlines never rewrite a published terminal state, sub-agent abort is
   serialized per run, and metadata writes snapshot at write time and never start after
-  their deadline. Stop wake-up turn messages from carrying child-controlled free text;
+  their deadline. Stop wake-up turn messages from carrying sub-agent-controlled free text;
   question/error content stays behind status and on-disk metadata.
 - Make evidence storage rollback-safe and durable: failed allocations remove the run
   directory, the artifact root is chmod 0700 even when pre-existing, and atomic writes
@@ -54,9 +62,9 @@ First public release as `@gagansd/pi-subagents`.
   entries-less tail are disclosed honestly instead of misparsed or masked.
 
 - Keep the live widget mounted and show natural elapsed time (`12s`, `2m 5s`,
-  `1h 2m`). Down or a click on `↓` opens a child thread; Down again cycles to the
-  next live child or back to the parent.
-- Accept optional per-task `thinking` (`task` → profile → parent), persist the
+  `1h 2m`). Down or a click on `↓` opens a sub-agent thread; Down again cycles to the
+  next live sub-agent or back to the agent.
+- Accept optional per-task `thinking` (`task` → profile → agent), persist the
   resolved level on `run.json`, echo model/thinking on launch receipts and
   status-by-id, and identify completion notices with agent plus task preview.
 - Shrink model/native results to allowlisted action views: ordered `id` / `cwd` /
@@ -73,18 +81,18 @@ First public release as `@gagansd/pi-subagents`.
 - Bound artifact I/O and stop/shutdown waiting. Preserve the cause of uncertain
   cleanup across reload; do not mislabel confirmed cleanup as uncertain when storage fails.
 - Preserve available usage on failed/cancelled runs and release settled SDK wrappers.
-- Feed inspector previews from finalized child events. Remove filesystem reads
+- Feed inspector previews from finalized sub-agent events. Remove filesystem reads
   from rendering, bound async fallback reads, sanitize terminal controls, and
   keep input visible on narrow/short terminals.
 - Let the operator attach through `/subagents`; list every live run and clear the
-  widget after settlement. Parent project trust suffices for named working directories.
+  widget after settlement. Agent project trust suffices for named working directories.
 - Expose one direct/native structured tool with no join, fallback, or resume.
-  Document parent-composed fan-in, failed siblings, and committed-range artifacts.
+  Document agent-composed fan-in, failed siblings, and committed-range artifacts.
 
 ## 0.1.0
 
 - Bundle worker and reviewer only.
-- Fresh, session-bound native Pi SDK children with flat bounded batches.
-- Exact-owner status, stop, steer, supervisor replies, local evidence, and a
+- Fresh, session-bound native Pi SDK sub-agents with flat bounded batches.
+- Exact-owner status, stop, steer, agent replies, local evidence, and a
   compact run widget backed by one manager.
 - Private package. No install-time migration of user profiles or settings.

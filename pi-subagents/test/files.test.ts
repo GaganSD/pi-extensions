@@ -80,7 +80,7 @@ test("diff path restrictions and no baseline fail honestly", async t => {
 test("private atomic artifacts persist evidence and never overwrite existing run directories", async t => {
   const root = await temp(t);
   const store = new FileArtifacts(path.join(root, "artifacts"));
-  const manager = new RunManager({ owner: "test-parent", store, config: { ...DEFAULT_CONFIG } });
+  const manager = new RunManager({ owner: "test-agent", store, config: { ...DEFAULT_CONFIG } });
   const [id] = await manager.launch([plan()]); await manager.settled(id!);
   const result = manager.status(id!);
   assert.equal(JSON.parse(await readFile(result.metadataPath, "utf8")).state, "completed");

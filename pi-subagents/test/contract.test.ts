@@ -89,7 +89,7 @@ test("UI sanitizes terminal controls and bidi content", () => {
   assert.equal(rows([]).length, 0);
 });
 
-test("elapsed time is natural and down cycles live threads then parent", () => {
+test("elapsed time is natural and down cycles live threads then agent", () => {
   assert.equal(formatElapsed(0), "0s");
   assert.equal(formatElapsed(12_000), "12s");
   assert.equal(formatElapsed(59_000), "59s");
@@ -124,7 +124,7 @@ test("human command parse and unique prefix attach", () => {
   assert.throws(() => resolveRun(runs, "zzz"), /Unknown/);
 });
 
-test("transcript extract skips session headers and keeps user/child/tool lines", async t => {
+test("transcript extract skips session headers and keeps user/sub-agent/tool lines", async t => {
   const root = await temp(t);
   const file = path.join(root, "session.jsonl");
   await writeFile(file, [
@@ -136,9 +136,9 @@ test("transcript extract skips session headers and keeps user/child/tool lines",
   ].join("\n") + "\n");
   assert.deepEqual(await readTranscript(file), [
     "you   Build cat.html",
-    "child tool write",
+    "sub-agent tool write",
     "out   wrote cat.html",
-    "child Done",
+    "sub-agent Done",
   ]);
   assert.equal(formatEntry({ type: "session" }), undefined);
   assert.deepEqual(await readTranscript(undefined), ["(no transcript yet)"]);

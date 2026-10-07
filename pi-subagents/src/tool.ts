@@ -10,7 +10,7 @@ const TaskSchema = Type.Object({
   model: Type.Optional(Type.String({ minLength: 3, maxLength: 512 })),
   thinking: Type.Optional(ThinkingSchema),
 }, { additionalProperties: false });
-/** Closed per-action union matching the Request type; no cross-action field mixes. */
+/** Object-root tool input with a closed per-action union; no cross-action field mixes. */
 export const Parameters = Type.Union([
   Type.Object({ action: Type.Literal("run"), tasks: Type.Array(TaskSchema, { minItems: 1, maxItems: 4 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("list"), cwd: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, description: "Profile discovery directory for list" })) }, { additionalProperties: false }),
@@ -18,7 +18,7 @@ export const Parameters = Type.Union([
   Type.Object({ action: Type.Literal("stop"), id: Type.String({ minLength: 1, maxLength: 64 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("steer"), id: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal("reply"), id: Type.String({ minLength: 1, maxLength: 64 }), requestId: Type.String({ minLength: 1, maxLength: 64 }), message: Type.String({ minLength: 1, maxLength: 8192 }) }, { additionalProperties: false }),
-]);
+], { type: "object" });
 
 export type Request =
   | { action: "run"; tasks: Task[] }
@@ -89,7 +89,7 @@ export function presentFinished(record: RunRecord) {
     ...((record.error?.length ?? 0) > 512 ? { truncated: true as const } : {}),
   };
 }
-/** Turn-triggering wake-ups carry only parent-controlled fields; child free text stays behind status/metadata. */
+/** Turn-triggering wake-ups carry only agent-controlled fields; sub-agent free text stays behind status/metadata. */
 export function presentNotice(record: RunRecord) {
   return {
     id: record.id, state: record.state, agent: record.agent, taskPreview: clip(record.task, 80),
@@ -142,7 +142,7 @@ export function resultPreview(result: unknown): string {
 
 const closed = { additionalProperties: false };
 const ModeSchema = Type.String({ enum: ["inspect", "edit"] });
-const StateSchema = Type.String({ enum: ["starting", "running", "waiting_for_parent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
+const StateSchema = Type.String({ enum: ["starting", "running", "waiting_for_agent", "cancelling", "completed", "failed", "cancelled", "cleanup_unknown"] });
 const RunSchema = Type.Object({
   id: Type.String(), state: StateSchema,
   agent: Type.Optional(Type.String()), taskPreview: Type.Optional(Type.String()),
@@ -170,11 +170,11 @@ export const OutputSchema = Type.Union([
 ]);
 
 export const DESCRIPTION = `Delegate only when requested by the operator or applicable instructions.
-run launches 1–4 fresh, session-bound native Pi leaf children; ordered receipts are NOT results or a join.
-Children have fixed tools and applicable instruction files, but no parent history, extensions, hooks, MCP or skills.
+run launches 1–4 fresh, session-bound native Pi sub-agents; ordered receipts are NOT results or a join.
+Sub-agents have fixed tools and applicable instruction files, but no agent history, extensions, hooks, MCP or skills.
 Do not launch tasks needing unavailable capabilities or policies. Modes are inspect (read-only) and edit (shell/write), not OS sandboxes.
 Use list with the target cwd to inspect profiles. Reserve returned workspaces until settled; parallel writers need separate existing worktrees.
-Questions/results wake this parent: yield, do not poll. Use exact run IDs; reply also needs the current question ID.
+Questions/results wake this agent: yield, do not poll. Use exact run IDs; reply also needs the current question ID.
 status lists live/recent runs; status(id) gives control state, resolved model/thinking, and evidence paths. /subagents provides human control.
 Control receipts mean accepted, not compliance. Completed means settled and saved, not verified; read the report and validate.
 Committed-range review needs a supplied diff. No resume, model fallback, recursive delegation or workflow runner.`;

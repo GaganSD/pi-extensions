@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ArtifactStore } from "./artifacts.ts";
-import { errorText, isLive, PREVIEW_LINES, type Child, type Config, type PreparedTask, type Question, type RunRecord } from "./types.ts";
+import { errorText, isLive, PREVIEW_LINES, type SubAgent, type Config, type PreparedTask, type Question, type RunRecord } from "./types.ts";
 import { overlaps } from "./workspace.ts";
 import { text } from "./validation.ts";
 
@@ -14,7 +14,7 @@ interface Run {
   record: RunRecord;
   preview: string[];
   controller: AbortController;
-  child?: Child;
+  subAgent?: SubAgent;
   question?: PendingQuestion;
   work: Promise<void>;
   writes: Promise<void>;
@@ -39,7 +39,7 @@ export interface ManagerOptions {
   cleanupMs?: number;
 }
 
-/** Owns only this live parent. Files are evidence, never a source of launch authority. */
+/** Owns only this live agent. Files are evidence, never a source of launch authority. */
 export class RunManager {
   private readonly runs = new Map<string, Run>();
   private admission: Promise<void> = Promise.resolve();
@@ -65,7 +65,7 @@ export class RunManager {
       signal?.throwIfAborted();
       this.assertLaunchable();
       if (plans.length < 1 || plans.length > 4) throw new Error("A batch needs 1–4 tasks");
-      if (this.activeCount + plans.length > this.options.config.maxConcurrent) throw new Error("Concurrent child limit reached; wait for existing results");
+      if (this.activeCount + plans.length > this.options.config.maxConcurrent) throw new Error("Concurrent sub-agent limit reached; wait for existing results");
       if (this.admitted + plans.length > this.options.config.maxRuns) throw new Error("Session launch budget exhausted");
       const live = [...this.runs.values()].filter(run => isLive(run.record.state)).map(run => run.record);
       const all = [...live, ...plans];
@@ -91,13 +91,13 @@ export class RunManager {
           await this.io(signal => this.options.store.create(record, signal));
         }
         signal?.throwIfAborted();
-        if (this.closed) throw new Error("Parent shut down during admission");
+        if (this.closed) throw new Error("Agent shut down during admission");
         this.assertLaunchable(); // Cleanup can become uncertain during allocation I/O.
         this.options.recordAdmissions?.(this.admitted + plans.length);
       } catch (error) {
         await Promise.allSettled(staged.map(async run => {
           run.record.state = "failed";
-          run.record.error = `Admission failed; child was not started: ${errorText(error)}`;
+          run.record.error = `Admission failed; sub-agent was not started: ${errorText(error)}`;
           run.record.endedAt = new Date().toISOString();
           await this.persist(run);
         }));
@@ -116,13 +116,13 @@ export class RunManager {
 
   async steer(id: string, message: string): Promise<string> {
     const run = this.owned(id);
-    if (run.record.state !== "running" || !run.child) throw new Error("Steer requires a running child; use reply for its pending question");
-    return run.child.steer(text(message, "message", 8192));
+    if (run.record.state !== "running" || !run.subAgent) throw new Error("Steer requires a running sub-agent; use reply for its pending question");
+    return run.subAgent.steer(text(message, "message", 8192));
   }
 
   async reply(id: string, requestId: string, message: string): Promise<void> {
     const run = this.owned(id);
-    if (run.record.state !== "waiting_for_parent" || !run.question || run.question.question.id !== requestId) {
+    if (run.record.state !== "waiting_for_agent" || !run.question || run.question.question.id !== requestId) {
       throw new Error("No matching pending question belongs to this run");
     }
     const answer = text(message, "message", 8192);
@@ -132,8 +132,8 @@ export class RunManager {
     run.record.state = "running";
     try { await this.persist(run); }
     catch (error) {
-      question.reject(new Error(`Cannot persist supervisor reply: ${errorText(error)}`));
-      await this.stop(id, `Cannot persist supervisor reply: ${errorText(error)}`);
+      question.reject(new Error(`Cannot persist agent reply: ${errorText(error)}`));
+      await this.stop(id, `Cannot persist agent reply: ${errorText(error)}`);
       throw error;
     }
     if (run.controller.signal.aborted) question.reject(new Error("Run cancelled while replying"));
@@ -141,7 +141,7 @@ export class RunManager {
     this.changed();
   }
 
-  async stop(id: string, reason = "Stopped by parent"): Promise<void> {
+  async stop(id: string, reason = "Stopped by agent"): Promise<void> {
     const run = this.owned(id);
     if (!isLive(run.record.state) || run.record.state === "cleanup_unknown") return;
     if (run.stopping) return run.stopping;
@@ -155,9 +155,9 @@ export class RunManager {
 
   async shutdown(): Promise<void> {
     this.closed = true;
-    // An in-flight admission checks closed again before starting any child.
+    // An in-flight admission checks closed again before starting any sub-agent.
     // Do not let allocation I/O hold shutdown hostage.
-    await Promise.all([...this.runs.values()].map(run => this.stop(run.record.id, "Parent session ended or reloaded")));
+    await Promise.all([...this.runs.values()].map(run => this.stop(run.record.id, "Agent session ended or reloaded")));
   }
 
   /** Used by tests/host lifecycle barriers, not exposed as a polling tool. */
@@ -165,7 +165,7 @@ export class RunManager {
 
   private owned(id: string): Run {
     const run = this.runs.get(id);
-    if (!run) throw new Error("Unknown run ID for this parent runtime; prefixes, foreign runs, and retained resume are unsupported");
+    if (!run) throw new Error("Unknown run ID for this agent runtime; prefixes, foreign runs, and retained resume are unsupported");
     return run;
   }
   private snapshot(run: Run): RunRecord {
@@ -173,7 +173,7 @@ export class RunManager {
   }
   private changed(): void { try { this.options.changed?.(); } catch { /* UI never determines execution success. */ } }
   private assertLaunchable(): void {
-    if (this.closed) throw new Error("This parent runtime is closed; no new runs can start");
+    if (this.closed) throw new Error("This agent runtime is closed; no new runs can start");
     if (this.blocked) throw new Error(this.blocked);
     this.options.assertLaunchable?.();
   }
@@ -182,7 +182,7 @@ export class RunManager {
     run.record.state = "cleanup_unknown";
     run.record.error = reason;
     run.record.endedAt = new Date().toISOString();
-    this.blocked = `A child has unknown cleanup. Restart Pi before launching more children. Evidence: ${run.record.metadataPath}`;
+    this.blocked = `A sub-agent has unknown cleanup. Restart Pi before launching more sub-agents. Evidence: ${run.record.metadataPath}`;
     try { this.options.unsafeCleanup?.(this.snapshot(run)); } catch { /* The local fence remains authoritative. */ }
     this.changed();
   }
@@ -207,11 +207,11 @@ export class RunManager {
   private async execute(run: Run, plan: PreparedTask): Promise<void> {
     let failed: string | undefined;
     try {
-      const child = await plan.start({
+      const subAgent = await plan.start({
         signal: run.controller.signal, directory: this.options.store.directory(run.record.id),
-        own: child => {
-          if (run.child && run.child !== child) throw new Error("Startup transferred more than one child");
-          run.child = child;
+        own: subAgent => {
+          if (run.subAgent && run.subAgent !== subAgent) throw new Error("Startup transferred more than one sub-agent");
+          run.subAgent = subAgent;
         },
         progress: tool => { if (!run.controller.signal.aborted) { run.record.currentTool = tool; this.changed(); } },
         preview: line => {
@@ -222,14 +222,14 @@ export class RunManager {
         transcript: file => { run.record.sessionPath = file; },
         ask: (message, signal) => this.ask(run, message, signal),
       });
-      if (run.child && run.child !== child) throw new Error("Startup returned a different child than it owned");
-      run.child = child;
+      if (run.subAgent && run.subAgent !== subAgent) throw new Error("Startup returned a different sub-agent than it owned");
+      run.subAgent = subAgent;
       run.controller.signal.throwIfAborted();
       run.record.state = "running";
       await this.persist(run);
       this.changed();
       run.controller.signal.throwIfAborted();
-      const result = await run.child.prompt();
+      const result = await run.subAgent.prompt();
       run.record.usage = result.usage;
       run.record.toolErrors = result.toolErrors;
       run.controller.signal.throwIfAborted();
@@ -240,17 +240,17 @@ export class RunManager {
     }
     // SDK abort must finish tools; collect evidence before dispose invalidates it.
     let unclean: string | undefined;
-    try { await (run.aborting ??= run.child?.abort() ?? Promise.resolve()); } catch (error) { unclean = errorText(error); }
+    try { await (run.aborting ??= run.subAgent?.abort() ?? Promise.resolve()); } catch (error) { unclean = errorText(error); }
     try {
-      const evidence = run.child?.evidence?.();
+      const evidence = run.subAgent?.evidence?.();
       if (evidence) { run.record.usage = evidence.usage; run.record.toolErrors = evidence.toolErrors; }
     } catch (error) {
-      failed ??= `Cannot collect child evidence: ${errorText(error)}`;
+      failed ??= `Cannot collect sub-agent evidence: ${errorText(error)}`;
       run.record.error ??= failed;
     }
-    try { await run.child?.dispose(); } catch (error) { unclean = errorText(error); }
+    try { await run.subAgent?.dispose(); } catch (error) { unclean = errorText(error); }
     run.cleaned = !unclean;
-    if (run.cleaned) run.child = undefined; // Do not retain SDK transcripts through settled wrappers.
+    if (run.cleaned) run.subAgent = undefined; // Do not retain SDK transcripts through settled wrappers.
     if (unclean) this.poison(run, `Cleanup not confirmed: ${unclean}`);
     // A stop deadline may have published failure or uncertainty already. Never promote it later.
     if (run.record.state === "cleanup_unknown" || !isLive(run.record.state)) {
@@ -264,16 +264,16 @@ export class RunManager {
     run.record.endedAt = new Date().toISOString();
     run.record.currentTool = undefined;
     run.record.question = undefined;
-    run.question?.reject(new Error("Child settled"));
+    run.question?.reject(new Error("Sub-agent settled"));
     run.question = undefined;
     clearTimeout(run.timer);
     await this.finish(run);
   }
 
   private async awaitStopped(run: Run): Promise<void> {
-    // Abort as soon as the child exists. A start() that completes late must check
+    // Abort as soon as the sub-agent exists. A start() that completes late must check
     // its signal; execute() also aborts/disposes it before ever prompting.
-    const abort = Promise.resolve().then(() => run.aborting ??= run.child?.abort() ?? Promise.resolve());
+    const abort = Promise.resolve().then(() => run.aborting ??= run.subAgent?.abort() ?? Promise.resolve());
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
@@ -300,7 +300,7 @@ export class RunManager {
   private async ask(run: Run, message: string, signal?: AbortSignal): Promise<string> {
     run.controller.signal.throwIfAborted();
     signal?.throwIfAborted();
-    if (run.question) throw new Error("Only one pending supervisor question per child is allowed");
+    if (run.question) throw new Error("Only one pending agent question per sub-agent is allowed");
     const question = { id: randomUUID(), message: text(message, "question", 8192) };
     let resolve!: (message: string) => void;
     let reject!: (error: Error) => void;
@@ -309,8 +309,8 @@ export class RunManager {
     void response.catch(() => {});
     run.question = { question, resolve, reject };
     run.record.question = question;
-    run.record.state = "waiting_for_parent";
-    const abort = () => reject(new Error("Supervisor wait cancelled"));
+    run.record.state = "waiting_for_agent";
+    const abort = () => reject(new Error("Agent wait cancelled"));
     run.controller.signal.addEventListener("abort", abort, { once: true });
     signal?.addEventListener("abort", abort, { once: true });
     try {
@@ -318,7 +318,7 @@ export class RunManager {
       this.changed();
     } catch (error) {
       // A lost question is infrastructure failure, not permission to improvise.
-      run.record.error = `Supervisor request failed: ${errorText(error)}`;
+      run.record.error = `Agent request failed: ${errorText(error)}`;
       run.controller.abort(new Error(run.record.error));
       throw error;
     }
@@ -328,10 +328,10 @@ export class RunManager {
       }
     } catch (error) {
       if (run.question?.question.id !== question.id) {
-        // reply() already accepted this question; do not abort an answered child over a failed notification.
+        // reply() already accepted this question; do not abort an answered sub-agent over a failed notification.
         run.record.notificationError = errorText(error);
       } else {
-        run.record.error = `Supervisor request failed: ${errorText(error)}`;
+        run.record.error = `Agent request failed: ${errorText(error)}`;
         run.controller.abort(new Error(run.record.error));
         throw error;
       }

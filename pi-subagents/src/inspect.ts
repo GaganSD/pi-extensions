@@ -36,7 +36,7 @@ export function resolveRun(runs: RunRecord[], ref: string): RunRecord {
   const matches = runs.filter(run => run.id.startsWith(ref));
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error("Ambiguous run prefix; use more of the id");
-  throw new Error("Unknown run ID for this parent runtime");
+  throw new Error("Unknown run ID for this agent runtime");
 }
 
 export interface InspectActions {
@@ -59,14 +59,14 @@ export async function attach(ctx: ExtensionContext, id: string, actions: Inspect
 
 export class InspectView implements Component, Focusable {
   focused = true;
-  private readonly input = new Input({ prompt: "> ", placeholder: "message the child…" });
+  private readonly input = new Input({ prompt: "> ", placeholder: "message the sub-agent…" });
   private readonly tui: TUI;
   private readonly theme: Theme;
   private id: string;
   private readonly actions: InspectActions;
   private readonly done: (value?: void) => void;
   private readonly unsubscribe: () => void;
-  private note = "↓ next or parent · esc parent · enter send · ctrl-x stop";
+  private note = "↓ next or agent · esc agent · enter send · ctrl-x stop";
   private closed = false;
   private transcript = ["(no transcript yet)"];
   private loadedPath?: string;
@@ -169,7 +169,7 @@ export class InspectView implements Component, Focusable {
     this.inflight = true;
     try {
       const record = this.actions.status(id);
-      if (record.state === "waiting_for_parent" && record.question) {
+      if (record.state === "waiting_for_agent" && record.question) {
         await this.actions.reply(id, record.question.id, message);
         if (this.closed || this.id !== id) return;
         this.note = "replied";

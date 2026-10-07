@@ -46,7 +46,7 @@ async function fixture(t: Parameters<typeof temp>[0], handler?: (model: Model<Ap
   const profiles = await loadProfiles(agentDir, cwd, true);
   const options: NativeOptions = {
     agentDir, cwd, workspace: cwd, runtime, task: { agent: "reviewer", task: "Review fixture" },
-    profile: profiles.get("reviewer")!, parentModel: "fixture/test", parentThinking: "off", scopedModels: [],
+    profile: profiles.get("reviewer")!, agentModel: "fixture/test", agentThinking: "off", scopedModels: [],
   };
   const store = new FileArtifacts(path.join(root, "runs"));
   const manager = new RunManager({ owner: "fixture-owner", config: { ...DEFAULT_CONFIG }, store });
@@ -56,7 +56,7 @@ async function fixture(t: Parameters<typeof temp>[0], handler?: (model: Model<Ap
 
 test("real SDK: fresh read-only session, inherited instructions, no ambient tools/extensions/skills", async t => {
   let observed: TranscriptContext | undefined;
-  const envBefore = { cwd: process.cwd(), child: process.env.PI_SUBAGENT_CHILD };
+  const envBefore = { cwd: process.cwd(), subAgent: process.env.PI_SUBAGENT_SUB_AGENT };
   const f = await fixture(t, (model, context) => { observed = context; return response(model, [{ type: "text", text: "Review complete with evidence." }]); });
   await writeFile(path.join(f.agentDir, "AGENTS.md"), "GLOBAL_INSTRUCTIONS_FIXTURE");
   await writeFile(path.join(f.cwd, "AGENTS.md"), "PROJECT_INSTRUCTIONS_FIXTURE");
@@ -75,7 +75,7 @@ test("real SDK: fresh read-only session, inherited instructions, no ambient tool
   const prompt = getCurrentSystemPrompt(observed.messages);
   assert.match(prompt, /GLOBAL_INSTRUCTIONS_FIXTURE/);
   assert.match(prompt, /PROJECT_INSTRUCTIONS_FIXTURE/);
-  assert.match(prompt, /leaf child/);
+  assert.match(prompt, /sub-agent/);
   assert(!prompt.includes("NEVER_LOAD_SKILL"));
   assert.equal(observed.messages.filter(message => message.role === "user").length, 1);
   assert.equal(result.usage?.input, 5);
@@ -83,7 +83,7 @@ test("real SDK: fresh read-only session, inherited instructions, no ambient tool
   assert.match(await readFile(result.sessionPath!, "utf8"), /Review complete/);
   assert(f.manager.preview(id!).some(line => line.startsWith("you")));
   assert(f.manager.preview(id!).some(line => line.includes("Review complete")));
-  assert.deepEqual({ cwd: process.cwd(), child: process.env.PI_SUBAGENT_CHILD }, envBefore);
+  assert.deepEqual({ cwd: process.cwd(), subAgent: process.env.PI_SUBAGENT_SUB_AGENT }, envBefore);
 });
 
 test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t => {
@@ -96,9 +96,9 @@ test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t
   assert.deepEqual(names.sort(), [...EDIT_TOOLS].sort());
   assert.throws(() => prepareNative({ ...options, task: { ...options.task, model: "fixture/missing" } }), /unavailable/);
   assert.throws(() => prepareNative({ ...options, scopedModels: ["different/provider"] }), /scope/);
-  assert.throws(() => prepareNative({ ...options, parentThinking: "high" }), /unsupported/);
-  assert.throws(() => prepareNative({ ...options, parentThinking: "off", task: { ...options.task, thinking: "high" } }), /unsupported/);
-  assert.equal(prepareNative({ ...options, parentThinking: "off", task: { ...options.task, thinking: "off" } }).thinking, "off");
+  assert.throws(() => prepareNative({ ...options, agentThinking: "high" }), /unsupported/);
+  assert.throws(() => prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "high" } }), /unsupported/);
+  assert.equal(prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "off" } }).thinking, "off");
 });
 
 test("real SDK: two inspectors have isolated cwd and task context", async t => {
@@ -120,15 +120,15 @@ test("real SDK: two inspectors have isolated cwd and task context", async t => {
   assert(b.includes("ONLY_WORKSPACE_B") && !b.includes("ONLY_WORKSPACE_A") && !b.includes("ONLY_TASK_A"));
 });
 
-test("real SDK: contact_supervisor round trip and run-owned reply", async t => {
+test("real SDK: contact_agent round trip and run-owned reply", async t => {
   let calls = 0;
   const f = await fixture(t, (model, context) => {
-    if (++calls === 1) return response(model, [{ type: "toolCall", id: "ask-1", name: "contact_supervisor", arguments: { message: "Which implementation?" } }], "toolUse");
+    if (++calls === 1) return response(model, [{ type: "toolCall", id: "ask-1", name: "contact_agent", arguments: { message: "Which implementation?" } }], "toolUse");
     assert(JSON.stringify(context.messages).includes("Use the existing API"));
-    return response(model, [{ type: "text", text: "Report after supervisor answer" }]);
+    return response(model, [{ type: "text", text: "Report after agent answer" }]);
   });
   const [id] = await f.manager.launch([prepareNative(f.options)]);
-  await until(() => f.manager.status(id!).state === "waiting_for_parent");
+  await until(() => f.manager.status(id!).state === "waiting_for_agent");
   await f.manager.reply(id!, f.manager.status(id!).question!.id, "Use the existing API");
   await f.manager.settled(id!);
   assert.equal(f.manager.status(id!).state, "completed", f.manager.status(id!).error ?? "no error");
@@ -233,14 +233,14 @@ test("real SDK: append instructions are inherited with Pi's project precedence",
   const [global] = await f.manager.launch([prepareNative(f.options)]);
   await f.manager.settled(global!);
   assert.match(prompt, /GLOBAL_APPEND_POLICY/);
-  assert.match(prompt, /leaf child/);
+  assert.match(prompt, /sub-agent/);
   await mkdir(path.join(f.cwd, ".pi"));
   await writeFile(path.join(f.cwd, ".pi", "APPEND_SYSTEM.md"), "PROJECT_APPEND_POLICY");
   const [project] = await f.manager.launch([prepareNative(f.options)]);
   await f.manager.settled(project!);
   assert.match(prompt, /PROJECT_APPEND_POLICY/);
   assert(!prompt.includes("GLOBAL_APPEND_POLICY"));
-  assert.match(prompt, /leaf child/);
+  assert.match(prompt, /sub-agent/);
 });
 
 test("real SDK: startup cleanup failure fences the manager instead of releasing its workspace", async t => {

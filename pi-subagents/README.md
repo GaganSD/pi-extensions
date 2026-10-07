@@ -30,11 +30,11 @@ Then `/reload`. Built for Pi **1.0.x**.
 
 ## Features
 
-- Delegate bounded work from one parent session to worker and reviewer children
+- Delegate bounded work from one agent session to worker and reviewer sub-agents
 - Fresh native Pi sessions, session-bound, no nested delegation
 - `subagent` tool: run (1–4 tasks), list, status, steer, stop, reply
 - `/subagents` to attach, steer, reply, or stop
-- Live widget for running children
+- Live widget for running sub-agents
 - Supports Markdown agent profiles
 - Local reports and transcripts
 

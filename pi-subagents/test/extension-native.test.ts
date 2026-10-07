@@ -25,8 +25,8 @@ test("public tool: native launch/question/reply/completion stay compact while ex
       if (!asking) assert(JSON.stringify(context.messages).includes("Use existing API"));
       const message: AssistantMessage = {
         role: "assistant", api: model.api, provider: model.provider, model: model.id,
-        content: asking ? [{ type: "toolCall", id: "ask", name: "contact_supervisor", arguments: { message: "Which API?" } }]
-          : [{ type: "text", text: "Bounded report after the supervisor reply." }],
+        content: asking ? [{ type: "toolCall", id: "ask", name: "contact_agent", arguments: { message: "Which API?" } }]
+          : [{ type: "text", text: "Bounded report after the agent reply." }],
         usage: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 8, cost },
         stopReason: asking ? "toolUse" : "stop", timestamp: Date.now(),
       };
@@ -61,22 +61,22 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     assert.deepEqual(Object.keys(receipt!).sort(), ["cwd", "id", "model", "thinking", "workspace"]);
     assert.equal(receipt!.model, "fixture/test");
     assert.equal(receipt!.thinking, "off");
-    await until(() => notices.some(message => message.startsWith("Subagent question")));
+    await until(() => notices.some(message => message.startsWith("Sub-agent question")));
     const waiting = await execute({ action: "status", id: receipt!.id });
     assert(Check(OutputSchema, waiting.structuredContent));
     const question = (waiting.structuredContent as { question: { id: string } }).question;
     const reply = await execute({ action: "reply", id: receipt!.id, requestId: question.id, message: "Use existing API" });
     assert.deepEqual(reply.structuredContent, { ok: true });
-    await until(() => notices.some(message => message.startsWith("Subagent finished")));
+    await until(() => notices.some(message => message.startsWith("Sub-agent finished")));
     const final = await execute({ action: "status", id: receipt!.id });
     const record = final.details as RunRecord;
     assert.equal(record.state, "completed");
     assert.equal(record.task, "PRIVATE_TASK_BRIEF");
     assert.equal(record.usage!.input, 10);
-    assert.match(await readFile(record.reportPath!, "utf8"), /supervisor reply/);
+    assert.match(await readFile(record.reportPath!, "utf8"), /agent reply/);
     assert.deepEqual(JSON.parse(final.content[0]!.type === "text" ? final.content[0]!.text : ""), final.structuredContent);
     assert(!JSON.stringify(final.structuredContent).includes("PRIVATE_TASK_BRIEF"));
-    const finished = notices.find(message => message.startsWith("Subagent finished"))!;
+    const finished = notices.find(message => message.startsWith("Sub-agent finished"))!;
     const payload = JSON.parse(finished.slice(finished.indexOf("{")));
     assert(Check(OutputSchema, payload));
     assert.deepEqual(Object.keys(payload).sort(), ["agent", "id", "reportPath", "state", "taskPreview"]);

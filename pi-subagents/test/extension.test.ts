@@ -5,7 +5,7 @@ import path from "node:path";
 import { SessionManager, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import register from "../index.ts";
 import { Check } from "typebox/value";
-import { DESCRIPTION, OutputSchema, presentFinished, presentLaunch, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
+import { DESCRIPTION, OutputSchema, Parameters, presentFinished, presentLaunch, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
 import type { RunRecord } from "../src/types.ts";
 import { temp } from "./helpers.ts";
 
@@ -30,6 +30,8 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   assert.deepEqual(tools.map(tool => tool.name), ["subagent"]);
   assert.equal(tools[0]!.exposure, "direct");
   assert.equal(tools[0]!.outputSchema, OutputSchema);
+  assert.equal(tools[0]!.parameters, Parameters);
+  assert.equal(JSON.parse(JSON.stringify(tools[0]!.parameters)).type, "object");
   assert.deepEqual(commands, ["subagents"]);
   const ctx = {
     mode: "tui", hasUI: true, cwd: root,
@@ -50,7 +52,7 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   await writeFile(path.join(target, ".pi", "agents", "reviewer.md"), "---\nname: reviewer\ndescription: Target-specific role\nmode: edit\n---\nTarget role\n");
   const targetList = await run({ action: "list", cwd: target });
   assert.equal((targetList.structuredContent as { name: string; mode: string }[]).find(role => role.name === "reviewer")!.mode, "edit");
-  await assert.rejects(run({ action: "run", tasks: [{ agent: "worker", task: "Do work" }] }, { ...ctx, isProjectTrusted: () => false }), /Trust the parent/);
+  await assert.rejects(run({ action: "run", tasks: [{ agent: "worker", task: "Do work" }] }, { ...ctx, isProjectTrusted: () => false }), /Trust the agent/);
   await assert.rejects(run({ action: "status", id: "foreign-id" }), /Unknown run ID/);
   await assert.rejects(run({ action: "list" }, { ...ctx, sessionManager: SessionManager.create(root) }), /ownership/);
   await hooks.get("session_shutdown")!();

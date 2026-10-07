@@ -37,7 +37,7 @@ export class FileArtifacts implements ArtifactStore {
     await atomic(path.join(this.directory(record.id), "run.json"), JSON.stringify(record, null, 2) + "\n", signal);
   }
   async report(id: string, text: string, signal?: AbortSignal): Promise<string> {
-    if (!text.trim()) throw new Error("Child settled without a nonempty report");
+    if (!text.trim()) throw new Error("Sub-agent settled without a nonempty report");
     const target = path.join(this.directory(id), "report.md");
     await atomic(target, text + "\n", signal);
     return target;

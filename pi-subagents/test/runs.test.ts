@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_CONFIG, parseConfig } from "../src/config.ts";
 import { RunManager, type ManagerOptions } from "../src/runs.ts";
-import { isLive, type Child, type ChildResult, type RunRecord } from "../src/types.ts";
+import { isLive, type SubAgent, type SubAgentResult, type RunRecord } from "../src/types.ts";
 import { deferred, MemoryStore, plan, until, waitForAbort } from "./helpers.ts";
 
 function setup(options: Partial<ManagerOptions> = {}) {
   const store = new MemoryStore();
   const notifications: { record: RunRecord; kind: string }[] = [];
-  const manager = new RunManager({ owner: "test-parent", config: { ...DEFAULT_CONFIG }, store,
+  const manager = new RunManager({ owner: "test-agent", config: { ...DEFAULT_CONFIG }, store,
     notify: async (record, kind) => { notifications.push({ record, kind }); }, ...options });
   return { manager, store, notifications };
 }
@@ -29,7 +29,7 @@ test("completion means saved output, with transcript/evidence and exactly one no
   assert.equal(manager.status(id!).state, "completed", "snapshots cannot mutate registry");
 });
 
-test("conflicting writers are rejected before any child starts", async () => {
+test("conflicting writers are rejected before any sub-agent starts", async () => {
   const { manager } = setup();
   let starts = 0;
   const worker = plan(async () => { starts++; return { report: "x", toolErrors: 0 }; }, { mode: "edit", agent: "worker" });
@@ -61,7 +61,7 @@ test("concurrent calls cannot oversubscribe; launch count never refunded", async
   await assert.rejects(manager.launch([plan()]), /budget exhausted/);
 });
 
-test("supervisor replies require the exact owner/run/question; no fake completion", async () => {
+test("agent replies require the exact owner/run/question; no fake completion", async () => {
   const { manager, notifications } = setup();
   const [id] = await manager.launch([plan(async context => {
     const answer = await context.ask("Which API?");
@@ -69,7 +69,7 @@ test("supervisor replies require the exact owner/run/question; no fake completio
     return { report: "Used the existing API", toolErrors: 0 };
   })]);
   await until(() => notifications.some(item => item.kind === "question"));
-  assert.equal(manager.status(id!).state, "waiting_for_parent");
+  assert.equal(manager.status(id!).state, "waiting_for_agent");
   const question = manager.status(id!).question!;
   await assert.rejects(manager.reply(id!, "wrong", "x"), /matching/);
   await assert.rejects(setup().manager.reply(id!, question.id, "x"), /Unknown run ID/);
@@ -81,10 +81,10 @@ test("supervisor replies require the exact owner/run/question; no fake completio
   assert.deepEqual(notifications.map(item => item.kind), ["question", "finished"]);
 });
 
-test("stop cancels a blocked supervisor wait; no indefinite pending request", async () => {
+test("stop cancels a blocked agent wait; no indefinite pending request", async () => {
   const { manager } = setup();
   const [id] = await manager.launch([plan(async context => ({ report: await context.ask("Blocked"), toolErrors: 0 }))]);
-  await until(() => manager.status(id!).state === "waiting_for_parent");
+  await until(() => manager.status(id!).state === "waiting_for_agent");
   await manager.stop(id!);
   assert.equal(manager.status(id!).state, "cancelled");
   assert.equal(manager.status(id!).question, undefined);
@@ -95,12 +95,12 @@ test("an early reply does not emit a stale empty question after persistence", as
   const store = new MemoryStore();
   const save = store.save.bind(store);
   store.save = async record => {
-    if (record.state === "waiting_for_parent") await gate.promise;
+    if (record.state === "waiting_for_agent") await gate.promise;
     await save(record);
   };
   const { manager, notifications } = setup({ store });
   const [id] = await manager.launch([plan(async context => ({ report: await context.ask("Choose?"), toolErrors: 0 }))]);
-  await until(() => manager.status(id!).state === "waiting_for_parent");
+  await until(() => manager.status(id!).state === "waiting_for_agent");
   const reply = manager.reply(id!, manager.status(id!).question!.id, "Chosen");
   gate.resolve();
   await reply; await manager.settled(id!);
@@ -108,7 +108,7 @@ test("an early reply does not emit a stale empty question after persistence", as
   assert.deepEqual(notifications.map(item => item.kind), ["finished"]);
 });
 
-test("deadline includes running tools and supervisor waits", async () => {
+test("deadline includes running tools and agent waits", async () => {
   const { manager } = setup({ config: { ...DEFAULT_CONFIG, timeoutMs: 15 } });
   const [id] = await manager.launch([plan(async context => ({ report: await context.ask("No reply"), toolErrors: 0 }))]);
   await manager.settled(id!);
@@ -139,14 +139,14 @@ test("terminal metadata write failure never announces completed", async () => {
 });
 
 test("notification failure is visible without duplicating completed work", async () => {
-  const { manager } = setup({ notify: async () => { throw new Error("parent delivery failed"); } });
+  const { manager } = setup({ notify: async () => { throw new Error("agent delivery failed"); } });
   const [id] = await manager.launch([plan()]);
   await manager.settled(id!);
   assert.equal(manager.status(id!).state, "completed");
   assert.match(manager.status(id!).notificationError!, /delivery failed/);
 });
 
-test("allocation failure and an aborted admission launch zero children", async () => {
+test("allocation failure and an aborted admission launch zero sub-agents", async () => {
   const { manager, store } = setup(); store.failCreate = true;
   let starts = 0;
   await assert.rejects(manager.launch([plan(undefined, { start: async () => { starts++; throw new Error("unexpected"); } })]), /allocation failed/);
@@ -172,8 +172,8 @@ test("shutdown during allocation prevents any startup and suppresses late notifi
   assert.equal(notifications.length, 0);
 });
 
-test("stop during slow startup disposes the late child without prompting it", async () => {
-  const startup = deferred<Child>();
+test("stop during slow startup disposes the late sub-agent without prompting it", async () => {
+  const startup = deferred<SubAgent>();
   let prompted = 0, disposed = 0;
   const { manager } = setup();
   const [id] = await manager.launch([plan(undefined, { start: () => startup.promise })]);
@@ -187,7 +187,7 @@ test("stop during slow startup disposes the late child without prompting it", as
 
 test("unknown cleanup keeps capacity and workspace reserved, and trips the process fence", async () => {
   let unsafe = 0;
-  const finish = deferred<ChildResult>();
+  const finish = deferred<SubAgentResult>();
   let prompted = false;
   const { manager, notifications } = setup({ cleanupMs: 10, unsafeCleanup: () => { unsafe++; } });
   const [id] = await manager.launch([plan(() => { prompted = true; return finish.promise; }, { mode: "edit" })]);
@@ -240,7 +240,7 @@ test("settled headers remain addressable, and shutdown cannot relaunch", async (
 });
 
 test("out-of-order and failed siblings keep ID-keyed results; success is not erased", async () => {
-  const first = deferred<ChildResult>();
+  const first = deferred<SubAgentResult>();
   const { manager, store, notifications } = setup();
   const [idA, idB] = await manager.launch([
     plan(() => first.promise, { cwd: "/wt-a", workspace: "/wt-a", task: "A" }),
@@ -269,8 +269,8 @@ test("admitted runs stay inspectable after the caller drops the receipt", async 
   assert.equal(manager.status(listed[0]!.id).task, "Keep me");
 });
 
-test("launch returns before a slow child finishes; fast completion stays inspectable", async () => {
-  const gate = deferred<ChildResult>();
+test("launch returns before a slow sub-agent finishes; fast completion stays inspectable", async () => {
+  const gate = deferred<SubAgentResult>();
   const { manager, notifications } = setup();
   const [slow] = await manager.launch([plan(() => gate.promise, { workspace: "/slow", cwd: "/slow" })]);
   assert.equal(notifications.length, 0);
@@ -293,8 +293,8 @@ test("cumulative admissions restored after reload cannot be reset by a new manag
   await assert.rejects(setup({ admitted: persisted }).manager.launch([plan()]), /budget exhausted/);
 });
 
-test("cleanup poisoning during allocation prevents another child from starting", async () => {
-  const store = new MemoryStore(), allocation = deferred<void>(), done = deferred<ChildResult>();
+test("cleanup poisoning during allocation prevents another sub-agent from starting", async () => {
+  const store = new MemoryStore(), allocation = deferred<void>(), done = deferred<SubAgentResult>();
   const create = store.create.bind(store);
   let creates = 0, allocating = false, starts = 0;
   store.create = async (record, signal) => {
@@ -366,8 +366,8 @@ test("stop returns on its deadline despite blocked metadata I/O; late writes can
   assert.notEqual(notifications[0]!.record.state, "completed");
 });
 
-test("out-of-order completion and stopping an older child retain exact IDs", async () => {
-  const first = deferred<ChildResult>();
+test("out-of-order completion and stopping an older sub-agent retain exact IDs", async () => {
+  const first = deferred<SubAgentResult>();
   const { manager } = setup({ config: parseConfig({ historyLimit: 1 }) });
   const [a] = await manager.launch([plan(() => first.promise)]);
   const [b] = await manager.launch([plan()]); await manager.settled(b!);
@@ -379,7 +379,7 @@ test("out-of-order completion and stopping an older child retain exact IDs", asy
   assert.equal(manager.status(c!).state, "cancelled");
 });
 
-test("failed and cancelled children preserve available evidence before disposal", async () => {
+test("failed and cancelled sub-agents preserve available evidence before disposal", async () => {
   const usage = { input: 100, output: 20, cacheRead: 0, cacheWrite: 0, cost: 0.1 };
   const { manager } = setup();
   let disposed = false;
