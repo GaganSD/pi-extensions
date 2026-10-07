@@ -25,8 +25,10 @@ type Prompt = {
   content: string;
 };
 
-const pickString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined;
+const pickString = (value: unknown): string | undefined => {
+  const text = typeof value === "string" ? value.trim() : undefined;
+  return text || undefined;
+};
 
 const parsePrompt = (id: string, source: string): Prompt => {
   const { frontmatter, body } = parseFrontmatter(source);
@@ -54,7 +56,9 @@ const loadPrompts = async (pi: ExtensionAPI): Promise<Prompt[]> => {
     .filter((command) => command.source === ("prompt" as const))
     .map((command) => command.sourceInfo.path);
 
-  return Promise.all(paths.map((path) => loadPrompt(readFile)(path)));
+  const settled = await Promise.allSettled(paths.map((path) => loadPrompt(readFile)(path)));
+
+  return settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
 };
 
 const filterPrompts = (prompts: Prompt[]) => (query: string) => {
@@ -69,7 +73,7 @@ const filterPrompts = (prompts: Prompt[]) => (query: string) => {
 
 const queryPrompts = (prompts: Prompt[]) => (query: string) =>
   filterPrompts(prompts)(query).map((prompt) => ({
-    label: prompt.name ?? prompt.id,
+    label: prompt.name?.trim() || prompt.id,
     description: prompt.description,
     value: prompt.content,
   }));
@@ -118,6 +122,7 @@ const openPromptsOverlay =
     const selected = await ctx.ui.custom<string | undefined>(
       (tui, theme, _keybindings, done) => {
         const search = new Input();
+        search.onEscape = () => done(undefined);
 
         let list = buildList(queryPrompts(prompts)(""));
         let panel = buildContainer(theme)(search, list);
@@ -134,6 +139,7 @@ const openPromptsOverlay =
 
           if (search.getValue() !== prevQuery) {
             list = buildList(queryPrompts(prompts)(search.getValue()));
+            search.onEscape = () => done(undefined);
             list.onSelect = (item) => done(item.value);
             list.onCancel = () => done(undefined);
 
