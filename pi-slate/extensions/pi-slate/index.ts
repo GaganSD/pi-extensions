@@ -86,6 +86,7 @@ type SlateConfig = {
   modelDisplay?: ModelDisplay;
   themeApplied?: boolean;
   fullscreenApplied?: boolean;
+  showPid?: boolean;
 };
 
 const CONFIG_PATH = join(getAgentDir(), "pi-slate.json");
@@ -93,6 +94,7 @@ const DEFAULT_CONFIG: SlateConfig = {
   density: "comfortable",
   footer: "standard",
   focused: true,
+  showPid: false,
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -142,6 +144,7 @@ function loadConfig(): SlateConfig {
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
       ...(value.themeApplied === true ? { themeApplied: true } : {}),
       ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
+      ...(value.showPid === true ? { showPid: true } : {}),
     };
   } catch {
     return { ...DEFAULT_CONFIG };
@@ -406,6 +409,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             modelDisplay: config.modelDisplay,
             thinking: current.thinkingLevel,
             footer: config.footer,
+            showPid: config.showPid === true,
             theme: current.ui.theme,
             ...(config.focused !== false ? { context: contextEdge } : {}),
           };
@@ -721,7 +725,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar, focused mode, message length, theme, or file a bug",
+    description: "Density, footer, sidebar, focused mode, PID display, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -732,11 +736,12 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Focused", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Focused", "PID display", "Message length", "Theme", "File a bug"]);
         if (setting === "Density") kind = "density";
         else if (setting === "Footer") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
         else if (setting === "Focused") kind = "focused";
+        else if (setting === "PID display") kind = "pid";
         else if (setting === "Message length") kind = "message-length-menu";
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "File a bug") kind = "bug-menu";
@@ -759,6 +764,12 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       if (kind === "focused") {
         applyFocused(ctx, parsed.kind === "focused" ? parsed.value : undefined);
+        return;
+      }
+
+      if (kind === "pid") {
+        const on = parsed.kind === "pid" && parsed.value !== undefined ? parsed.value : !config.showPid;
+        apply({ ...config, showPid: on }, on ? "PID display on" : "PID display off", ctx);
         return;
       }
 

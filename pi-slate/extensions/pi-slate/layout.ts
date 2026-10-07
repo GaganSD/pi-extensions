@@ -293,7 +293,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -319,6 +319,9 @@ const SLATE_COMPLETIONS = [
   "focused",
   "focused on",
   "focused off",
+  "pid",
+  "pid on",
+  "pid off",
   "message-length",
   "message-length default",
   "message-length all",
@@ -338,6 +341,7 @@ export type SlateArgs =
   | { ok: true; kind: "width-menu" }
   | { ok: true; kind: "width"; width?: number }
   | { ok: true; kind: "focused"; value?: boolean }
+  | { ok: true; kind: "pid"; value?: boolean }
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
@@ -391,6 +395,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (head === "focused") {
     if (!tail) return { ok: true, kind: "focused" };
     if (tail === "on" || tail === "off") return { ok: true, kind: "focused", value: tail === "on" };
+    return { ok: false };
+  }
+  if (head === "pid") {
+    if (!tail) return { ok: true, kind: "pid" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "pid", value: tail === "on" };
     return { ok: false };
   }
   if (head === "message-length") {

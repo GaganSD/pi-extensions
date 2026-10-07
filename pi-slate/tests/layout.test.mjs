@@ -224,6 +224,15 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("focused on"), { ok: true, kind: "focused", value: true });
   assert.deepEqual(parseSlateArgs("focused off"), { ok: true, kind: "focused", value: false });
   assert.deepEqual(parseSlateArgs("focused nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("pid"), { ok: true, kind: "pid" });
+  assert.deepEqual(parseSlateArgs("pid on"), { ok: true, kind: "pid", value: true });
+  assert.deepEqual(parseSlateArgs("pid off"), { ok: true, kind: "pid", value: false });
+  assert.deepEqual(parseSlateArgs("pid nope"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("pid"), [
+    { value: "pid", label: "pid" },
+    { value: "pid on", label: "pid on" },
+    { value: "pid off", label: "pid off" },
+  ]);
   assert.deepEqual(parseSlateArgs("message-length"), { ok: true, kind: "message-length-menu" });
   assert.deepEqual(parseSlateArgs("message-length default"), { ok: true, kind: "message-length" });
   assert.deepEqual(parseSlateArgs("message-length 50"), { ok: true, kind: "message-length", value: 50 });

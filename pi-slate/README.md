@@ -34,6 +34,7 @@ Slate renders cleanly into your terminal and stays customizable without adding n
 Focused mode is the default. It unmounts the sidebar, gives chat the full window, and keeps the prompt compact.
 
 - `/slate focused [on|off]` sets the saved focused-mode state.
+- `/slate pid [on|off]` toggles the agent PID label on the prompt's top edge; it stays off by default.
 - Choosing a sidebar width returns to standard sidebar mode.
 - Working status stays on the left of the prompt's top edge.
 - When skills or MCPs are present, spend and nonzero counts stay on the right of the prompt's top edge.

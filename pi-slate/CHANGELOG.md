@@ -5,6 +5,7 @@
 ### Composer
 
 - Show the agent PID in the composer footer on the top edge as a dim `PID-1234` label, with compact focused-mode labels and no brackets around the PID
+- `/slate pid on` and `/slate pid off` control the PID label: it stays hidden by default and only appears when you explicitly turn it on
 - Pi-style context label in the footer: `2%/250k tokens · ↑↓42` — percentage over the context window plus an arrow input/output rate, with compact token sizes (845, 16k, 47.3k, 1M)
 - A status right suffix moves the composer border truncation math so the suffix and the status text stay visible together
 

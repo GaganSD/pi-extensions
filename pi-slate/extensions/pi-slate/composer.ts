@@ -223,6 +223,7 @@ export type ComposerSource = {
   footer: "standard" | "minimal";
   theme: Theme;
   context?: { tokens: string; resources: string };
+  showPid?: boolean;
 };
 
 export function composerContextEdge(
@@ -389,7 +390,7 @@ export class ComposerEditor extends CustomEditor {
     const renderStatus = this.embedWorkingStatus
       ? (statusWidth: number) => composerStatusLabel(this.statusIndicator, src.theme, statusWidth)
       : undefined;
-    const pidLabel = src.theme.fg("dim", `PID-${AGENT_PID}`);
+    const pidLabel = src.showPid === true ? src.theme.fg("dim", `PID-${AGENT_PID}`) : "";
     return composerStatusContextEdge(
       src.context ? src.theme.fg("dim", src.context.resources) : "",
       width,

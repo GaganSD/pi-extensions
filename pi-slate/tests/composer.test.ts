@@ -216,6 +216,12 @@ test("top edge right suffix stays pinned and survives truncation", () => {
   assert.ok(stripVTControlCharacters(alone).endsWith(`${pid} ╮`));
 });
 
+test("composer top border omits the PID suffix when PID display is off", () => {
+  const off = composerStatusContextEdge("$7.47 · 14 skills", 80, (text) => text, 0, "", undefined, "");
+  assert.doesNotMatch(stripVTControlCharacters(off), /PID-/);
+  assert.ok(stripVTControlCharacters(off).endsWith("╮"));
+});
+
 test("empty composer frames sides and prompt without a hint row", () => {
   const width = 40;
   const lines = frameComposerLines(
