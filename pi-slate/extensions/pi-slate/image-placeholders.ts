@@ -1,6 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
 import type { CustomEditor, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Editor } from "@earendil-works/pi-tui";
 import { ImagePeek } from "./image-peek.ts";
 import {
   mimeTypeForImagePath,
@@ -12,14 +11,9 @@ import {
 } from "./placeholders.ts";
 import type { Sidebar } from "./sidebar.ts";
 
-const ORIGINAL_INSERT = Symbol.for("pi-slate.image-placeholders.insertTextAtCursor");
-const ORIGINAL_PASTE = Symbol.for("pi-slate.image-placeholders.handlePaste");
-
 type PatchableEditor = {
   insertTextAtCursor(text: string): void;
   handlePaste(text: string): void;
-  [ORIGINAL_INSERT]?: (text: string) => void;
-  [ORIGINAL_PASTE]?: (text: string) => void;
 };
 
 export type ImagePlaceholders = {
@@ -44,50 +38,40 @@ function loadImage(filePath: string): ImageAttachment | undefined {
 function installEditorPatch(
   store: ImagePathStore,
   onInserted: () => void,
+  editor: CustomEditor,
 ): () => void {
-  const proto = Editor.prototype as unknown as PatchableEditor;
-  proto[ORIGINAL_INSERT] ??= proto.insertTextAtCursor;
-  proto[ORIGINAL_PASTE] ??= proto.handlePaste;
-  const originalInsert = proto[ORIGINAL_INSERT];
-  const originalPaste = proto[ORIGINAL_PASTE];
-  const rewrite = (editor: Editor, text: string) => rewriteClipboardPaths(text, nextImageNumber(editor.getText()), store);
-  function insertPatch(this: Editor, text: string) {
+  const instance = editor as unknown as PatchableEditor;
+  const originalInsert = instance.insertTextAtCursor;
+  const originalPaste = instance.handlePaste;
+  const rewrite = (editor: CustomEditor, text: string) => rewriteClipboardPaths(text, nextImageNumber(editor.getText()), store);
+  function insertPatch(this: CustomEditor, text: string) {
     const result = originalInsert.call(this, rewrite(this, text));
     onInserted();
     return result;
   }
-  function pastePatch(this: Editor, text: string) {
+  function pastePatch(this: CustomEditor, text: string) {
     originalPaste.call(this, rewrite(this, text));
     onInserted();
   }
-  proto.insertTextAtCursor = insertPatch;
-  proto.handlePaste = pastePatch;
+  instance.insertTextAtCursor = insertPatch;
+  instance.handlePaste = pastePatch;
   return () => {
-    if (proto.insertTextAtCursor === insertPatch) {
-      proto.insertTextAtCursor = originalInsert;
-      if (proto[ORIGINAL_INSERT] === originalInsert) delete proto[ORIGINAL_INSERT];
-    }
-    if (proto.handlePaste === pastePatch) {
-      proto.handlePaste = originalPaste;
-      if (proto[ORIGINAL_PASTE] === originalPaste) delete proto[ORIGINAL_PASTE];
-    }
+    if (instance.insertTextAtCursor === insertPatch) instance.insertTextAtCursor = originalInsert;
+    if (instance.handlePaste === pastePatch) instance.handlePaste = originalPaste;
   };
 }
 
 export function installImagePlaceholders(
   pi: ExtensionAPI,
-  workspace: Sidebar,
+  workspace?: Sidebar,
+  isActive: () => boolean = () => true,
 ): ImagePlaceholders {
   const store: ImagePathStore = new Map();
   let peek: ImagePeek | undefined;
-  const uninstallEditorPatch = installEditorPatch(store, () => peek?.rewrite());
+  let uninstallEditorPatch: (() => void) | undefined;
 
-  pi.registerMarkdownTransformer((markdown, { messageType }) => {
-    if (messageType !== "user") return markdown;
-    return rewriteClipboardPaths(markdown, nextImageNumber(markdown), new Map());
-  });
-
-  pi.on("input", async (event) => {
+  pi.on("input", async (event, ctx) => {
+    if (ctx.mode !== "tui" || !uninstallEditorPatch || !isActive()) return;
     peek?.hide();
     const result = transformSubmittedText(event.text, store, loadImage, event.images ?? []);
     if (result.text === event.text && result.images.length === (event.images?.length ?? 0)) {
@@ -103,15 +87,18 @@ export function installImagePlaceholders(
   return {
     attachEditor(editor) {
       this.detachEditor();
+      uninstallEditorPatch = installEditorPatch(store, () => peek?.rewrite(), editor);
       peek = new ImagePeek(store, editor, workspace, loadImage);
     },
     detachEditor() {
       peek?.dispose();
       peek = undefined;
+      uninstallEditorPatch?.();
+      uninstallEditorPatch = undefined;
     },
     dispose() {
       this.detachEditor();
-      uninstallEditorPatch();
+      store.clear();
     },
   };
 }

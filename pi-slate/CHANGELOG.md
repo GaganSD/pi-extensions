@@ -4,11 +4,22 @@
 
 ### Added
 
+- Independent surfaces: `header`, `footer`, `editor`, `sidebar`, `tool-cards`, `transcript`. `/slate surfaces` shows the set; `set <names...>`, `full`, and `none` save it for `/reload`.
+- Fresh settings select editor, sidebar, and tool-cards; focused mode keeps the selected sidebar hidden. Valid legacy settings without surfaces retain all six and preserve appearance preferences. Invalid settings activate nothing, warn, and preserve the file.
 - `/exit` quits Pi, same as `/quit`
 - TUI thinking status uses the existing composer edge: `Pondering · 7s · ↑↓42`, with elapsed seconds and an available estimated token rate. Timers stop on thinking end, message boundaries, abort, and shutdown; missing or changed thinking events fall back to native behavior.
 
+### Changed
+
+- Unselected surfaces leave host setters, patches, watchers, and cleanup untouched. Theme/fullscreen are explicit preferences, not automatic install defaults.
+- Composer metadata is named `composerMetadata` in settings; the legacy `footer` key is still read and written, and `/slate footer` remains an alias. Footer-slot ownership only hides Pi's footer with the existing zero-row component.
+- Image rewrites patch only Slate's composer instance; foreign editors and `Editor.prototype` remain untouched. `/prompts` and thinking timing are editor-scoped; `/exit` is always registered.
+- Sidebar and transcript attach independently through a zero-row below-editor widget. No overlay fallback or fullscreen forcing. Sidebar yields to a replacement layout root. Stock notices are no longer deleted.
+- Last-writer-wins chrome and first-registration-wins tools are respected without conflict repair. Tool-card registration losses are reported.
+
 ### Limitations
 
+- Sidebar/transcript need a compatible fullscreen host. Header/footer ownership cannot be inspected through the host API, so shutdown disposes local resources without clearing chrome; `/reload` resets it.
 - Native thinking visibility and streaming labels remain untouched. Settled per-message `Thought 12s` needs a Pi per-message hidden-label API; the current global setter would incorrectly relabel older thoughts.
 
 ## 0.1.11

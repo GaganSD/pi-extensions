@@ -1,5 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   copyToClipboard,
   CustomEditor,
@@ -23,6 +24,8 @@ import { installPromptPicker } from "./prompts.ts";
 import { installDiff } from "./diff.ts";
 import { installRead } from "./read.ts";
 import { GitStatusPoller } from "./git-status.ts";
+import { GitBranchPoller } from "./git-branch.ts";
+import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
 import { fileKey, formatFileLabel } from "./files-modified.ts";
 import { GitDiffPreviewLoader } from "./git-diff.ts";
 import { Sidebar } from "./sidebar.ts";
@@ -36,7 +39,6 @@ import {
   countSkillCommands,
   formatFocusedContextResources,
   formatFocusedContextTokens,
-  mainColumnWidth,
   mergeMcpServerMaps,
   parseMcpEnabledCount,
   parseMessageLength,
@@ -77,26 +79,15 @@ import {
   type Flavor,
   type Style,
 } from "./catppuccin.ts";
-import { applySlateTheme, persistFullscreen, persistTheme, shouldApplyInstallDefault } from "./install-defaults.ts";
+import { persistTheme } from "./install-defaults.ts";
 
-type SlateConfig = {
+type SlateConfig = SurfaceConfig & {
   density: "comfortable" | "compact";
-  footer: "standard" | "minimal";
   sidebarPercent?: number;
   focused?: boolean;
   messageLength?: number | "all";
   modelDisplay?: ModelDisplay;
-  themeApplied?: boolean;
-  fullscreenApplied?: boolean;
   showPid?: boolean;
-};
-
-const CONFIG_PATH = join(getAgentDir(), "pi-slate.json");
-const DEFAULT_CONFIG: SlateConfig = {
-  density: "comfortable",
-  footer: "standard",
-  focused: true,
-  showPid: false,
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
@@ -131,26 +122,32 @@ function loadModelDisplay(value: unknown): ModelDisplay | undefined {
   return Object.keys(display).length > 0 ? display : undefined;
 }
 
-function loadConfig(): SlateConfig {
+function loadConfig(configPath: string): { config: SlateConfig; error?: string } {
+  let text: string | undefined;
   try {
-    const value = JSON.parse(readFileSync(CONFIG_PATH, "utf8")) as Partial<SlateConfig>;
-    const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
-    const messageLength = loadMessageLength(value.messageLength);
-    const modelDisplay = loadModelDisplay(value.modelDisplay);
-    return {
+    text = readFileSync(configPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") text = "";
+  }
+  const parsed = parseSurfaceConfig(text);
+  const value = parsed.value as Record<string, unknown> & SurfaceConfig;
+  const sidebarPercent = parseSidebarPercent(value.sidebarPercent);
+  const messageLength = loadMessageLength(value.messageLength);
+  const modelDisplay = loadModelDisplay(value.modelDisplay);
+  return {
+    config: {
+      version: value.version,
+      surfaces: value.surfaces,
+      composerMetadata: value.composerMetadata,
       density: value.density === "compact" ? "compact" : "comfortable",
-      footer: value.footer === "minimal" ? "minimal" : "standard",
       ...(sidebarPercent === undefined ? {} : { sidebarPercent }),
       focused: value.focused !== false,
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
-      ...(value.themeApplied === true ? { themeApplied: true } : {}),
-      ...(value.fullscreenApplied === true ? { fullscreenApplied: true } : {}),
-      ...(value.showPid === true ? { showPid: true } : {}),
-    };
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
+      showPid: value.showPid === true,
+    },
+    ...(!parsed.ok ? { error: parsed.error } : {}),
+  };
 }
 
 function withMessageLength(current: SlateConfig, messageLength: number | "all" | undefined): SlateConfig {
@@ -161,10 +158,10 @@ function withMessageLength(current: SlateConfig, messageLength: number | "all" |
 }
 
 
-function saveConfig(config: SlateConfig): void {
-  const temporaryPath = `${CONFIG_PATH}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  renameSync(temporaryPath, CONFIG_PATH);
+function writeConfig(configPath: string, config: SlateConfig): void {
+  const temporaryPath = `${configPath}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify({ ...config, footer: config.composerMetadata }, null, 2)}\n`, "utf8");
+  renameSync(temporaryPath, configPath);
 }
 
 function withSidebarPercent(current: SlateConfig, percent: number | undefined): SlateConfig {
@@ -180,34 +177,27 @@ function widthMessage(percent: number | undefined): string {
   return `Sidebar width set to ${percent}%`;
 }
 
-class BranchFooter implements Component {
-  private readonly unsubscribe: () => void;
-
-  constructor(
-    footerData: { getGitBranch(): string | null; onBranchChange(callback: () => void): () => void },
-    private readonly onBranch: (branch: string | null) => void,
-  ) {
-    this.onBranch(footerData.getGitBranch());
-    this.unsubscribe = footerData.onBranchChange(() => this.onBranch(footerData.getGitBranch()));
-  }
-
+class SlateFooter implements Component {
   invalidate(): void {}
-  render(): string[] {
-    return [];
-  }
-  dispose(): void {
-    this.unsubscribe();
-  }
+  render(): string[] { return []; }
 }
 
 export default function piSlate(pi: ExtensionAPI): void {
-  let config = loadConfig();
-  installDiff(pi);
-  installRead(pi);
-  installPromptPicker(pi);
+  const configPath = join(getAgentDir(), "pi-slate.json");
+  const loaded = loadConfig(configPath);
+  const saveConfig = (next: SlateConfig): void => writeConfig(configPath, next);
+  let config = loaded.config;
+  // Runtime ownership is fixed until /reload, even when a command saves a new set.
+  const selected = [...config.surfaces];
+  const owns = (surface: typeof selected[number]): boolean => has(selected, surface);
+  if (owns("tool-cards")) {
+    installDiff(pi);
+    installRead(pi);
+  }
+  if (owns("editor")) installPromptPicker(pi);
   installExitCommand(pi);
   const sidebar = new Sidebar();
-  const images = installImagePlaceholders(pi, sidebar);
+  const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;
   const selection = new ComposerSelectionController();
   let fileSnapshot = "";
   const files = new GitStatusPoller((changes) => {
@@ -216,6 +206,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   const diffs = new GitDiffPreviewLoader();
   const refreshFiles = (): void => {
+    if (!owns("sidebar") || currentContext?.mode !== "tui") return;
     diffs.clear();
     void files.refresh();
   };
@@ -224,10 +215,14 @@ export default function piSlate(pi: ExtensionAPI): void {
   let activeEditor: CustomEditor | undefined;
   let gitBranch: string | null = null;
   let activeTui: TUI | undefined;
+  let editorFactory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
+  const editorActive = (): boolean => owns("editor") && currentContext?.mode === "tui"
+    && (typeof currentContext.ui.getEditorComponent !== "function" || currentContext.ui.getEditorComponent() === editorFactory);
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
   const updates = new UpdateWatcher();
+  const branch = new GitBranchPoller(pi, (next) => { gitBranch = next; requestRender(); });
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
     resources: formatFocusedContextResources(null, 0, 0),
@@ -235,6 +230,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let requestRender = (_force = false) => {};
 
   const syncVisibleMessages = (): void => {
+    if (!owns("transcript") || currentContext?.mode !== "tui") return;
     messageWindow = syncMessageWindow(messageWindow, activeTui, resolveMessageLength(config.messageLength));
   };
 
@@ -243,12 +239,11 @@ export default function piSlate(pi: ExtensionAPI): void {
     return currentContext;
   };
 
-  const columnWidth = (width: number): number => {
-    if (sidebar.hidden || sidebar.splitActive) return width;
-    return mainColumnWidth(width, sidebar.preferredWidth);
-  };
+  // A selected split allocates header width; unavailable sidebar hosts stay full-width.
+  const columnWidth = (width: number): number => width;
 
   const syncSidebar = (ctx: ExtensionContext): void => {
+    if (ctx.mode !== "tui" || (!owns("sidebar") && !owns("editor"))) return;
     let tokens: number | null;
     let percent: number | null;
     let spend: number;
@@ -274,168 +269,176 @@ export default function piSlate(pi: ExtensionAPI): void {
         readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
       ),
     });
-    sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
-    sidebar.setSkillsLoaded(skills);
-    sidebar.setMcpConnected(mcp);
+    if (owns("sidebar")) {
+      sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
+      sidebar.setSkillsLoaded(skills);
+      sidebar.setMcpConnected(mcp);
+    }
     contextEdge = {
       tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
       resources: formatFocusedContextResources(spend, skills, mcp),
     };
   };
-  pi.events.on("subagent:async-complete", refreshFiles);
-  pi.on("resources_discover", () => {
-    queueMicrotask(() => sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands())));
-  });
+  let disposeAsync: (() => void) | undefined;
+  if (owns("sidebar")) {
+    pi.on("resources_discover", () => {
+      if (currentContext?.mode === "tui") queueMicrotask(() => sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands())));
+    });
+  }
 
   const install = (ctx: ExtensionContext): void => {
     currentContext = ctx;
     thinkingFold.stop();
     workingWord = undefined;
+    if (loaded.error) ctx.ui.notify(loaded.error, "warning");
     if (ctx.mode !== "tui") return;
-    if (shouldApplyInstallDefault(config.themeApplied) && applySlateTheme(ctx)) {
-      const next = { ...config, themeApplied: true };
+    if (owns("tool-cards")) {
+      // Pi uses first registration per tool name. Report, never repair, a lost slot.
       try {
-        saveConfig(next);
-        config = next;
-      } catch {
-        // Retry on the next session if the marker cannot be saved.
-      }
+        const lost = pi.getAllTools().filter((tool) => ["edit", "write", "read"].includes(tool.name)
+          && resolve(tool.sourceInfo.path) !== fileURLToPath(import.meta.url));
+        if (lost.length) ctx.ui.notify(`Slate tool-cards unavailable for: ${lost.map((tool) => tool.name).join(", ")} (first registration wins)`, "warning");
+      } catch { /* Older hosts cannot expose tool ownership. */ }
     }
-    if (shouldApplyInstallDefault(config.fullscreenApplied) && persistFullscreen(ctx.cwd)) {
-      const next = { ...config, fullscreenApplied: true };
-      try {
-        saveConfig(next);
-        config = next;
-      } catch {
-        // Retry on the next session if the marker cannot be saved.
-      }
-    }
-
-    files.start(ctx.cwd);
-    diffs.clear();
-    sidebar.setCwd(ctx.cwd);
-    sidebar.setSelectedPreview(undefined);
-    sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
-    sidebar.setPreferredWidth(config.sidebarPercent);
-    sidebar.setHidden(config.focused === true);
-    sidebar.setActions({
-      persistWidth: (percent) => {
-        try {
-          const next = withSidebarPercent(config, percent);
-          saveConfig(next);
-          config = next;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          ctx.ui.notify(`Could not save sidebar width: ${message}`, "error");
-        }
-      },
-      copy: (text) => {
-        void copyWithFeedback(activeTui, ctx.ui.notify, text);
-      },
-      openFile: (filePath) => {
-        const target = resolve(ctx.cwd, filePath);
-        const { command, args } = openExternalArgs(target);
-        void Promise.resolve(pi.exec(command, args, { timeout: 5000 })).then(
-          (result) => {
-            if (result.code !== 0) ctx.ui.notify("Could not open file", "error");
-          },
-          () => ctx.ui.notify("Could not open file", "error"),
-        );
-      },
-      selectFile: (file) => {
-        const selectionId = fileKey(file);
-        const title = formatFileLabel(file);
-        const cached = diffs.peek(ctx.cwd, file, fileSnapshot);
-        sidebar.setSelectedPreview(new DiffWorkspaceView(
-          selectionId,
-          cached?.state ?? "loading",
-          cached?.text ?? "",
-          ctx.ui.theme,
-          title,
-          file.path,
-        ));
-        void diffs.select(ctx.cwd, file, fileSnapshot, (result) => {
-          sidebar.setSelectedPreview(new DiffWorkspaceView(
-            selectionId,
-            result.state,
-            result.text,
-            ctx.ui.theme,
-            title,
-            file.path,
-          ));
-        });
-      },
-    });
-    ctx.ui.setTitle(`Pi · ${basename(ctx.cwd)}`);
-    ctx.ui.setHeader((tui, theme) => {
-      activeTui = tui;
-      requestRender = (force = false) => tui.requestRender(force);
-      sidebar.attach(tui, theme);
+    if (owns("editor")) branch.start(ctx.cwd);
+    if (owns("editor") || owns("sidebar")) {
       tokenRate.setOnChange(() => {
         syncSidebar(getContext());
         if (thinkingFold.elapsedMs() !== null) syncThinkingStatus();
       });
       syncSidebar(ctx);
-      queueMicrotask(syncVisibleMessages);
-      ctx.ui.setWorkingIndicator({
-        frames: [
-          theme.fg("dim", "·"),
-          theme.fg("muted", "•"),
-          theme.fg("accent", "●"),
-          theme.fg("muted", "•"),
-        ],
-        intervalMs: 240,
+    }
+
+    if (owns("sidebar")) {
+      disposeAsync?.();
+      disposeAsync = pi.events.on("subagent:async-complete", refreshFiles);
+      files.start(ctx.cwd);
+      diffs.clear();
+      sidebar.setCwd(ctx.cwd);
+      sidebar.setSelectedPreview(undefined);
+      sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
+      sidebar.setPreferredWidth(config.sidebarPercent);
+      sidebar.setHidden(config.focused === true);
+      sidebar.setActions({
+        persistWidth: (percent) => {
+          try {
+            const next = withSidebarPercent(config, percent);
+            saveConfig(next);
+            config = next;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            ctx.ui.notify(`Could not save sidebar width: ${message}`, "error");
+          }
+        },
+        copy: (text) => {
+          void copyWithFeedback(activeTui, ctx.ui.notify, text);
+        },
+        openFile: (filePath) => {
+          const target = resolve(ctx.cwd, filePath);
+          const { command, args } = openExternalArgs(target);
+          void Promise.resolve(pi.exec(command, args, { timeout: 5000 })).then(
+            (result) => {
+              if (result.code !== 0) ctx.ui.notify("Could not open file", "error");
+            },
+            () => ctx.ui.notify("Could not open file", "error"),
+          );
+        },
+        selectFile: (file) => {
+          const selectionId = fileKey(file);
+          const title = formatFileLabel(file);
+          const cached = diffs.peek(ctx.cwd, file, fileSnapshot);
+          sidebar.setSelectedPreview(new DiffWorkspaceView(
+            selectionId,
+            cached?.state ?? "loading",
+            cached?.text ?? "",
+            ctx.ui.theme,
+            title,
+            file.path,
+          ));
+          void diffs.select(ctx.cwd, file, fileSnapshot, (result) => {
+            sidebar.setSelectedPreview(new DiffWorkspaceView(
+              selectionId,
+              result.state,
+              result.text,
+              ctx.ui.theme,
+              title,
+              file.path,
+            ));
+          });
+        },
       });
-      updates.setOnChange(() => tui.requestRender());
+    }
+    // belowEditor has no host leading spacer. This factory renders exactly zero rows.
+    // It is a TUI handle, not a chrome owner or application bootstrap header.
+    if (owns("sidebar") || owns("transcript")) {
+      ctx.ui.setWidget("pi-slate:surface-host", (tui, theme) => {
+        activeTui = tui;
+        requestRender = (force = false) => tui.requestRender(force);
+        if (owns("sidebar")) {
+          sidebar.attach(tui, theme);
+          if (!sidebar.splitActive && config.focused !== true) {
+            ctx.ui.notify("Slate sidebar unavailable: a compatible fullscreen host is required", "warning");
+          }
+        }
+        if (owns("transcript")) queueMicrotask(() => {
+          syncVisibleMessages();
+          if (!messageWindow) ctx.ui.notify("Slate transcript unavailable: a compatible message-window host is required", "warning");
+        });
+        return { render: () => [], invalidate() {} };
+      }, { placement: "belowEditor" });
+    }
+    if (owns("header")) {
+      updates.setOnChange(() => requestRender());
       updates.start(ctx.cwd);
-      return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
-    });
-    ctx.ui.setFooter((tui, _theme, footerData) => {
-      activeTui = tui;
-      requestRender = (force = false) => tui.requestRender(force);
-      return new BranchFooter(footerData, (branch) => {
-        gitBranch = branch;
-        tui.requestRender();
+      ctx.ui.setHeader((tui, theme) => {
+        requestRender = (force = false) => tui.requestRender(force);
+        return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
       });
-    });
-    ctx.ui.setEditorComponent((tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
-      images.detachEditor();
-      selection.dispose();
-      const minimalEditorTheme: EditorTheme = {
-        ...editorTheme,
-        borderColor: chromePaint(ctx.ui.theme),
+    }
+    if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());
+    if (owns("editor")) {
+      editorFactory = (tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
+        images?.detachEditor();
+        selection.dispose();
+        const minimalEditorTheme: EditorTheme = {
+          ...editorTheme,
+          borderColor: chromePaint(ctx.ui.theme),
+        };
+        activeEditor = new ComposerEditor(
+          tui,
+          minimalEditorTheme,
+          keybindings,
+          () => {
+            const current = getContext();
+            return {
+              project: basename(current.cwd) || current.cwd,
+              branch: gitBranch,
+              model: current.model,
+              modelDisplay: config.modelDisplay,
+              thinking: current.thinkingLevel,
+              footer: config.composerMetadata,
+              showPid: config.showPid === true,
+              theme: current.ui.theme,
+              ...(config.focused !== false ? { context: contextEdge } : {}),
+            };
+          },
+          {
+            paddingX: composerPaddingX(config.density),
+            autocompleteMaxVisible: 8,
+            embedWorkingStatus: true,
+          },
+        );
+        selection.attach(activeEditor, {
+          copy: (text) => copyWithFeedback(tui, ctx.ui.notify, text),
+          requestRender: () => tui.requestRender(),
+        });
+        images?.attachEditor(activeEditor);
+        activeTui = tui;
+        requestRender = (force = false) => tui.requestRender(force);
+        return activeEditor;
       };
-      activeEditor = new ComposerEditor(
-        tui,
-        minimalEditorTheme,
-        keybindings,
-        () => {
-          const current = getContext();
-          return {
-            project: basename(current.cwd) || current.cwd,
-            branch: gitBranch,
-            model: current.model,
-            modelDisplay: config.modelDisplay,
-            thinking: current.thinkingLevel,
-            footer: config.footer,
-            showPid: config.showPid === true,
-            theme: current.ui.theme,
-            ...(config.focused !== false ? { context: contextEdge } : {}),
-          };
-        },
-        {
-          paddingX: composerPaddingX(config.density),
-          autocompleteMaxVisible: 8,
-          embedWorkingStatus: true,
-        },
-      );
-      selection.attach(activeEditor, {
-        copy: (text) => copyWithFeedback(tui, ctx.ui.notify, text),
-        requestRender: () => tui.requestRender(),
-      });
-      images.attachEditor(activeEditor);
-      return activeEditor;
-    });
+      ctx.ui.setEditorComponent(editorFactory);
+    }
     requestRender(true);
   };
 
@@ -443,7 +446,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let workingWord: string | undefined;
   const syncThinkingStatus = (): void => {
     const ctx = currentContext;
-    if (ctx?.mode !== "tui" || !workingWord || typeof ctx.ui.setWorkingMessage !== "function") return;
+    if (!editorActive() || !ctx || !workingWord || typeof ctx.ui.setWorkingMessage !== "function") return;
     const elapsed = thinkingFold.elapsedMs();
     const rate = tokenRate.rate();
     const label = elapsed === null ? workingWord : formatLiveThinking(workingWord, elapsed, rate > 0 ? rate : null);
@@ -459,7 +462,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => install(ctx));
   pi.on("agent_start", (_event, ctx) => {
     currentContext = ctx;
-    if (ctx.mode !== "tui") return;
+    if (!editorActive()) return;
     thinkingFold.stop();
     workingWord = workingWords.next();
     syncThinkingStatus();
@@ -480,14 +483,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
-      tokenRate.startMessage();
+      if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.startMessage();
     }
   });
   pi.on("message_update", (event, ctx) => {
     currentContext = ctx;
     if (event.message.role !== "assistant") return;
-    tokenRate.observePartial(estimateAssistantTokens(event.message));
-    if (ctx.mode === "tui" && typeof ctx.ui.setWorkingMessage === "function") {
+    if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.observePartial(estimateAssistantTokens(event.message));
+    if (editorActive() && typeof ctx.ui.setWorkingMessage === "function") {
       thinkingFold.observe(event.assistantMessageEvent, event.message);
     } else {
       thinkingFold.stop();
@@ -497,31 +500,36 @@ export default function piSlate(pi: ExtensionAPI): void {
     currentContext = ctx;
     if (event.message.role === "assistant") {
       thinkingFold.stop();
-      tokenRate.endMessage();
+      if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.endMessage();
     }
     syncSidebar(ctx);
     syncVisibleMessages();
   });
-  pi.on("before_agent_start", () => {
-    // Last Turn is the last user prompt, not each LLM round inside it.
-    sidebar.setTurnImpact(turnImpact.reset());
-  });
-  pi.on("tool_call", (event) => {
-    sidebar.setTurnImpact(turnImpact.toolCall({
-      toolCallId: event.toolCallId,
-      toolName: event.toolName,
-      input: event.input as Record<string, unknown> | undefined,
-    }));
-  });
-  pi.on("tool_execution_end", (event) => {
-    sidebar.setTurnImpact(turnImpact.toolEnd({
-      toolCallId: event.toolCallId,
-      isError: event.isError,
-      result: event.result,
-      toolName: event.toolName,
-    }));
-    refreshFiles();
-  });
+  if (owns("sidebar")) {
+    pi.on("before_agent_start", (_event, ctx) => {
+      if (ctx.mode !== "tui") return;
+      // Last Turn is the last user prompt, not each LLM round inside it.
+      sidebar.setTurnImpact(turnImpact.reset());
+    });
+    pi.on("tool_call", (event, ctx) => {
+      if (ctx.mode !== "tui") return;
+      sidebar.setTurnImpact(turnImpact.toolCall({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        input: event.input as Record<string, unknown> | undefined,
+      }));
+    });
+    pi.on("tool_execution_end", (event, ctx) => {
+      if (ctx.mode !== "tui") return;
+      sidebar.setTurnImpact(turnImpact.toolEnd({
+        toolCallId: event.toolCallId,
+        isError: event.isError,
+        result: event.result,
+        toolName: event.toolName,
+      }));
+      refreshFiles();
+    });
+  }
   pi.on("turn_end", (_event, ctx) => {
     currentContext = ctx;
     syncSidebar(ctx);
@@ -539,16 +547,20 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_tree", (_event, ctx) => {
     currentContext = ctx;
     thinkingFold.stop();
-    sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
+    if (owns("sidebar") && ctx.mode === "tui") sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    thinkingFold.stop();
     workingWord = undefined;
+    thinkingFold.stop();
     tokenRate.dispose();
-    images.dispose();
+    images?.dispose();
     selection.dispose();
     files.dispose();
+    disposeAsync?.();
+    disposeAsync = undefined;
+    branch.dispose();
+    updates.dispose();
     diffs.clear();
     messageWindow?.dispose();
     messageWindow = undefined;
@@ -556,22 +568,22 @@ export default function piSlate(pi: ExtensionAPI): void {
     sidebar.dispose();
     requestRender(true);
     if (ctx.mode !== "tui") return;
-    ctx.ui.setHeader(undefined);
-    ctx.ui.setFooter(undefined);
-    ctx.ui.setEditorComponent(undefined);
-    ctx.ui.setWorkingIndicator();
-    ctx.ui.setWorkingMessage();
+    // Host chrome has no header/footer ownership getters. /reload resets it;
+    // cleanup must not clear a successor's slots (or any unselected surface).
     activeEditor = undefined;
     gitBranch = null;
     requestRender = () => {};
   });
 
   const apply = (next: SlateConfig, message: string, ctx: ExtensionContext): void => {
+    if (loaded.error) { ctx.ui.notify(loaded.error, "warning"); return; }
     try {
       saveConfig(next);
       config = next;
-      sidebar.setPreferredWidth(config.sidebarPercent);
-      sidebar.setHidden(config.focused === true);
+      if (owns("sidebar")) {
+        sidebar.setPreferredWidth(config.sidebarPercent);
+        sidebar.setHidden(config.focused === true);
+      }
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
       requestRender(true);
@@ -593,10 +605,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     return undefined;
   };
 
-  const pickFooter = async (ctx: ExtensionContext): Promise<SlateConfig["footer"] | undefined> => {
-    const value = await ctx.ui.select("Footer", [
-      withCurrent("Standard", config.footer === "standard"),
-      withCurrent("Minimal", config.footer === "minimal"),
+  const pickFooter = async (ctx: ExtensionContext): Promise<SlateConfig["composerMetadata"] | undefined> => {
+    const value = await ctx.ui.select("Composer metadata", [
+      withCurrent("Standard", config.composerMetadata === "standard"),
+      withCurrent("Minimal", config.composerMetadata === "minimal"),
     ]);
     const key = value ? withoutCurrent(value) : undefined;
     if (key === "Standard") return "standard";
@@ -771,7 +783,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   pi.registerCommand("slate", {
-    description: "Density, footer, sidebar, focused mode, PID display, message length, theme, or file a bug",
+    description: "Surfaces, density, composer metadata, sidebar, focused mode, PID display, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -782,9 +794,17 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Density", "Footer", "Sidebar width", "Focused", "PID display", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Message length", "Theme", "File a bug"]);
+        if (setting === "Surfaces") {
+          const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
+          if (!names) return;
+          const choice = parseSlateArgs(`surfaces ${names === "full" || names === "none" ? names : `set ${names}`}`);
+          if (!choice.ok || choice.kind !== "surfaces" || choice.value === undefined) { ctx.ui.notify(SLATE_USAGE, "error"); return; }
+          apply({ ...config, surfaces: choice.value }, `Slate surfaces saved: ${formatSurfaces(choice.value)}. Run /reload (reload required).`, ctx);
+          return;
+        }
         if (setting === "Density") kind = "density";
-        else if (setting === "Footer") kind = "footer";
+        else if (setting === "Composer metadata") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
         else if (setting === "Focused") kind = "focused";
         else if (setting === "PID display") kind = "pid";
@@ -792,6 +812,15 @@ export default function piSlate(pi: ExtensionAPI): void {
         else if (setting === "Theme") kind = "theme-menu";
         else if (setting === "File a bug") kind = "bug-menu";
         else return;
+      }
+
+      if (parsed.kind === "surfaces") {
+        if (parsed.value === undefined) {
+          ctx.ui.notify(`Slate surfaces: ${formatSurfaces(config.surfaces)}. Active: ${formatSurfaces(selected)}. Use /slate surfaces set <names>, full, or none; changes require /reload.`, "info");
+        } else {
+          apply({ ...config, surfaces: parsed.value }, `Slate surfaces saved: ${formatSurfaces(parsed.value)}. Run /reload (reload required).`, ctx);
+        }
+        return;
       }
 
       if (kind === "density") {
@@ -804,7 +833,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (kind === "footer") {
         const footer = (parsed.kind === "footer" ? parsed.value : undefined) ?? await pickFooter(ctx);
         if (!footer) return;
-        apply({ ...config, footer }, `Footer set to ${footer}`, ctx);
+        apply({ ...config, composerMetadata: footer }, `Composer metadata set to ${footer}`, ctx);
         return;
       }
 

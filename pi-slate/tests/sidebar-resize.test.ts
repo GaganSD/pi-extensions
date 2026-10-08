@@ -4,6 +4,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   Text,
   TuiAltScreen,
+  type Component,
   type OverlayHandle,
   type OverlayOptions,
   type TUI,
@@ -42,6 +43,9 @@ function attachSidebar(columns = 140) {
   const hidden: OverlayHandle[] = [];
   const sidebar = new Sidebar();
   const tui = {
+    [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
+    layoutRoot: new Text("chat", 0, 0) as Component | undefined,
+    setLayoutRoot(this: { layoutRoot?: Component }, component: Component | undefined) { this.layoutRoot = component; },
     terminal: { rows: 24, columns },
     requestRender() {},
     showOverlay(_component: unknown, options: OverlayOptions) {
@@ -58,16 +62,17 @@ function attachSidebar(columns = 140) {
   return { sidebar, overlays, hidden, tui };
 }
 
-test("focused mode unmounts the sidebar overlay", () => {
-  const { sidebar, overlays, hidden } = attachSidebar();
-  sidebar.render(28);
-  assert.equal(overlays[0]?.visible?.(140, 24), true);
+test("focused mode hides the mounted split without overlays or reclaiming the root", () => {
+  const { sidebar, overlays, hidden, tui } = attachSidebar();
+  const root = (tui as TUI & { layoutRoot?: Component }).layoutRoot;
+  assert.equal(sidebar.splitActive, true);
   sidebar.setHidden(true);
-  assert.equal(hidden.length, 1);
-  assert.equal(overlays[0]?.visible?.(140, 24), false);
+  assert.equal(sidebar.hidden, true);
   sidebar.setHidden(false);
-  assert.equal(overlays.length, 2);
-  assert.equal(overlays[1]?.visible?.(140, 24), true);
+  assert.equal(sidebar.hidden, false);
+  assert.equal((tui as TUI & { layoutRoot?: Component }).layoutRoot, root);
+  assert.equal(hidden.length, 0);
+  assert.equal(overlays.length, 0);
 });
 
 test("the resize handle is the sidebar gutter, not file rows", () => {
@@ -89,7 +94,7 @@ test("dragging the gutter moves a ghost guide and only commits width on release"
     },
   });
   sidebar.render(28);
-  assert.equal(overlays[0]?.width, 28);
+  assert.equal(overlays.length, 0);
 
   assert.deepEqual(sidebar.handleMouse(mouse({ type: "press", screenX: 112 })), {
     handled: true,
@@ -98,7 +103,7 @@ test("dragging the gutter moves a ghost guide and only commits width on release"
   });
   assert.equal(sidebar.preferredWidth, undefined);
   assert.equal(persisted.length, 0);
-  assert.equal(overlays[0]?.width, 28);
+  assert.equal(workspaceColumnWidth(140, sidebar.preferredWidth), 28);
   assert.equal(overlays.at(-1)?.col, 112);
 
   assert.deepEqual(sidebar.handleMouse(mouse({ type: "drag", x: -20, screenX: 92 })), {
@@ -107,7 +112,7 @@ test("dragging the gutter moves a ghost guide and only commits width on release"
   });
   assert.equal(sidebar.preferredWidth, undefined);
   assert.equal(persisted.length, 0);
-  assert.equal(overlays[0]?.width, 28);
+  assert.equal(workspaceColumnWidth(140, sidebar.preferredWidth), 28);
   assert.equal(overlays.at(-1)?.col, 92);
 
   assert.deepEqual(sidebar.handleMouse(mouse({ type: "release", x: -20, screenX: 92 })), {
@@ -149,7 +154,7 @@ test("a stationary press on the inner handle column does not persist", () => {
     },
   });
   sidebar.render(workspaceColumnWidth(140, 29));
-  assert.equal(overlays[0]?.width, workspaceColumnWidth(140, 29));
+  assert.equal(overlays.length, 0);
   sidebar.handleMouse(mouse({ type: "press", x: 1, screenX: 101 }));
   assert.equal(overlays.at(-1)?.col, 100);
   sidebar.handleMouse(mouse({ type: "release", x: 1, screenX: 101 }));

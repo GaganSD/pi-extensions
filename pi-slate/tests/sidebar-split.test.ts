@@ -25,7 +25,7 @@ function createHost(chat: Node) {
   };
 }
 
-test("a later /new remounts the split onto the live pane", () => {
+test("a new session installer can mount its pane without stale cleanup touching it",  () => {
   const chat = { id: "chat" };
   const host = createHost(chat);
 
@@ -52,4 +52,34 @@ test("disposing the current split unwraps the original chat root", () => {
   assert.notEqual(host.layoutRoot, chat);
   dispose();
   assert.equal(host.layoutRoot, chat);
+});
+
+test("a later root writer wins once and disposal never restores over it", () => {
+  const host = createHost({ id: "chat" });
+  let wraps = 0;
+  const dispose = bindSplitHost(host, (component) => { wraps++; return wrap("pane")(component); }, unwrap);
+  const foreign = { id: "foreign" };
+  host.setLayoutRoot(foreign);
+  assert.equal(host.layoutRoot, foreign);
+  const next = { id: "next" };
+  host.setLayoutRoot(next);
+  assert.equal(host.layoutRoot, next);
+  assert.equal(wraps, 1, "only the initial mount is wrapped");
+  dispose();
+  assert.equal(host.layoutRoot, next);
+});
+
+test("yield does not overwrite a successor's setter wrapper", () => {
+  const host = createHost({ id: "chat" });
+  const dispose = bindSplitHost(host, wrap("pane"), unwrap);
+  const slateSet = host.setLayoutRoot;
+  const successorSet = (component: Node | undefined) => slateSet(component);
+  host.setLayoutRoot = successorSet;
+  const foreign = { id: "foreign" };
+  host.setLayoutRoot(foreign);
+  assert.equal(host.setLayoutRoot, successorSet);
+  assert.equal(host.layoutRoot, foreign);
+  dispose();
+  assert.equal(host.setLayoutRoot, successorSet);
+  assert.equal(host.layoutRoot, foreign);
 });

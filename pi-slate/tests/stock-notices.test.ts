@@ -52,15 +52,18 @@ test("sweeps complete package and pi update cards, waits for the closing rule", 
   assert.deepEqual(chat.children, [keep]);
 });
 
-test("message window swallows stock cards as they are added", () => {
+test("message window preserves stock notices as they are added",  () => {
   const chat = new Container();
   const keep = new Text("user", 0, 0);
   chat.addChild(keep);
   const window = new MessageWindow(chat, 100);
   addPackageCard(chat, "@dev.fast/pi-whiteboard");
   addPiCard(chat, "0.99.2");
-  assert.deepEqual(chat.children, [keep]);
+  const all = [...chat.children];
+  assert.equal(all.length, 10);
+  assert.equal(all[0], keep);
   window.dispose();
+  assert.deepEqual(chat.children, all);
 });
 
 test("does not remove ordinary chat that mentions updates", () => {

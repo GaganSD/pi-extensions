@@ -18,13 +18,15 @@ export class ImagePeek {
   private readonly originalHandleInput: CustomEditor["handleInput"];
   private readonly store: ImagePathStore;
   private readonly editor: CustomEditor;
-  private readonly workspace: Sidebar;
+  private readonly workspace?: Sidebar;
+  private readonly handleMouse: CustomEditor["handleMouse"];
+  private readonly handleInput: CustomEditor["handleInput"];
   private readonly loadImage: (filePath: string) => ImageAttachment | undefined;
 
   constructor(
     store: ImagePathStore,
     editor: CustomEditor,
-    workspace: Sidebar,
+    workspace: Sidebar | undefined,
     loadImage: (filePath: string) => ImageAttachment | undefined,
   ) {
     this.store = store;
@@ -33,13 +35,13 @@ export class ImagePeek {
     this.loadImage = loadImage;
     this.originalHandleMouse = this.editor.handleMouse;
     this.originalHandleInput = this.editor.handleInput;
-    this.editor.handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
+    this.handleMouse = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
       clearTimeout(this.rewriteTimer);
       const result = this.originalHandleMouse.call(this.editor, event);
       this.update();
       return result;
     };
-    this.editor.handleInput = (data: string): void => {
+    this.handleInput = (data: string): void => {
       const before = this.editor.getText();
       this.originalHandleInput.call(this.editor, data);
       clearTimeout(this.rewriteTimer);
@@ -52,6 +54,8 @@ export class ImagePeek {
       }
       this.update();
     };
+    this.editor.handleMouse = this.handleMouse;
+    this.editor.handleInput = this.handleInput;
   }
 
   rewrite(): void {
@@ -70,6 +74,7 @@ export class ImagePeek {
   }
 
   update(): void {
+    if (!this.workspace?.splitActive) return;
     const number = imageTokenAtCursor(this.editor.getText(), this.editor.getCursor());
     const filePath = number ? this.store.get(number) : undefined;
     if (!number || !filePath) {
@@ -100,14 +105,14 @@ export class ImagePeek {
 
   hide(): void {
     if (!this.shownId) return;
-    this.workspace.setView(undefined);
+    this.workspace?.setView(undefined);
     this.shownId = undefined;
   }
 
   dispose(): void {
     clearTimeout(this.rewriteTimer);
-    this.editor.handleMouse = this.originalHandleMouse;
-    this.editor.handleInput = this.originalHandleInput;
+    if (this.editor.handleMouse === this.handleMouse) this.editor.handleMouse = this.originalHandleMouse;
+    if (this.editor.handleInput === this.handleInput) this.editor.handleInput = this.originalHandleInput;
     this.hide();
   }
 }

@@ -31,15 +31,25 @@ export function bindSplitHost<T>(
   const owner = {};
   host[ORIGINAL_SET_LAYOUT_ROOT] = originalSet;
   host[SPLIT_OWNER] = owner;
-  host.setLayoutRoot = (component) => originalSet(wrap(component));
-  if (host.layoutRoot !== undefined) originalSet(wrap(host.layoutRoot));
+  const mounted = wrap(host.layoutRoot);
+  const yieldRoot = (component: T | undefined): void => {
+    // A later writer wins. Stop intercepting, rather than wrapping its root forever.
+    if (host[SPLIT_OWNER] === owner) {
+      if (host.setLayoutRoot === yieldRoot) host.setLayoutRoot = originalSet;
+      delete host[ORIGINAL_SET_LAYOUT_ROOT];
+      delete host[SPLIT_OWNER];
+    }
+    originalSet(component);
+  };
+  host.setLayoutRoot = yieldRoot;
+  if (host.layoutRoot !== undefined) originalSet(mounted);
 
   return () => {
     if (host[SPLIT_OWNER] !== owner) return;
-    host.setLayoutRoot = originalSet;
+    if (host.setLayoutRoot === yieldRoot) host.setLayoutRoot = originalSet;
     delete host[ORIGINAL_SET_LAYOUT_ROOT];
     delete host[SPLIT_OWNER];
-    originalSet(unwrap(host.layoutRoot));
+    if (host.layoutRoot === mounted) originalSet(unwrap(mounted));
   };
 }
 
@@ -108,7 +118,7 @@ export function installSidebarSplit(
   pane: Component,
   preferredWidth?: () => number | undefined,
 ): (() => void) | undefined {
-  if (!isViewportTUI(tui)) return undefined;
+  if (!isViewportTUI(tui) || !(tui as TUI & { layoutRoot?: Component }).layoutRoot) return undefined;
 
   return bindSplitHost(
     tui,

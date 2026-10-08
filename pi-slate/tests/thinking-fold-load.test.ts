@@ -10,6 +10,12 @@ import { WORKING_WORDS } from "../extensions/pi-slate/working-words.ts";
 test("loaded Slate wires thinking timing only in TUI and never rewrites native thinking labels", { timeout: 30_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-slate-thinking-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
+  const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(cwd, "agent");
+  t.after(() => {
+    if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  });
   t.mock.timers.enable({ apis: ["Date", "setInterval"], now: 0 });
   t.after(() => t.mock.timers.reset());
   const entry = join(dirname(fileURLToPath(import.meta.url)), "../extensions/pi-slate/index.ts");

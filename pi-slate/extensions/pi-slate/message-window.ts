@@ -1,5 +1,4 @@
 import { Container, ScrollView, isViewportTUI, type Component, type TUI } from "@earendil-works/pi-tui";
-import { sweepStockUpdateNotices } from "./stock-notices.ts";
 
 export function childComponents(component: Component): Component[] {
   const stack = component as { entries?: Array<{ component?: Component }> };
@@ -46,6 +45,9 @@ export class MessageWindow {
   private readonly addChild: (component: Component) => void;
   private readonly removeChild: (component: Component) => void;
   private readonly clear: () => void;
+  private readonly installedAdd: Container["addChild"];
+  private readonly installedRemove: Container["removeChild"];
+  private readonly installedClear: Container["clear"];
   private hidden: Component[] = [];
   private pinned?: Component;
   private limit: number;
@@ -56,25 +58,26 @@ export class MessageWindow {
     this.addChild = container.addChild.bind(container);
     this.removeChild = container.removeChild.bind(container);
     this.clear = container.clear.bind(container);
-    container.addChild = (component) => {
+    this.installedAdd = (component) => {
       this.pinned = this.container.children.at(-1);
       this.addChild(component);
       this.trim();
-      sweepStockUpdateNotices(this.container);
     };
-    container.removeChild = (component) => {
+    this.installedRemove = (component) => {
       const index = this.hidden.indexOf(component);
       if (index >= 0) this.hidden.splice(index, 1);
       if (this.pinned === component) this.pinned = undefined;
       this.removeChild(component);
     };
-    container.clear = () => {
+    this.installedClear = () => {
       this.hidden = [];
       this.pinned = undefined;
       this.clear();
     };
+    container.addChild = this.installedAdd;
+    container.removeChild = this.installedRemove;
+    container.clear = this.installedClear;
     this.trim();
-    sweepStockUpdateNotices(this.container);
   }
 
   setLimit(limit: number): void {
@@ -86,9 +89,9 @@ export class MessageWindow {
 
   dispose(): void {
     this.reveal();
-    this.container.addChild = this.addChild;
-    this.container.removeChild = this.removeChild;
-    this.container.clear = this.clear;
+    if (this.container.addChild === this.installedAdd) this.container.addChild = this.addChild;
+    if (this.container.removeChild === this.installedRemove) this.container.removeChild = this.removeChild;
+    if (this.container.clear === this.installedClear) this.container.clear = this.clear;
   }
 
   private reveal(): void {

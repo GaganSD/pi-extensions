@@ -17,10 +17,7 @@ import {
   clampSidebarColumns,
   parseSidebarPercent,
   sidebarPercentFromColumns,
-  SIDEBAR_EDITOR_RESERVE,
   SIDEBAR_HIDDEN,
-  SIDEBAR_MIN_TERMINAL_WIDTH,
-  SIDEBAR_MIN_WIDTH,
   sidebarHandleColumn,
   workspaceColumnWidth,
 } from "./layout.ts";
@@ -71,8 +68,6 @@ export type SidebarActions = {
 export class Sidebar implements Component {
   private tui?: TUI;
   private theme?: Theme;
-  private handle?: OverlayHandle;
-  private overlayOptions?: OverlayOptions;
   private splitDispose?: () => void;
   private guideHandle?: OverlayHandle;
   private guideOptions?: OverlayOptions;
@@ -111,22 +106,12 @@ export class Sidebar implements Component {
   attach(tui: TUI, theme: Theme): void {
     this.tui = tui;
     this.theme = theme;
-    if (this.hidden || this.splitDispose || this.handle) return;
+    if (this.splitDispose) return;
     this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
     this.splitActive = Boolean(this.splitDispose);
     this.contentCached = undefined;
     this.dockCached = undefined;
-    if (this.splitActive) return;
-    this.overlayOptions = {
-      nonCapturing: true,
-      anchor: "top-right",
-      width: this.overlayWidth(tui.terminal.columns),
-      minWidth: SIDEBAR_MIN_WIDTH,
-      maxHeight: "100%",
-      margin: { top: 0, right: 0, bottom: SIDEBAR_EDITOR_RESERVE, left: 0 },
-      visible: (termWidth) => !this.hidden && termWidth >= SIDEBAR_MIN_TERMINAL_WIDTH,
-    };
-    this.handle = tui.showOverlay(this, this.overlayOptions);
+    // Incompatible hosts remain untouched: no fullscreen preference or overlay fallback.
   }
 
   get preferredWidth(): number | undefined {
@@ -137,7 +122,6 @@ export class Sidebar implements Component {
     const next = width === undefined ? undefined : parseSidebarPercent(width);
     if (this._preferredWidth === next) return;
     this._preferredWidth = next;
-    this.syncOverlayWidth();
     this.tui?.requestRender();
   }
 
@@ -147,8 +131,7 @@ export class Sidebar implements Component {
     const tui = this.tui;
     const theme = this.theme;
     if (!tui || !theme) return;
-    this.unmountPane();
-    if (!hidden) this.attach(tui, theme);
+    // Keep the mounted split and toggle its visibility; never seize a replaced root.
     tui.requestRender(true);
   }
 
@@ -326,7 +309,6 @@ export class Sidebar implements Component {
   }
 
   render(width: number): string[] {
-    this.syncOverlayWidth();
     const theme = this.theme;
     const height = Math.max(1, this.tui?.terminal.rows ?? 1);
     const dockWant = this.splitActive ? Math.max(COMPOSER_SHELF_LINES, composerFrameLineCount()) : SIDEBAR_DOCK_LINES;
@@ -348,9 +330,6 @@ export class Sidebar implements Component {
     this.splitDispose?.();
     this.splitDispose = undefined;
     this.splitActive = false;
-    this.handle?.hide();
-    this.handle = undefined;
-    this.overlayOptions = undefined;
   }
 
   dispose(): void {
@@ -594,17 +573,6 @@ export class Sidebar implements Component {
 
   private displayedWidth(totalWidth = this.tui?.terminal.columns ?? 0): number {
     return workspaceColumnWidth(totalWidth, this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
-  }
-
-  private overlayWidth(totalWidth: number): OverlayOptions["width"] {
-    const width = this.displayedWidth(totalWidth);
-    return width || (this.hidden ? 0 : "20%");
-  }
-
-  private syncOverlayWidth(): void {
-    if (!this.overlayOptions || !this.tui) return;
-    const width = this.overlayWidth(this.tui.terminal.columns);
-    if (this.overlayOptions.width !== width) this.overlayOptions.width = width;
   }
 
   private beginResize(screenX: number): void {

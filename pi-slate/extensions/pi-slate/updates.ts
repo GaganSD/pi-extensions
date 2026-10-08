@@ -75,6 +75,7 @@ export async function checkPackageUpdates(cwd: string): Promise<string[]> {
 export class UpdateWatcher {
   notice: UpdateNotice = { packages: [] };
   private onChange: () => void = () => {};
+  private generation = 0;
 
   setOnChange(fn: () => void): void {
     this.onChange = fn;
@@ -84,8 +85,15 @@ export class UpdateWatcher {
     void this.refresh(cwd);
   }
 
+  dispose(): void {
+    this.generation += 1;
+    this.onChange = () => {};
+  }
+
   async refresh(cwd: string): Promise<void> {
+    const generation = this.generation;
     const [pi, packages] = await Promise.all([checkPiUpdate(), checkPackageUpdates(cwd)]);
+    if (generation !== this.generation) return;
     this.notice = {
       ...(pi ? { pi } : {}),
       packages,
