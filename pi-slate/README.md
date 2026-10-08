@@ -131,7 +131,7 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 ## Commands
 
-`/slate` with no args opens the settings picker. `/prompts` opens the prompt-template picker.
+`/slate` with no args opens the settings picker. `/prompts` opens the prompt-template picker. `/exit` quits Pi, same as `/quit`.
 
 | Setting | Commands | Effect |
 | --- | --- | --- |

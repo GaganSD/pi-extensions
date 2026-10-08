@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `/exit` quits Pi, same as `/quit`
+
 ## 0.1.11
 
 Add a searchable prompt-template picker and optional PID display; improve compact context labels and narrow-terminal rendering.

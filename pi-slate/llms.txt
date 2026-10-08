@@ -8,7 +8,7 @@ Highlighted diffs use responsive split edits, unified writes, and character-leve
 
 ## Documentation
 
-- [README](README.md): install, features, commands, themes, composer keys
+- [README](README.md): install, features, commands (`/exit` aliases `/quit`), themes, composer keys
 - [Extension entry](extensions/pi-slate/index.ts): TUI replacement
 - [Diff](extensions/pi-slate/diff.ts): edit/write rendering
 - [Read groups](extensions/pi-slate/read-group.ts): consecutive-read compaction
