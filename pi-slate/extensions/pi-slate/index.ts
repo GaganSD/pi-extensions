@@ -31,6 +31,7 @@ import { TurnImpactTracker } from "./turn-impact.ts";
 import { resolveContextTokens, sessionSpend } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
+import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
 import {
   countSkillCommands,
   formatFocusedContextResources,
@@ -225,6 +226,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let activeTui: TUI | undefined;
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
+  const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
   const updates = new UpdateWatcher();
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
@@ -287,6 +289,8 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     currentContext = ctx;
+    thinkingFold.stop();
+    workingWord = undefined;
     if (ctx.mode !== "tui") return;
     if (shouldApplyInstallDefault(config.themeApplied) && applySlateTheme(ctx)) {
       const next = { ...config, themeApplied: true };
@@ -367,7 +371,10 @@ export default function piSlate(pi: ExtensionAPI): void {
       activeTui = tui;
       requestRender = (force = false) => tui.requestRender(force);
       sidebar.attach(tui, theme);
-      tokenRate.setOnChange(() => syncSidebar(getContext()));
+      tokenRate.setOnChange(() => {
+        syncSidebar(getContext());
+        if (thinkingFold.elapsedMs() !== null) syncThinkingStatus();
+      });
       syncSidebar(ctx);
       queueMicrotask(syncVisibleMessages);
       ctx.ui.setWorkingIndicator({
@@ -433,11 +440,33 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
 
   const workingWords = createWordPicker();
+  let workingWord: string | undefined;
+  const syncThinkingStatus = (): void => {
+    const ctx = currentContext;
+    if (ctx?.mode !== "tui" || !workingWord || typeof ctx.ui.setWorkingMessage !== "function") return;
+    const elapsed = thinkingFold.elapsedMs();
+    const rate = tokenRate.rate();
+    const label = elapsed === null ? workingWord : formatLiveThinking(workingWord, elapsed, rate > 0 ? rate : null);
+    try {
+      ctx.ui.setWorkingMessage(ctx.ui.theme.italic(label));
+      requestRender();
+    } catch {
+      // A stale UI context must not turn the interval callback into an uncaught error.
+      thinkingFold.stop();
+    }
+  };
 
   pi.on("session_start", (_event, ctx) => install(ctx));
   pi.on("agent_start", (_event, ctx) => {
+    currentContext = ctx;
     if (ctx.mode !== "tui") return;
-    ctx.ui.setWorkingMessage(ctx.ui.theme.italic(workingWords.next()));
+    thinkingFold.stop();
+    workingWord = workingWords.next();
+    syncThinkingStatus();
+  });
+  pi.on("agent_end", (_event, ctx) => {
+    currentContext = ctx;
+    thinkingFold.stop();
   });
   pi.on("model_select", (_event, ctx) => {
     currentContext = ctx;
@@ -449,16 +478,27 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("message_start", (event, ctx) => {
     currentContext = ctx;
-    if (event.message.role === "assistant") tokenRate.startMessage();
+    if (event.message.role === "assistant") {
+      thinkingFold.stop();
+      tokenRate.startMessage();
+    }
   });
   pi.on("message_update", (event, ctx) => {
     currentContext = ctx;
     if (event.message.role !== "assistant") return;
     tokenRate.observePartial(estimateAssistantTokens(event.message));
+    if (ctx.mode === "tui" && typeof ctx.ui.setWorkingMessage === "function") {
+      thinkingFold.observe(event.assistantMessageEvent, event.message);
+    } else {
+      thinkingFold.stop();
+    }
   });
   pi.on("message_end", (event, ctx) => {
     currentContext = ctx;
-    if (event.message.role === "assistant") tokenRate.endMessage();
+    if (event.message.role === "assistant") {
+      thinkingFold.stop();
+      tokenRate.endMessage();
+    }
     syncSidebar(ctx);
     syncVisibleMessages();
   });
@@ -497,10 +537,14 @@ export default function piSlate(pi: ExtensionAPI): void {
     syncSidebar(ctx);
   });
   pi.on("session_tree", (_event, ctx) => {
+    currentContext = ctx;
+    thinkingFold.stop();
     sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
+    thinkingFold.stop();
+    workingWord = undefined;
     tokenRate.dispose();
     images.dispose();
     selection.dispose();

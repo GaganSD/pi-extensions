@@ -42,6 +42,12 @@ Focused mode is the default. It unmounts the sidebar, gives chat the full window
 
 ![Slate focused mode with the sidebar unmounted](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
 
+### Thinking Status
+
+In the TUI, an observed thinking block adds elapsed whole seconds and the available estimated token rate to the existing prompt-edge working word: `Pondering · 7s · ↑↓42`. Under one second it omits the duration; without a rate it shows `Pondering · 7s`. The timer stops when thinking ends, a response is aborted, or the session shuts down. Print, RPC, and JSON modes are unchanged.
+
+Native thinking visibility, labels, click-to-expand, and `Ctrl+T` remain untouched, including during streaming and on session restore. Settled per-message `Thought 12s` needs a Pi per-message hidden-label API; the current global setter would incorrectly relabel older thoughts.
+
 ### Diff
 
 `edit` and `write` results are syntax-highlighted in the transcript. Enabled by default.

@@ -5,6 +5,11 @@
 ### Added
 
 - `/exit` quits Pi, same as `/quit`
+- TUI thinking status uses the existing composer edge: `Pondering · 7s · ↑↓42`, with elapsed seconds and an available estimated token rate. Timers stop on thinking end, message boundaries, abort, and shutdown; missing or changed thinking events fall back to native behavior.
+
+### Limitations
+
+- Native thinking visibility and streaming labels remain untouched. Settled per-message `Thought 12s` needs a Pi per-message hidden-label API; the current global setter would incorrectly relabel older thoughts.
 
 ## 0.1.11
 

@@ -4,6 +4,8 @@
 
 Replaces Pi's header, footer, editor, and edit/write result rendering. Consecutive `read` cards collapse into one transcript line. Other extensions that replace the same surfaces or tool implementations may conflict.
 
+Observed TUI thinking adds elapsed seconds and available token rate to the composer-edge working word (`Pondering · 7s · ↑↓42`). Native thinking visibility, streaming labels, and toggles remain unchanged; per-message settled durations await a host API.
+
 Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow `/slate theme`. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
 ## Documentation
@@ -12,5 +14,6 @@ Highlighted diffs use responsive split edits, unified writes, and character-leve
 - [Extension entry](extensions/pi-slate/index.ts): TUI replacement
 - [Diff](extensions/pi-slate/diff.ts): edit/write rendering
 - [Read groups](extensions/pi-slate/read-group.ts): consecutive-read compaction
+- [Thinking status](extensions/pi-slate/thinking-fold.ts): live composer timing, native transcript fallback
 - [Default theme](themes/black-metal.json): install default
 - [Package manifest](package.json): `npm:pi-slate`
