@@ -208,6 +208,8 @@ export default function piSlate(pi: ExtensionAPI): void {
   let dashboardClock: ReturnType<typeof setInterval> | undefined;
   const dashboardSubscriptions: Array<() => void> = [];
   let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage> } | undefined;
+  let noticeFilterDispose: (() => void) | undefined;
+  let noticeFilterActive = false;
   let inspectingSidebar = false;
   let sidebarYielded = false;
   let sessionEpoch = 0;
@@ -307,6 +309,9 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     sessionEpoch += 1; sidebarYielded = false;
+    if (!owns("header")) {
+      noticeFilterDispose?.(); noticeFilterDispose = undefined; noticeFilterActive = false;
+    }
     const mountedEpoch = sessionEpoch;
     currentContext = ctx;
     conversations?.dispose();
@@ -437,19 +442,29 @@ export default function piSlate(pi: ExtensionAPI): void {
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
         // Header factory runs inside setHeader, before /new appends the stock chat copy.
-        const chat = findChatContainer(layoutRootOf(tui));
-        if (chat) installNewSessionNoticeFilter(chat);
-        else queueMicrotask(() => {
-          const late = findChatContainer(layoutRootOf(tui));
-          if (late) installNewSessionNoticeFilter(late);
+        const attachFilter = (chat: ReturnType<typeof findChatContainer>): void => {
+          if (!chat) return;
+          noticeFilterDispose?.();
+          noticeFilterDispose = installNewSessionNoticeFilter(chat);
+          noticeFilterActive = true;
+        };
+        attachFilter(findChatContainer(layoutRootOf(tui)));
+        if (!noticeFilterActive) queueMicrotask(() => attachFilter(findChatContainer(layoutRootOf(tui))));
+        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => {
+          const idle = typeof currentContext?.isIdle !== "function" || currentContext.isIdle();
+          const empty = branchFacts
+            ? branchFacts.counts.messages === 0 && branchFacts.usage.total === 0
+            : (() => {
+              try { return sidebarMessageCounts(currentContext?.sessionManager.getBranch() ?? []).messages === 0; }
+              catch { return false; }
+            })();
+          return {
+            version: VERSION,
+            model: currentContext ? modelStatusLabel(currentContext.model, config.modelDisplay) : "",
+            thinking: currentContext?.thinkingLevel ?? "",
+            ready: noticeFilterActive && empty && idle,
+          };
         });
-        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => ({
-          version: VERSION,
-          model: currentContext ? modelStatusLabel(currentContext.model, config.modelDisplay) : "",
-          thinking: currentContext?.thinkingLevel ?? "",
-          ready: branchFacts?.counts.messages === 0 && branchFacts.usage.total === 0
-            && (typeof currentContext?.isIdle !== "function" || currentContext.isIdle()),
-        }));
       });
     }
     if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());
@@ -635,6 +650,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     updates.dispose();
     messageWindow?.dispose();
     messageWindow = undefined;
+    noticeFilterDispose?.(); noticeFilterDispose = undefined; noticeFilterActive = false;
     conversations?.dispose();
     conversations = undefined;
     activeTui = undefined;

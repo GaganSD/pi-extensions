@@ -77,6 +77,16 @@ test("stable human identities drop settled completions from the roster", () => {
   assert.match(state.title(b), /^Worker 2/, "settling a sibling never renumbers the remaining worker");
 });
 
+test("settling the selected live row moves selection to a remaining worker", () => {
+  const opened: string[] = [];
+  const a = record("a"), b = record("b");
+  const widget = new SubagentWidget(terminal(), theme, id => opened.push(id));
+  widget.update([a, b], false); widget.focusRoster("a");
+  widget.update([{ ...a, state: "completed", endedAt: new Date(1).toISOString() }, b], false);
+  widget.handleInput("\r");
+  assert.deepEqual(opened, ["b"]);
+});
+
 test("Down focuses and selects without activating; Enter and Space activate exact IDs; typing returns intact to editor", () => {
   const opened: string[] = [], returned: (string | undefined)[] = [];
   const a = record("a"), b = record("b"), state = new HumanState();

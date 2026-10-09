@@ -87,7 +87,8 @@ function addStockNewSessionBanner(chat: Container): void {
 
 test("matches the stock new-session notice but not ordinary chat", () => {
   assert.equal(isStockNewSessionNotice(new Text("\x1b[38;5;1m✓ New session started\x1b[0m", 1, 1)), true);
-  assert.equal(isStockNewSessionNotice(new Text("✓ New session started", 0, 0)), true);
+  assert.equal(isStockNewSessionNotice(new Text("✓ New session started", 1, 1)), true);
+  assert.equal(isStockNewSessionNotice(new Text("✓ New session started", 0, 0)), false);
   assert.equal(isStockNewSessionNotice(new Text("I typed ✓ New session started myself", 0, 0)), false);
   assert.equal(isStockNewSessionNotice(new Text("New session started", 0, 0)), false);
   assert.equal(isStockNewSessionNotice(new Spacer(1)), false);
@@ -153,4 +154,10 @@ test("filter composes with the message window in either install order", () => {
   installNewSessionNoticeFilter(third);
   addStockNewSessionBanner(third);
   assert.deepEqual(third.children, []);
+
+  const fourth = new Container();
+  const stop = installNewSessionNoticeFilter(fourth);
+  stop();
+  addStockNewSessionBanner(fourth);
+  assert.equal(fourth.children.length, 2);
 });

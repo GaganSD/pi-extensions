@@ -198,7 +198,10 @@ export default function subagents(pi: ExtensionAPI): void {
         const returnFocus = state.widget.navigation?.isActive?.() !== false && state.widget.navigation?.canFocusRoster?.() !== false;
         if (returnFocus) state.widget.state!.selected = id;
         draw();
-        if (returnFocus) state.widget.instance?.focusRoster(id);
+        if (returnFocus) {
+          if (state.widget.instance) state.widget.instance.focusRoster(id);
+          else state.widget.navigation?.focusEditor();
+        }
       }
     }
   }
@@ -336,7 +339,8 @@ export default function subagents(pi: ExtensionAPI): void {
           }
           state.widget.state!.remember(runs);
           draw();
-          if (state.widget.navigation && state.widget.instance) { state.widget.instance.focusRoster(); return; }
+          const onlyLive = runs.every(run => isLive(run.state));
+          if (onlyLive && state.widget.navigation && state.widget.instance) { state.widget.instance.focusRoster(); return; }
           const labels = runs.map(run => `${state.widget.state!.title(run)} · ${stateLabel(run)}`);
           const picked = await ctx.ui.select("Inspect a sub-agent", labels);
           if (!picked) return;

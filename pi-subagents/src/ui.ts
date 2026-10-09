@@ -71,15 +71,18 @@ export function syncWidget(ctx: ExtensionContext, runs: RunRecord[], blocked: bo
   if (ctx.mode !== "tui") return;
   slot.state ??= new HumanState();
   slot.state.remember(runs);
-  const live = runs.some(run => isLive(run.state));
-  if (!live && !blocked) {
-    if (slot.instance) { ctx.ui.setWidget("minimal-subagents", undefined); slot.instance = undefined; }
-    return;
-  }
   const restore = (data?: string) => {
     if (slot.navigation && slot.navigation.isActive?.() !== false) slot.navigation.focusEditor(data);
     else slot.instance?.restoreOrigin(data);
   };
+  const live = runs.some(run => isLive(run.state));
+  if (!live && !blocked) {
+    if (slot.instance) {
+      if (slot.instance.focused) restore();
+      ctx.ui.setWidget("minimal-subagents", undefined); slot.instance = undefined;
+    }
+    return;
+  }
   if (slot.instance) { slot.instance.update(runs, blocked, onOpen); return; }
   ctx.ui.setWidget("minimal-subagents", (tui, theme) => {
     slot.instance = new SubagentWidget(tui, theme, onOpen, slot.state, restore, Boolean(slot.navigation) || typeof (tui as TUI & { getFocusedComponent?: unknown }).getFocusedComponent === "function");
@@ -113,6 +116,12 @@ export class SubagentWidget implements Component, Focusable {
   update(runs: RunRecord[], blocked: boolean, onOpen?: (id: string) => void): void {
     this.runs = runs; this.blocked = blocked; this.state.remember(runs);
     if (onOpen) this.onOpen = onOpen;
+    const entries = this.entries();
+    if (this.selectedId && !entries.includes(this.selectedId)) {
+      this.selectedId = this.focused ? entries[0] : undefined;
+      this.state.selected = this.focused ? this.selectedId : undefined;
+      if (this.focused && !this.selectedId) { this.leave(); return; }
+    }
     this.tui.requestRender();
   }
   focusRoster(id?: string): void {
@@ -142,8 +151,7 @@ export class SubagentWidget implements Component, Focusable {
       this.state.selected = this.selectedId; this.tui.requestRender(); return;
     }
     if (action === "activate") {
-      if (this.selectedId === "recent") { this.recentOpen = !this.recentOpen; this.tui.requestRender(); }
-      else if (this.selectedId) this.onOpen(this.selectedId);
+      if (this.selectedId && entries.includes(this.selectedId)) this.onOpen(this.selectedId);
       return;
     }
     this.leave(data); // Typing returns to the real editor without discarding that key.

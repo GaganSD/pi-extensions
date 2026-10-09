@@ -64,7 +64,7 @@ Slate renders cleanly into your terminal and stays customizable without adding n
 
 ### Quiet Workbench
 
-The selected header renders one workspace identity line, not a logo/version/model masthead. Model, thinking, context and branch usage live in the rail, rather than being repeated on the composer. A genuinely empty conversation shows a short ready cue; it disappears when the conversation starts. Native transcript, thinking, keyboard, paste and selection behavior stay intact.
+The selected header restores the stock Pi mark plus version, model, path, and a session chip on an empty idle conversation. Composer keeps project/branch and model. Context, cost, Cache, Uncached, and Rate live on the rail. Native transcript, thinking, keyboard, paste and selection behavior stay intact.
 
 For the full workbench, select `/slate surfaces full`, turn `/slate focused off`, then `/reload`. Select `/slate theme default` for Tokyo Night. Other surface combinations and existing preferences remain supported.
 
@@ -72,7 +72,7 @@ For the full workbench, select `/slate surfaces full`, turn `/slate focused off`
 - `/slate pid [on|off]` controls the optional prompt-edge PID label, off by default.
 - Working/thinking status stays on the prompt edge; the editor keeps its draft and Slate density across host setup.
 - Below **100 columns** or **30 rows**, the rail hides without changing your focus/width preferences. Context and cost return to the composer, with model/thinking when space permits. `/slate session` still reaches details, catalogs, tasks and image controls.
-- Runtime, message counts, cache breakdown and estimated token rate remain in the inspector, not an always-visible bookkeeping block.
+- Runtime and message counts stay in `/slate session` details. Cache, Uncached, and Rate are visible on the rail usage lane.
 - Choosing a sidebar width restores standard mode only when the sidebar surface is selected.
 
 ![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
