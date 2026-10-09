@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,7 +9,9 @@ import { loadSidebarMcpHost } from "../extensions/pi-slate/sidebar-mcp.ts";
 import { SidebarMcpFiles } from "../extensions/pi-slate/sidebar-data.ts";
 
 // Run the same fixtures through actual pinned and installed native file parsers.
-const packages = [[getPackageDir(), VERSION], ["/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent", "1.0.4"]] as const;
+const installed = "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent";
+const installedVersion = await readFile(join(installed, "package.json"), "utf8").then(text => (JSON.parse(text) as { version: string }).version).catch(() => "unavailable");
+const packages = [[getPackageDir(), VERSION], [installed, installedVersion]] as const;
 for (const [packageDir, version] of packages) {
   test(`MCP parity with native ${version}: exact names, invalid values, overrides, collisions and project auth`, async t => {
     const root = await mkdtemp(join(tmpdir(), "slate-mcp-parity-")); t.after(() => rm(root, { recursive: true, force: true }));
@@ -46,6 +48,7 @@ for (const [packageDir, version] of packages) {
 }
 test("unavailable host adapter never fabricates enabled/disabled state", async () => {
   assert.equal(await loadSidebarMcpHost("/missing", "unknown"), undefined);
+  assert.equal(await loadSidebarMcpHost(getPackageDir(), "1.2.0"), undefined);
   const cache = new SidebarMcpFiles();
   const result = cache.snapshot("/missing", "/missing", false, [{ name: "registered", config: { command: "server" } }]);
   assert.equal(result.mcp[0]!.enabled, null); assert.match(result.mcpError!, /unavailable/);
