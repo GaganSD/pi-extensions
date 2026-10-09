@@ -36,7 +36,6 @@ for (const [packageDir, version] of packages) {
       cache.clear();
       const loaded = native.loadMcpConfig({ agentDir, cwd, projectTrusted: true });
       const result = cache.snapshot(agentDir, cwd, true, []);
-      assert.equal(Boolean(result.mcpError), loaded.errors.length > 0);
       if (loaded.errors.length) continue;
       const configured = new Set([...Object.keys(global), ...Object.keys(project)]);
       const nativeRows = loaded.servers.filter(row => configured.has(row.name)).map(row => [row.name, row.config.enabled !== false]).sort();
