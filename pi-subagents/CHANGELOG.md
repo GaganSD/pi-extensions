@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.0.4
+
+Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.
+
+- Accept Pi 1.x hosts, including 1.1, in peers and the runtime guard. List supported thinking levels when a batch is rejected; no silent model or thinking fallback.
+- Add a focusable roster, dedicated wrapped conversations, unread completions, and bounded Recent. Down hands off only after normal editor navigation; Enter/Space opens.
+- Let Slate lend its owned fullscreen chat slot while keeping the sidebar and original editor/chat objects. Disclose an opaque full-viewport fallback when that workspace is unavailable.
+- Preserve drafts, exact-question targeting, parent native undo, and confirmed Stop during sends. Failed mounts release the loan; overlay focus restore stays with the host.
+- Keep configured Down/select keys on the roster after handoff, page saturated lists, tick live elapsed, show the current tool, and hit-test only painted action buttons.
+
 - Replace UUID/PID-heavy inspection with human worker names, focusable inline
   selection and dedicated wrapped conversations. Down hands off only after
   normal editor navigation; Enter/Space activates, Esc returns.
