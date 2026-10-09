@@ -5,6 +5,7 @@ import {
   copyToClipboard,
   CustomEditor,
   getAgentDir,
+  getPackageDir,
   VERSION,
   type ExtensionAPI,
   type ExtensionContext,
@@ -23,15 +24,15 @@ import { installExitCommand } from "./exit.ts";
 import { installPromptPicker } from "./prompts.ts";
 import { installDiff } from "./diff.ts";
 import { installRead } from "./read.ts";
-import { GitStatusPoller } from "./git-status.ts";
 import { GitBranchPoller } from "./git-branch.ts";
 import { formatSurfaces, has, parseSurfaceConfig, type SurfaceConfig } from "./surfaces.ts";
-import { fileKey, formatFileLabel } from "./files-modified.ts";
-import { GitDiffPreviewLoader } from "./git-diff.ts";
 import { Sidebar } from "./sidebar.ts";
-import { DiffWorkspaceView } from "./workspace.ts";
-import { TurnImpactTracker } from "./turn-impact.ts";
-import { resolveContextTokens, sessionSpend } from "./context-usage.ts";
+import { BackgroundTasks, BACKGROUND_TASKS_EVENT, BACKGROUND_TASKS_REQUEST } from "./background-tasks.ts";
+import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText, sidebarUsage, SidebarMcpFiles, SidebarSkills, type SidebarFolds, type SidebarResources } from "./sidebar-data.ts";
+import { inspectSidebarText } from "./sidebar-inspector.ts";
+import { pickSidebarItem } from "./sidebar-picker.ts";
+import { loadSidebarMcpHost } from "./sidebar-mcp.ts";
+import { resolveContextTokens } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
 import { formatLiveThinking, ThinkingFoldTracker } from "./thinking-fold.ts";
@@ -39,8 +40,7 @@ import {
   countSkillCommands,
   formatFocusedContextResources,
   formatFocusedContextTokens,
-  mergeMcpServerMaps,
-  parseMcpEnabledCount,
+  modelStatusLabel,
   parseMessageLength,
   parseMessageLengthArg,
   parseSidebarPercent,
@@ -88,19 +88,12 @@ type SlateConfig = SurfaceConfig & {
   messageLength?: number | "all";
   modelDisplay?: ModelDisplay;
   showPid?: boolean;
+  sidebarSections: SidebarFolds;
 };
 
 function loadMessageLength(value: unknown): number | "all" | undefined {
   if (value === "all") return "all";
   return parseMessageLength(value);
-}
-
-function readOptionalJson(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return null;
-  }
 }
 
 function loadModelDisplay(value: unknown): ModelDisplay | undefined {
@@ -122,7 +115,7 @@ function loadModelDisplay(value: unknown): ModelDisplay | undefined {
   return Object.keys(display).length > 0 ? display : undefined;
 }
 
-function loadConfig(configPath: string): { config: SlateConfig; error?: string } {
+function loadConfig(configPath: string): { config: SlateConfig; raw: Record<string, unknown>; error?: string } {
   let text: string | undefined;
   try {
     text = readFileSync(configPath, "utf8");
@@ -135,6 +128,7 @@ function loadConfig(configPath: string): { config: SlateConfig; error?: string }
   const messageLength = loadMessageLength(value.messageLength);
   const modelDisplay = loadModelDisplay(value.modelDisplay);
   return {
+    raw: parsed.ok && text !== undefined ? JSON.parse(text) as Record<string, unknown> : value,
     config: {
       version: value.version,
       surfaces: value.surfaces,
@@ -145,6 +139,7 @@ function loadConfig(configPath: string): { config: SlateConfig; error?: string }
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
       showPid: value.showPid === true,
+      sidebarSections: parseSidebarFolds(value.sidebarSections),
     },
     ...(!parsed.ok ? { error: parsed.error } : {}),
   };
@@ -158,9 +153,9 @@ function withMessageLength(current: SlateConfig, messageLength: number | "all" |
 }
 
 
-function writeConfig(configPath: string, config: SlateConfig): void {
+function writeConfig(configPath: string, config: Record<string, unknown>): void {
   const temporaryPath = `${configPath}.${process.pid}.tmp`;
-  writeFileSync(temporaryPath, `${JSON.stringify({ ...config, footer: config.composerMetadata }, null, 2)}\n`, "utf8");
+  writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
   renameSync(temporaryPath, configPath);
 }
 
@@ -185,7 +180,7 @@ class SlateFooter implements Component {
 export default function piSlate(pi: ExtensionAPI): void {
   const configPath = join(getAgentDir(), "pi-slate.json");
   const loaded = loadConfig(configPath);
-  const saveConfig = (next: SlateConfig): void => writeConfig(configPath, next);
+  const saveConfig = (next: SlateConfig): void => writeConfig(configPath, { ...next, footer: next.composerMetadata });
   let config = loaded.config;
   // Runtime ownership is fixed until /reload, even when a command saves a new set.
   const selected = [...config.surfaces];
@@ -199,18 +194,20 @@ export default function piSlate(pi: ExtensionAPI): void {
   const sidebar = new Sidebar();
   const images = owns("editor") ? installImagePlaceholders(pi, owns("sidebar") ? sidebar : undefined, () => editorActive()) : undefined;
   const selection = new ComposerSelectionController();
-  let fileSnapshot = "";
-  const files = new GitStatusPoller((changes) => {
-    fileSnapshot = changes.map((file) => `${file.index}${file.worktree}:${file.path}:${file.origPath ?? ""}`).join("\0");
-    sidebar.setFiles(changes);
-  });
-  const diffs = new GitDiffPreviewLoader();
-  const refreshFiles = (): void => {
-    if (!owns("sidebar") || currentContext?.mode !== "tui") return;
-    diffs.clear();
-    void files.refresh();
-  };
-  const turnImpact = new TurnImpactTracker();
+  const skills = new SidebarSkills();
+  const mcpFiles = new SidebarMcpFiles();
+  const mcpHost = loadSidebarMcpHost(getPackageDir(), VERSION);
+  const background = new BackgroundTasks();
+  let resources: SidebarResources = { skills: [], commands: [], mcp: [] };
+  let sessionStartedAt = 0;
+  let turnStartedAt: number | undefined;
+  let lastTurnMs: number | null = null;
+  let dashboardClock: ReturnType<typeof setInterval> | undefined;
+  const dashboardSubscriptions: Array<() => void> = [];
+  let branchFacts: { leaf?: string | null; counts: ReturnType<typeof sidebarMessageCounts>; usage: ReturnType<typeof sidebarUsage> } | undefined;
+  let inspectingSidebar = false;
+  let sidebarYielded = false;
+  let sessionEpoch = 0;
   let currentContext: ExtensionContext | undefined;
   let activeEditor: CustomEditor | undefined;
   let gitBranch: string | null = null;
@@ -234,61 +231,79 @@ export default function piSlate(pi: ExtensionAPI): void {
     messageWindow = syncMessageWindow(messageWindow, activeTui, resolveMessageLength(config.messageLength));
   };
 
-  const getContext = (): ExtensionContext => {
-    if (!currentContext) throw new Error("pi-slate has not received a session context");
-    return currentContext;
-  };
-
   // A selected split allocates header width; unavailable sidebar hosts stay full-width.
   const columnWidth = (width: number): number => width;
 
   const syncSidebar = (ctx: ExtensionContext): void => {
-    if (ctx.mode !== "tui" || (!owns("sidebar") && !owns("editor"))) return;
-    let tokens: number | null;
-    let percent: number | null;
-    let spend: number;
-    let contextWindow: number | null;
+    if (ctx.mode !== "tui" || !ctx.sessionManager || (!owns("sidebar") && !owns("editor")) || (sidebarYielded && !editorActive())) return;
+    let tokens: number | null = null;
+    let percent: number | null = null;
+    let contextWindow: number | null = ctx.model?.contextWindow ?? null;
+    let estimated = true;
     try {
       const usage = ctx.getContextUsage();
+      estimated = usage?.tokens == null || !Number.isFinite(usage.tokens);
       const resolved = resolveContextTokens(
         usage,
-        ctx.sessionManager.buildContextEntries(),
+        estimated ? ctx.sessionManager.buildContextEntries() : [],
         ctx.model?.contextWindow,
       );
       tokens = resolved.tokens;
       percent = resolved.percent;
       contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow ?? null;
-      spend = sessionSpend(ctx.sessionManager.getBranch());
-    } catch {
-      return;
+    } catch { /* Context can be temporarily unavailable; keep identity and other facts fresh. */ }
+    const leaf = ctx.sessionManager.getLeafId?.();
+    if (!branchFacts || leaf === undefined || leaf !== branchFacts.leaf) {
+      const entries = ctx.sessionManager.getBranch();
+      branchFacts = { leaf, counts: sidebarMessageCounts(entries), usage: sidebarUsage(entries) };
     }
-    const skills = countSkillCommands(pi.getCommands());
-    const mcp = parseMcpEnabledCount({
-      mcpServers: mergeMcpServerMaps(
-        readOptionalJson(join(getAgentDir(), "mcp.json")),
-        readOptionalJson(join(ctx.cwd, ".pi", "mcp.json")),
-      ),
-    });
-    if (owns("sidebar")) {
-      sidebar.setContext({ tokens, percent, tokensPerSec: tokenRate.rate(), spend });
-      sidebar.setSkillsLoaded(skills);
-      sidebar.setMcpConnected(mcp);
+    const spend = branchFacts.usage.cost;
+    const skillCount = owns("sidebar") ? resources.skills.filter(skill => skill.loaded).length : countSkillCommands(pi.getCommands());
+    const mcpCount = resources.mcp.filter(server => server.enabled === true).length;
+    if (owns("sidebar") && !sidebarYielded) {
+      sidebar.setSession({
+        id: ctx.sessionManager.getSessionId?.() ?? "", name: ctx.sessionManager.getSessionName?.() ?? "Unnamed session",
+        pid: process.pid, cwd: ctx.cwd, model: modelStatusLabel(ctx.model, config.modelDisplay), thinking: ctx.thinkingLevel ?? "—",
+        tokens, percent, contextWindow, estimated,
+        rate: tokenRate.rate() > 0 ? tokenRate.rate() : null, startedAt: sessionStartedAt, lastTurnMs,
+        working: typeof ctx.isIdle === "function" && !ctx.isIdle(), ...branchFacts.counts, usage: branchFacts.usage,
+      });
     }
     contextEdge = {
       tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
-      resources: formatFocusedContextResources(spend, skills, mcp),
+      resources: formatFocusedContextResources(spend, skillCount, mcpCount),
     };
   };
-  let disposeAsync: (() => void) | undefined;
+  const refreshResources = (ctx: ExtensionContext): void => {
+    if (ctx.mode !== "tui" || !ctx.sessionManager || (!owns("sidebar") && !owns("editor")) || (sidebarYielded && !editorActive())) return;
+    const commands = pi.getCommands();
+    skills.discoverCommands(commands);
+    const registered = typeof pi.getMcpServers === "function" ? pi.getMcpServers() : [];
+    resources = { commands: commandResources(commands).commands, skills: skills.snapshot(),
+      ...mcpFiles.snapshot(getAgentDir(), ctx.cwd, typeof ctx.isProjectTrusted === "function" && ctx.isProjectTrusted(), registered) };
+    if (owns("sidebar") && !sidebarYielded) sidebar.setResources(resources);
+  };
+  const stopDashboard = (): void => {
+    clearInterval(dashboardClock); dashboardClock = undefined;
+    for (const dispose of dashboardSubscriptions.splice(0)) dispose();
+  };
+  const inspect = (ctx: ExtensionContext, title: string, text: string): void => {
+    if (inspectingSidebar || ctx.mode !== "tui") return;
+    inspectingSidebar = true;
+    void inspectSidebarText(ctx, sidebarText(title), text).catch(() => { try { ctx.ui.notify("Sidebar details unavailable", "warning"); } catch { /* Session UI may be gone. */ } })
+      .finally(() => { inspectingSidebar = false; });
+  };
   if (owns("sidebar")) {
     pi.on("resources_discover", () => {
-      if (currentContext?.mode === "tui") queueMicrotask(() => sidebar.setSkillsLoaded(countSkillCommands(pi.getCommands())));
+      if (currentContext?.mode === "tui") queueMicrotask(() => { if (currentContext?.mode === "tui") refreshResources(currentContext); });
     });
   }
 
   const install = (ctx: ExtensionContext): void => {
+    sessionEpoch += 1; sidebarYielded = false;
     currentContext = ctx;
     thinkingFold.stop();
+    tokenRate.dispose();
     workingWord = undefined;
     if (loaded.error) ctx.ui.notify(loaded.error, "warning");
     if (ctx.mode !== "tui") return;
@@ -301,25 +316,48 @@ export default function piSlate(pi: ExtensionAPI): void {
       } catch { /* Older hosts cannot expose tool ownership. */ }
     }
     if (owns("editor")) branch.start(ctx.cwd);
+    sessionStartedAt = Date.now(); turnStartedAt = undefined; lastTurnMs = null; branchFacts = undefined;
     if (owns("editor") || owns("sidebar")) {
+      skills.reset(pi.getCommands());
+      skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
+      refreshResources(ctx);
       tokenRate.setOnChange(() => {
-        syncSidebar(getContext());
+        if (currentContext) syncSidebar(currentContext);
         if (thinkingFold.elapsedMs() !== null) syncThinkingStatus();
       });
       syncSidebar(ctx);
     }
 
     if (owns("sidebar")) {
-      disposeAsync?.();
-      disposeAsync = pi.events.on("subagent:async-complete", refreshFiles);
-      files.start(ctx.cwd);
-      diffs.clear();
-      sidebar.setCwd(ctx.cwd);
-      sidebar.setSelectedPreview(undefined);
-      sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
+      stopDashboard();
+      background.reset(ctx.sessionManager.getSessionId?.() ?? "");
+      sidebar.reset();
+      sidebar.setThemeProvider(() => currentContext?.ui.theme);
+      sidebar.setFolds(config.sidebarSections);
+      sidebar.setResources(resources);
       sidebar.setPreferredWidth(config.sidebarPercent);
       sidebar.setHidden(config.focused === true);
+      dashboardSubscriptions.push(pi.events.on(BACKGROUND_TASKS_EVENT, (value) => {
+        if (background.accept(value)) sidebar.setTasks(background.snapshot());
+      }));
+      pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
       sidebar.setActions({
+        persistFold: (section, expanded) => {
+          if (loaded.error) { ctx.ui.notify(loaded.error, "warning"); return undefined; }
+          try {
+            const latest = loadConfig(configPath);
+            if (latest.error) { ctx.ui.notify(latest.error, "warning"); return undefined; }
+            const previous = latest.raw.sidebarSections;
+            const sections = previous && typeof previous === "object" && !Array.isArray(previous) ? previous : {};
+            const raw = { ...latest.raw, sidebarSections: { ...sections, [section]: expanded } };
+            writeConfig(configPath, raw);
+            const folds = parseSidebarFolds(raw.sidebarSections);
+            config = { ...config, sidebarSections: folds }; return folds;
+          }
+          catch { ctx.ui.notify("Could not save sidebar sections", "error"); return undefined; }
+        },
+        inspect: (title, text) => inspect(ctx, title, text),
+        insertCommand: (command) => ctx.ui.pasteToEditor(command),
         persistWidth: (percent) => {
           try {
             const next = withSidebarPercent(config, percent);
@@ -343,30 +381,8 @@ export default function piSlate(pi: ExtensionAPI): void {
             () => ctx.ui.notify("Could not open file", "error"),
           );
         },
-        selectFile: (file) => {
-          const selectionId = fileKey(file);
-          const title = formatFileLabel(file);
-          const cached = diffs.peek(ctx.cwd, file, fileSnapshot);
-          sidebar.setSelectedPreview(new DiffWorkspaceView(
-            selectionId,
-            cached?.state ?? "loading",
-            cached?.text ?? "",
-            ctx.ui.theme,
-            title,
-            file.path,
-          ));
-          void diffs.select(ctx.cwd, file, fileSnapshot, (result) => {
-            sidebar.setSelectedPreview(new DiffWorkspaceView(
-              selectionId,
-              result.state,
-              result.text,
-              ctx.ui.theme,
-              title,
-              file.path,
-            ));
-          });
-        },
       });
+      syncSidebar(ctx);
     }
     // belowEditor has no host leading spacer. This factory renders exactly zero rows.
     // It is a TUI handle, not a chrome owner or application bootstrap header.
@@ -375,7 +391,16 @@ export default function piSlate(pi: ExtensionAPI): void {
         activeTui = tui;
         requestRender = (force = false) => tui.requestRender(force);
         if (owns("sidebar")) {
-          sidebar.attach(tui, theme);
+          sidebar.attach(tui, theme, () => { sidebarYielded = true; stopDashboard(); });
+          if (sidebar.splitActive && !dashboardClock) {
+            let ticks = 0;
+            dashboardClock = setInterval(() => {
+              if (currentContext?.mode !== "tui" || !sidebar.splitActive) return;
+              sidebar.tick();
+              if (++ticks % 5 === 0) { refreshResources(currentContext); syncSidebar(currentContext); }
+            }, 1000);
+            dashboardClock.unref?.();
+          }
           if (!sidebar.splitActive && config.focused !== true) {
             ctx.ui.notify("Slate sidebar unavailable: a compatible fullscreen host is required", "warning");
           }
@@ -392,7 +417,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
-        return new SlateHeader(theme, getContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
+        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
       });
     }
     if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());
@@ -404,23 +429,20 @@ export default function piSlate(pi: ExtensionAPI): void {
           ...editorTheme,
           borderColor: chromePaint(ctx.ui.theme),
         };
+        const metadata = (current: ExtensionContext) => ({
+          project: basename(current.cwd) || current.cwd, branch: gitBranch,
+          model: current.model, modelDisplay: config.modelDisplay, thinking: current.thinkingLevel,
+          footer: config.composerMetadata, showPid: config.showPid === true, theme: current.ui.theme,
+          ...(config.focused !== false ? { context: contextEdge } : {}),
+        });
+        let cachedMetadata = metadata(ctx);
         activeEditor = new ComposerEditor(
           tui,
           minimalEditorTheme,
           keybindings,
           () => {
-            const current = getContext();
-            return {
-              project: basename(current.cwd) || current.cwd,
-              branch: gitBranch,
-              model: current.model,
-              modelDisplay: config.modelDisplay,
-              thinking: current.thinkingLevel,
-              footer: config.composerMetadata,
-              showPid: config.showPid === true,
-              theme: current.ui.theme,
-              ...(config.focused !== false ? { context: contextEdge } : {}),
-            };
+            if (currentContext) cachedMetadata = metadata(currentContext);
+            return cachedMetadata;
           },
           {
             paddingX: composerPaddingX(config.density),
@@ -459,9 +481,10 @@ export default function piSlate(pi: ExtensionAPI): void {
     }
   };
 
-  pi.on("session_start", (_event, ctx) => install(ctx));
+  pi.on("session_start", async (_event, ctx) => { mcpFiles.setHost(await mcpHost); install(ctx); });
   pi.on("agent_start", (_event, ctx) => {
     currentContext = ctx;
+    if (owns("sidebar") && ctx.mode === "tui") { turnStartedAt = Date.now(); syncSidebar(ctx); }
     if (!editorActive()) return;
     thinkingFold.stop();
     workingWord = workingWords.next();
@@ -470,6 +493,9 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("agent_end", (_event, ctx) => {
     currentContext = ctx;
     thinkingFold.stop();
+    if (turnStartedAt !== undefined) { lastTurnMs = Date.now() - turnStartedAt; turnStartedAt = undefined; }
+    if (owns("sidebar")) { background.clearShells(); sidebar.setTasks(background.snapshot()); }
+    syncSidebar(ctx);
   });
   pi.on("model_select", (_event, ctx) => {
     currentContext = ctx;
@@ -477,6 +503,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   });
   pi.on("thinking_level_select", (_event, ctx) => {
     currentContext = ctx;
+    syncSidebar(ctx);
     requestRender();
   });
   pi.on("message_start", (event, ctx) => {
@@ -501,44 +528,42 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (event.message.role === "assistant") {
       thinkingFold.stop();
       if (ctx.mode === "tui" && (owns("editor") || owns("sidebar"))) tokenRate.endMessage();
+    } else if (owns("sidebar") && ctx.mode === "tui" && event.message.role === "toolResult") {
+      skills.observeNested(event.message.nestedCalls?.calls ?? [], ctx.cwd);
     }
+    refreshResources(ctx);
     syncSidebar(ctx);
     syncVisibleMessages();
   });
+  pi.on("session_info_changed", (_event, ctx) => { currentContext = ctx; syncSidebar(ctx); });
   if (owns("sidebar")) {
-    pi.on("before_agent_start", (_event, ctx) => {
+    pi.on("before_agent_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
-      // Last Turn is the last user prompt, not each LLM round inside it.
-      sidebar.setTurnImpact(turnImpact.reset());
+      if (event.systemPromptOptions?.skills) skills.discover(event.systemPromptOptions.skills);
+      if (event.prompt) skills.observePrompt(event.prompt);
+      refreshResources(ctx); syncSidebar(ctx);
     });
-    pi.on("tool_call", (event, ctx) => {
+    pi.on("tool_execution_start", (event, ctx) => {
       if (ctx.mode !== "tui") return;
-      sidebar.setTurnImpact(turnImpact.toolCall({
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        input: event.input as Record<string, unknown> | undefined,
-      }));
+      skills.readStart(event.toolCallId, event.toolName, event.args, ctx.cwd);
+      background.shellStart(event.toolCallId, event.toolName, event.args, Date.now());
+      sidebar.setTasks(background.snapshot());
     });
     pi.on("tool_execution_end", (event, ctx) => {
       if (ctx.mode !== "tui") return;
-      sidebar.setTurnImpact(turnImpact.toolEnd({
-        toolCallId: event.toolCallId,
-        isError: event.isError,
-        result: event.result,
-        toolName: event.toolName,
-      }));
-      refreshFiles();
+      skills.readEnd(event.toolCallId, event.isError);
+      background.shellEnd(event.toolCallId); sidebar.setTasks(background.snapshot());
+      refreshResources(ctx);
     });
   }
   pi.on("turn_end", (_event, ctx) => {
     currentContext = ctx;
     syncSidebar(ctx);
-    refreshFiles();
   });
   pi.on("agent_settled", (_event, ctx) => {
     currentContext = ctx;
+    refreshResources(ctx);
     syncSidebar(ctx);
-    refreshFiles();
   });
   pi.on("session_compact", (_event, ctx) => {
     currentContext = ctx;
@@ -547,26 +572,32 @@ export default function piSlate(pi: ExtensionAPI): void {
   pi.on("session_tree", (_event, ctx) => {
     currentContext = ctx;
     thinkingFold.stop();
-    if (owns("sidebar") && ctx.mode === "tui") sidebar.setTurnImpact(turnImpact.restore(ctx.sessionManager.getBranch()));
+    if (owns("sidebar") && ctx.mode === "tui") {
+      branchFacts = undefined; skills.restore(ctx.sessionManager.getBranch(), ctx.cwd);
+      background.reset(ctx.sessionManager.getSessionId?.() ?? ""); sidebar.setTasks([]);
+      pi.events.emit?.(BACKGROUND_TASKS_REQUEST, { version: 1, sessionId: ctx.sessionManager.getSessionId?.() ?? "" });
+      refreshResources(ctx); syncSidebar(ctx);
+    }
     syncVisibleMessages();
   });
   pi.on("session_shutdown", (_event, ctx) => {
+    sessionEpoch += 1;
     workingWord = undefined;
     thinkingFold.stop();
     tokenRate.dispose();
     images?.dispose();
     selection.dispose();
-    files.dispose();
-    disposeAsync?.();
-    disposeAsync = undefined;
+    stopDashboard();
+    mcpFiles.clear();
+    background.reset("");
     branch.dispose();
     updates.dispose();
-    diffs.clear();
     messageWindow?.dispose();
     messageWindow = undefined;
     activeTui = undefined;
     sidebar.dispose();
     requestRender(true);
+    currentContext = undefined;
     if (ctx.mode !== "tui") return;
     // Host chrome has no header/footer ownership getters. /reload resets it;
     // cleanup must not clear a successor's slots (or any unselected surface).
@@ -583,6 +614,7 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (owns("sidebar")) {
         sidebar.setPreferredWidth(config.sidebarPercent);
         sidebar.setHidden(config.focused === true);
+        sidebar.setFolds(config.sidebarSections);
       }
       activeEditor?.setPaddingX(composerPaddingX(config.density));
       syncVisibleMessages();
@@ -782,8 +814,71 @@ export default function piSlate(pi: ExtensionAPI): void {
     apply({ ...config, focused: on }, on ? "Focused mode on" : "Focused mode off", ctx);
   };
 
+  const sessionMenu = async (ctx: ExtensionContext, section?: "mcp" | "skills" | "commands" | "tasks" | "image"): Promise<void> => {
+    if (ctx.mode !== "tui" || !owns("sidebar")) {
+      ctx.ui.notify("Select the Slate sidebar surface and /reload to use the session dashboard", "info"); return;
+    }
+    const owner = ctx.sessionManager.getSessionId(), epoch = sessionEpoch;
+    const active = (): boolean => epoch === sessionEpoch && currentContext?.mode === "tui" && currentContext.sessionManager.getSessionId() === owner;
+    refreshResources(ctx); syncSidebar(ctx);
+    if (!section) {
+      const choice = await pickSidebarItem(ctx, "Session dashboard", ["Session details", "MCP servers", "Skills", "Commands", "Background tasks", "Image"]);
+      if (!choice || !active()) return;
+      if (choice === "Session details") { inspect(ctx, "Session", sidebar.sessionDetails()); return; }
+      section = ({ "MCP servers": "mcp", Skills: "skills", Commands: "commands", "Background tasks": "tasks", Image: "image" } as const)[choice as "MCP servers" | "Skills" | "Commands" | "Background tasks" | "Image"];
+    }
+    if (section === "mcp" || section === "skills") {
+      const mcp = [...resources.mcp]; const skills = [...resources.skills];
+      const items = section === "mcp" ? mcp : skills;
+      const expanded = !sidebar.getFolds()[section];
+      const toggle = `${expanded ? "Expand" : "Collapse"} sidebar section`;
+      const labels = items.map((item, i) => `${i + 1}. ${item.name}`);
+      const choice = await pickSidebarItem(ctx, section === "mcp" ? "MCP servers (configured state)" : "Skills (available vs observed loaded)", [toggle, ...labels]);
+      if (!choice || !active()) return;
+      if (choice === toggle) { sidebar.setSection(section, expanded); return; }
+      const index = labels.indexOf(choice);
+      if (section === "mcp") {
+        const item = mcp[index];
+        if (item) inspect(ctx, item.name, `${item.enabled === null ? "—" : item.enabled ? "enabled" : "disabled"} (configuration, not connection status)\nSource: ${item.source}\nUse /mcp to manage this server.`);
+      } else {
+        const item = skills[index];
+        if (item) inspect(ctx, item.name, `${item.loaded ? "Instructions observed loaded on this branch" : "Available; not observed loaded"}\n${item.path}`);
+      }
+    } else if (section === "commands") {
+      const items = [...resources.commands];
+      const labels = items.map(item => `/${item.name} · ${item.source}`);
+      if (!labels.length) { ctx.ui.notify("No extension or prompt commands available", "info"); return; }
+      const choice = await pickSidebarItem(ctx, "Insert command (does not execute)", labels);
+      if (!active()) return;
+      const item = choice ? items[labels.indexOf(choice)] : undefined;
+      if (item) ctx.ui.pasteToEditor(`/${item.name} `);
+    } else if (section === "tasks") {
+      const tasks = background.snapshot();
+      const labels = tasks.map((task, i) => `${i + 1}. ${task.label} · ${task.state}`);
+      if (!tasks.length) { inspect(ctx, "Background tasks", "No agent-started tasks observed. Detached jobs appear when their owner reports them."); return; }
+      const choice = await pickSidebarItem(ctx, "Background tasks (read-only)", labels);
+      if (!active()) return;
+      const task = choice ? tasks[labels.indexOf(choice)] : undefined;
+      if (task) inspect(ctx, task.label, `${task.kind} · ${task.state}\nSource: ${task.source}\nID: ${task.id}\n${task.pid ? `PID: ${task.pid}\n` : ""}${task.detail ?? ""}`);
+    } else if (section === "image") {
+      const path = sidebar.imagePath();
+      if (!path) { ctx.ui.notify("No image selected", "info"); return; }
+      const pinned = !sidebar.isImagePinned();
+      const choice = await pickSidebarItem(ctx, "Image", [pinned ? "Pin" : "Unpin", "Copy path", "Open", "Clear selection"]);
+      if (!active() || sidebar.imagePath() !== path) return;
+      if (choice === "Pin" || choice === "Unpin") sidebar.setImagePinned(pinned);
+      else if (choice === "Clear selection") sidebar.clearImage();
+      else if (choice === "Copy path") void copyWithFeedback(activeTui, ctx.ui.notify, path);
+      else if (choice === "Open") {
+        const { command, args } = openExternalArgs(path);
+        try { if ((await pi.exec(command, args, { timeout: 5000 })).code !== 0) ctx.ui.notify("Could not open image", "error"); }
+        catch { ctx.ui.notify("Could not open image", "error"); }
+      }
+    }
+  };
+
   pi.registerCommand("slate", {
-    description: "Surfaces, density, composer metadata, sidebar, focused mode, PID display, message length, theme, or file a bug",
+    description: "Session dashboard, surfaces, density, composer metadata, sidebar, focused mode, PID display, message length, theme, or file a bug",
     getArgumentCompletions: slateArgumentCompletions,
     handler: async (args, ctx) => {
       const parsed = parseSlateArgs(args);
@@ -794,7 +889,8 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Message length", "Theme", "File a bug"]);
+        if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
           if (!names) return;
@@ -813,6 +909,8 @@ export default function piSlate(pi: ExtensionAPI): void {
         else if (setting === "File a bug") kind = "bug-menu";
         else return;
       }
+
+      if (parsed.kind === "session") { await sessionMenu(ctx, parsed.section); return; }
 
       if (parsed.kind === "surfaces") {
         if (parsed.value === undefined) {

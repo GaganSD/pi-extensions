@@ -26,6 +26,7 @@ export function bindSplitHost<T>(
   host: SplitHost<T>,
   wrap: (component: T | undefined) => T | undefined,
   unwrap: (component: T | undefined) => T | undefined,
+  onYield?: () => void,
 ): () => void {
   const originalSet = host[ORIGINAL_SET_LAYOUT_ROOT] ?? host.setLayoutRoot.bind(host);
   const owner = {};
@@ -38,6 +39,7 @@ export function bindSplitHost<T>(
       if (host.setLayoutRoot === yieldRoot) host.setLayoutRoot = originalSet;
       delete host[ORIGINAL_SET_LAYOUT_ROOT];
       delete host[SPLIT_OWNER];
+      onYield?.();
     }
     originalSet(component);
   };
@@ -117,6 +119,7 @@ export function installSidebarSplit(
   tui: TUI,
   pane: Component,
   preferredWidth?: () => number | undefined,
+  onYield?: () => void,
 ): (() => void) | undefined {
   if (!isViewportTUI(tui) || !(tui as TUI & { layoutRoot?: Component }).layoutRoot) return undefined;
 
@@ -127,5 +130,6 @@ export function installSidebarSplit(
       return chat ? new SidebarSplit(chat, pane, preferredWidth) : component;
     },
     splitChat,
+    onYield,
   );
 }

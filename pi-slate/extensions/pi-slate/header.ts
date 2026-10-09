@@ -82,7 +82,7 @@ export function renderSlateHeader(input: {
 
 export class SlateHeader implements Component {
   private readonly theme: Theme;
-  private readonly getContext: () => ExtensionContext;
+  private readonly getContext: () => ExtensionContext | undefined;
   private readonly columnWidth: (width: number) => number;
   private readonly getNotice: () => UpdateNotice;
   private readonly version: string;
@@ -90,7 +90,7 @@ export class SlateHeader implements Component {
 
   constructor(
     theme: Theme,
-    getContext: () => ExtensionContext,
+    getContext: () => ExtensionContext | undefined,
     columnWidth: (width: number) => number,
     getNotice: () => UpdateNotice,
     version: string,
@@ -108,6 +108,7 @@ export class SlateHeader implements Component {
 
   render(width: number): string[] {
     const ctx = this.getContext();
+    if (!ctx) return [];
     const notice = formatUpdateNotice(this.getNotice());
     const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
     const display = this.getModelDisplay();

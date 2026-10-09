@@ -294,7 +294,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -306,6 +306,7 @@ export function withoutCurrent(label: string): string {
 
 const THEME_STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 const SLATE_COMPLETIONS = [
+  "session", "session mcp", "session skills", "session commands", "session tasks", "session image",
   "surfaces",
   "surfaces set",
   ...SURFACES.map((name) => `surfaces set ${name}`),
@@ -342,6 +343,7 @@ const SLATE_COMPLETIONS = [
 
 export type SlateArgs =
   | { ok: true; kind: "menu" }
+  | { ok: true; kind: "session"; section?: "mcp" | "skills" | "commands" | "tasks" | "image" }
   | { ok: true; kind: "surfaces"; value?: Surface[] }
   | { ok: true; kind: "density"; value?: "comfortable" | "compact" }
   | { ok: true; kind: "footer"; value?: "standard" | "minimal" }
@@ -362,6 +364,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
   const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return { ok: true, kind: "menu" };
   const [head, tail, extra] = words;
+  if (head === "session") {
+    if (words.length === 1) return { ok: true, kind: "session" };
+    if (words.length === 2 && (tail === "mcp" || tail === "skills" || tail === "commands" || tail === "tasks" || tail === "image")) return { ok: true, kind: "session", section: tail };
+    return { ok: false };
+  }
   if (head === "surfaces") {
     if (!tail) return { ok: true, kind: "surfaces" };
     if (words.length === 2 && tail === "full") return { ok: true, kind: "surfaces", value: [...SURFACES] };

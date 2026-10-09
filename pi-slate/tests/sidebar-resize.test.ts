@@ -13,7 +13,6 @@ import {
 } from "@earendil-works/pi-tui";
 import { isSidebarResizeHandle, percentFromColumns, sidebarWidthFromScreenX, workspaceColumnWidth } from "../extensions/pi-slate/layout.ts";
 import { Sidebar } from "../extensions/pi-slate/sidebar.ts";
-import type { FileChange } from "../extensions/pi-slate/files-modified.ts";
 
 function theme(): Theme {
   return {
@@ -88,7 +87,6 @@ test("dragging the gutter moves a ghost guide and only commits width on release"
   sidebar.setActions({
     copy() {},
     openFile() {},
-    selectFile() {},
     persistWidth: (columns) => {
       if (columns !== undefined) persisted.push(columns);
     },
@@ -130,7 +128,6 @@ test("releasing the gutter on the current width does not persist", () => {
   sidebar.setActions({
     copy() {},
     openFile() {},
-    selectFile() {},
     persistWidth: (columns) => {
       if (columns !== undefined) persisted.push(columns);
     },
@@ -148,7 +145,6 @@ test("a stationary press on the inner handle column does not persist", () => {
   sidebar.setActions({
     copy() {},
     openFile() {},
-    selectFile() {},
     persistWidth: (columns) => {
       if (columns !== undefined) persisted.push(columns);
     },
@@ -162,18 +158,13 @@ test("a stationary press on the inner handle column does not persist", () => {
   assert.deepEqual(persisted, []);
 });
 
-test("clicking the gutter does not select a changed file", () => {
+test("clicking the gutter never opens a session or task detail", () => {
   const { sidebar } = attachSidebar();
-  const selected: FileChange[] = [];
-  sidebar.setActions({
-    copy() {},
-    openFile() {},
-    selectFile: (file) => selected.push(file),
-  });
-  sidebar.setFiles([{ index: " ", worktree: "M", path: "src/a.ts" }]);
+  const inspected: string[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, inspect: title => inspected.push(title) });
   sidebar.render(40);
   assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", x: 0, y: 3 })), { handled: true });
-  assert.deepEqual(selected, []);
+  assert.deepEqual(inspected, []);
 });
 
 class MouseTerminal implements Terminal {
@@ -214,7 +205,6 @@ test("fullscreen mouse drag from the chat side of the divider commits once", (t)
   sidebar.setActions({
     copy() {},
     openFile() {},
-    selectFile() {},
     persistWidth: (columns) => {
       if (columns !== undefined) persisted.push(columns);
     },

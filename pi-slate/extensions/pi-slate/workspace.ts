@@ -18,6 +18,7 @@ export type WorkspaceView = {
   filePath?: string;
   render(width: number, height: number): string[];
   invalidate(): void;
+  setTheme?(theme: Theme): void;
   handleClick?(x: number, y: number): boolean;
   copyTextAt?(x: number, y: number): string | undefined;
   handleWheel?(delta: number): boolean;
@@ -94,7 +95,7 @@ export class ImageWorkspaceView implements WorkspaceView {
   readonly title: string;
   readonly filePath: string;
   private readonly attachment: ImageAttachment;
-  private readonly theme: Theme;
+  private theme: Theme;
   private imageId?: number;
   private cached?: { key: string; lines: string[] };
   private readonly location: ReturnType<typeof formatImageLocation>;
@@ -112,6 +113,12 @@ export class ImageWorkspaceView implements WorkspaceView {
     this.theme = theme;
     this.location = formatImageLocation(filePath, home, number);
     this.title = this.location.name;
+  }
+
+  setTheme(theme: Theme): void {
+    if (this.theme === theme) return;
+    this.theme = theme;
+    this.invalidate();
   }
 
   invalidate(): void {

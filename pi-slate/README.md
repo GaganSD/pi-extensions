@@ -4,7 +4,7 @@
   A minimal-TUI with rich-graphics support that adds zero-context bloat
 </p>
 
-![Slate standard mode with the sidebar and context dock](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-overview.png)
+![Slate workspace (earlier sidebar shown)](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-overview.png)
 
 ## Setup
 
@@ -44,7 +44,7 @@ Surface changes are saved and require `/reload`; they never hot-swap host chrome
 | `header` | Masthead and update hairline, not title or sidebar bootstrap |
 | `footer` | Zero-row footer (hides Pi's native footer), not composer metadata |
 | `editor` | Composer, keys, paste/images, local working/thinking status; branch facts are independent of footer |
-| `sidebar` | Split workspace, files, activity, previews; no second editor |
+| `sidebar` | Session dashboard, foldable resources, tasks and images; no second editor |
 | `tool-cards` | Highlighted edit/write cards and grouped reads; native model-facing results |
 | `transcript` | Visible-message window, without deleting stock notices |
 
@@ -103,29 +103,40 @@ Previews are bounded: 256 KiB snapshots, 2,000 parsed rows, 16 collapsed / 400 e
 
 Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 
-> Usage: Caret-peek over text to display. Click Preview to copy a path. Double-click to open or edit. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
+> Usage: Caret-peek over image tokens to display. Pin an image to keep it selected, or open, copy, and clear it from the image shelf. Double-click the image to open it. Task inspection never replaces the image. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
 
 ![Chat with image tokens and the sidebar image preview](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-media.png)
 
-### Interactive Observability
+### Session Dashboard
 
-Inspect work-tree files and recent request activity directly from the terminal.
+The dashboard replaces the old Summary, Activity Preview, and Context dock. It keeps session facts visible without sending them to a model:
 
-> Usage: Single-click to preview files or drill into activity categories. Double-click to open files in your editor. Expand activity entries to inspect detailed tool executions.
+- Session name, copyable session ID, host PID, model/thinking level and context meter.
+- Runtime wall time, last-turn duration, turns/messages, estimated token rate and cost.
+- Active-branch input/output totals, cache reads/writes and cache-hit share. Input includes uncached input plus both cache categories; reasoning is not counted again. Context occupancy is separate from cumulative usage. Unavailable metrics show `—`; estimated context is marked `~`.
+- Independently foldable **MCP servers** and **Skills**, initially collapsed. Click their headings to expand; preferences persist in `sidebarSections` (`true` means expanded). MCP shows up to five rows; skills and extension/prompt commands show three. Wheel-scroll each list, or scroll the middle region when terminal height is limited.
+- MCP states describe **configuration, not live connectivity**. Global `mcp.json` overrides extension registrations; trusted project `.pi/mcp.json` overrides global entries. Untrusted project files are not read. Use Pi's `enabled: false` flag to disable a server; legacy `disabled` keys are ignored by the native host. Validation follows the running host's native schema and exact-name file precedence; project partial overrides require a matching global server on hosts that support them. Rejected entries cannot replace a valid server. If the host adapter is unavailable, states show `—`. Credentials and transport arguments are never displayed.
+- Skills distinguish **available** from **observed loaded on the active branch**. Successful `SKILL.md` reads and explicit skill invocations are evidence; discovery alone is not. Branch changes may remove that evidence; an observed read does not guarantee the full instructions remain in context after compaction.
+- Background tasks stay above a separate image shelf. In-flight agent shell/terminal calls are observable; detached jobs appear only when their owning extension reports them. Native `pi-subagents` publishes display-only snapshots. Task details are read-only: no process scanning, guessed PIDs or run-control authority.
 
-![Sidebar files and last-turn activity](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-observability.png)
+Click a task/resource to inspect it in a separate scrolling dialog. Clicking a command inserts it at the composer cursor; it never executes. `/slate session` provides keyboard access to details, folds, commands, tasks and image controls. In short terminals, the image body shrinks before the task shelf; its controls remain accessible through that command.
 
-### Session Context Overview
+Focused mode hides the dashboard and retains compact prompt-edge metadata. Legacy screenshots elsewhere in this README predate the dashboard.
 
-Slate keeps usage and spend visible without sending context to your LLM.
+### Background-task integration
 
-- Standard mode keeps detailed token, rate, spend, skill, and MCP facts in the sidebar's Context dock.
-- Focused mode uses the shorter prompt-edge format and hides the resource summary when no skills or MCP servers are loaded.
-- MCP counts come from Pi's native global `mcp.json` and project `.pi/mcp.json` files.
-- Project MCP entries override global entries with the same name; `enabled: false` and `disabled: true` are respected.
-- Context usage may be estimated when provider usage is unavailable.
+An owning extension can report detached terminals or jobs through Pi's event bus:
 
-![Context usage, spend, skills, and MCP count](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-context.png)
+```ts
+pi.events.emit("pi:background-tasks", {
+  version: 1, source: "my-extension", sessionId: ctx.sessionManager.getSessionId(),
+  tasks: [{ id: "job-1", label: "dev server", kind: "terminal", state: "running", startedAt: Date.now() }],
+});
+```
+
+Each snapshot replaces only that source's rows for the exact owning session. Send `tasks: []` to clear them. `kind` is `shell`, `terminal`, or `subagent`; state is `starting`, `running`, `waiting`, `cancelling`, `failed`, or `cleanup_unknown`. Optional `pid` and `detail` are display facts, never control permission. Completed/cancelled jobs should be omitted. Payloads are validated and bounded to 64 tasks per source and 16 sources; invalid snapshots leave the previous valid one intact.
+
+Respond to `pi:background-tasks:request` (`{ version: 1, sessionId }`) with your current snapshot, but only for the matching owner. Slate requests one on attach and branch navigation. Sources must clear/dispose with their session; this is not a persistent task runner.
 
 ### Update Notices
 
@@ -133,7 +144,7 @@ With `header` selected, Pi and package updates appear as a centered hairline. St
 
 ### Themes
 
-The prompt, Summary, and Context share one frame. The Pi logo stays white in every theme.
+The prompt and session dashboard share the selected theme. The Pi logo stays white in every theme.
 
 Your current theme remains unchanged on install. Black Metal is available, alongside Catppuccin Mocha styles: Default, Quiet, Mauve, Sapphire, Peach, Teal.
 
@@ -178,6 +189,7 @@ These work when `editor` is selected. No terminal configuration.
 | Focused | `/slate focused [on\|off]` | Set focused mode. Focused mode hides the sidebar; standard mode restores it. |
 | PID display | `/slate pid [on\|off]` | Show the agent process ID on the composer's top edge. Off by default; omitted when the frame is too narrow. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
+| Session dashboard | `/slate session [mcp\|skills\|commands\|tasks\|image]` | Inspect facts, expand/collapse resources, insert commands, or manage the image shelf. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
