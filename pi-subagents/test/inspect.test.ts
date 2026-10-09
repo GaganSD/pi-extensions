@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, type TUI } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, visibleWidth, type TUI } from "@earendil-works/pi-tui";
 import { DEFAULT_CONFIG } from "../src/config.ts";
 import { InspectView, type InspectActions } from "../src/inspect.ts";
 import { RunManager } from "../src/runs.ts";
@@ -76,7 +76,7 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   const view = new InspectView(tui, theme, record.id, actions, () => {});
   for (const width of [1, 4, 10, 20, 80]) {
     const lines = view.render(width);
-    assert(lines.length <= Math.floor(rows * 0.8));
+    assert.equal(lines.length, rows, "thread paints the entire available viewport");
     assert(lines.every(line => visibleWidth(line) <= width));
     assert(lines.every(line => !line.includes("\u001b]52") && !line.includes("\u202e")));
   }
@@ -86,16 +86,20 @@ test("inspector renders cached content at narrow widths and keeps input visible 
   listener();
   assert(view.render(80).some(line => line.includes("updated message")));
   const details = view.render(120).join("\n");
-  assert(details.includes(record.id));
-  assert(details.includes(record.sessionId!));
-  assert(details.includes(`PID-${process.pid}`));
-  assert(details.includes("12%/272K"));
+  assert(!details.includes(record.id) && !details.includes(record.sessionId!), "normal reading hides technical IDs");
+  assert(!details.includes(`PID-${process.pid}`));
+  assert(details.includes("Worker 1"));
+  view.handleInput("\t"); view.handleInput("\t"); view.handleInput("\x1b[C"); view.handleInput("\r");
+  const diagnostics = view.render(120).join("\n");
+  assert(diagnostics.includes(record.id) && diagnostics.includes(record.sessionId!));
+  assert(diagnostics.includes("12%/272K"));
+  view.handleInput("\r"); view.handleInput("\t"); // Details off, focus returns to composer.
   rows = 4;
   const short = view.render(80);
-  assert(short.length <= 3);
-  assert(short.at(-1)!.includes(">"), "controls remain visible after body cropping");
+  assert.equal(short.length, 4);
+  assert(short.some(line => line.includes(CURSOR_MARKER)), "editor cursor remains visible on short terminals");
   view.dispose();
   listener();
   assert.equal(disposed, 1);
-  assert.equal(reads, 2, "disposed overlays do not process new events");
+  assert.equal(reads, 2, "disposed threads do not process new events");
 });

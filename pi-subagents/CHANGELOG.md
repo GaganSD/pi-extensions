@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- Replace UUID/PID-heavy inspection with human worker names, focusable inline
+  selection and dedicated wrapped conversations. Down hands off only after
+  normal editor navigation; Enter/Space activates, Esc returns.
+- Cooperate with Slate's owned chat slot on compatible fullscreen Pi 1.1+
+  hosts, retaining sidebar and original editor/chat objects. Use a disclosed
+  opaque full-viewport fallback elsewhere; never patch another custom editor.
+- Keep unread/selected completions visible and reviewed ones in Recent. Preserve
+  per-run drafts/history pages, clear only successful submitted revisions, bind
+  exact questions and keep confirmed Stop available while sending.
+- Add bounded async conversation pages and human tool/notice renderers without
+  changing execution authority, exact machine JSON or saved evidence contracts.
+- Bound saturated rosters while keeping live workers visible, advance empty
+  transcript pages, support encoded Space/configured navigation keys, and rebind
+  remounted editors. Preserve unread state and release failed workspace loans;
+  disclose fallback and let the overlay host restore its original focus.
+- Keep configured Down/select keys on the roster after handoff, page saturated
+  lists, tick live elapsed, show the current tool, and hit-test only painted
+  action buttons on narrow terminals.
+
+- List the selected model's supported thinking levels in preflight errors, so
+  mixed-model batches can be corrected without guessing or automatic fallback.
+
+- Accept stable Pi 1.x, including 1.1.x, in both npm peer dependencies and the
+  shared `/subagents`/`subagent` runtime guard. Minor and patch updates no longer
+  cause install conflicts or an `Unsupported Pi host` error. Keep the Node-only,
+  interactive-host boundary and reject prereleases and new major versions.
+- Add host-version, command, and packed-peer regression coverage; retain the
+  Pi 1.0.0 development baseline for backward compatibility.
+
 ## 0.0.3
 
 Fix provider-neutral tool-schema compatibility and add live native session telemetry.

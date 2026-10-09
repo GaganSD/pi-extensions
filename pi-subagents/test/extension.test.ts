@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { SessionManager, type ExtensionAPI, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionAPI, type ExtensionCommandContext, type ExtensionToolContext, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import register from "../index.ts";
 import { Check } from "typebox/value";
 import { DESCRIPTION, OutputSchema, Parameters, presentFinished, presentLaunch, presentRun, presentSummary, resultPreview } from "../src/tool.ts";
@@ -17,12 +17,12 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
   await writeFile(path.join(process.env.PI_CODING_AGENT_DIR, "settings.json"), "{}");
   const tools: ToolDefinition[] = [];
-  const commands: string[] = [];
+  const commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
   const hooks = new Map<string, () => Promise<void>>();
   const notifications: string[] = [];
   const api = {
     registerTool: (tool: ToolDefinition) => tools.push(tool),
-    registerCommand: (name: string) => commands.push(name),
+    registerCommand: (name: string, command: Parameters<ExtensionAPI["registerCommand"]>[1]) => commands.set(name, command),
     on: (event: string, handler: () => Promise<void>) => { hooks.set(event, handler); return () => {}; },
     getThinkingLevel: () => "off", appendEntry: () => {}, sendMessage: () => {},
   } as unknown as ExtensionAPI;
@@ -32,7 +32,7 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   assert.equal(tools[0]!.outputSchema, OutputSchema);
   assert.equal(tools[0]!.parameters, Parameters);
   assert.equal(JSON.parse(JSON.stringify(tools[0]!.parameters)).type, "object");
-  assert.deepEqual(commands, ["subagents"]);
+  assert.deepEqual([...commands.keys()], ["subagents"]);
   const ctx = {
     mode: "tui", hasUI: true, cwd: root,
     sessionManager: SessionManager.create(root, path.join(root, "sessions")),
@@ -60,6 +60,11 @@ test("extension registers one tool/command; rejects unknown/headless/untrusted/f
   assert.deepEqual(status.details, { runs: [] });
   await hooks.get("session_before_tree")!();
   assert.deepEqual(notifications, []);
+  await commands.get("subagents")!.handler("", ctx as unknown as ExtensionCommandContext);
+  assert.deepEqual(notifications, ["No runs in this agent runtime."]);
+  await commands.get("subagents")!.handler("", { ...ctx, mode: "rpc" } as unknown as ExtensionCommandContext);
+  assert.match(notifications[1]!, /interactive npm Pi/);
+  await hooks.get("session_shutdown")!();
   const key = Symbol.for("@gagansd/pi-subagents/cleanup-unknown");
   const processHealth = globalThis as typeof globalThis & { [key]?: unknown };
   const beforeHealth = processHealth[key];
@@ -118,4 +123,42 @@ test("large fields disclose truncation without corrupting JSON or losing run IDs
   const encoded = resultPreview(unsafe);
   assert(!encoded.includes("\u202e") && !encoded.includes("\u0085"));
   assert.deepEqual(JSON.parse(encoded), unsafe, "display escaping must preserve exact string values");
+});
+
+test("draw rebinds Down after the host editor remounts", async t => {
+  const root = await temp(t);
+  const before = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = path.join(root, "agent");
+  t.after(() => { if (before === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = before; });
+  await mkdir(process.env.PI_CODING_AGENT_DIR, { recursive: true });
+  await writeFile(path.join(process.env.PI_CODING_AGENT_DIR, "settings.json"), "{}");
+  const tools: ToolDefinition[] = [];
+  let active = true, binds = 0;
+  register({
+    registerTool: (tool: ToolDefinition) => tools.push(tool),
+    registerCommand() {},
+    on() { return () => {}; },
+    getThinkingLevel: () => "off", appendEntry() {}, sendMessage() {},
+    events: {
+      emit(name: string, request: { version: number; accept: (host: unknown) => void }) {
+        if (name !== "subagent:ui-host-request") return;
+        request.accept({
+          version: 1,
+          isActive: () => active,
+          focusEditor() {},
+          bindDown() { binds++; return () => {}; },
+        });
+      },
+    },
+  } as unknown as ExtensionAPI);
+  const ctx = {
+    mode: "tui", cwd: root, isProjectTrusted: () => true, scopedModels: [],
+    sessionManager: SessionManager.create(root, path.join(root, "sessions")),
+    ui: { setWidget() {}, notify() {} },
+  } as unknown as ExtensionToolContext;
+  await tools[0]!.execute("rebind-1", { action: "list" }, undefined, undefined, ctx);
+  assert.equal(binds, 1);
+  active = false;
+  await tools[0]!.execute("rebind-2", { action: "list" }, undefined, undefined, ctx);
+  assert.ok(binds >= 2, "draw must rebind after the previous host goes inactive");
 });

@@ -13,9 +13,18 @@ import { prepareNative } from "./src/session.ts";
 import { attach, parseCommand, resolveRun, type InspectActions } from "./src/inspect.ts";
 import { DESCRIPTION, OutputSchema, Parameters, parseRequest, presentLaunch, presentNotice, presentRun, presentSummary, resultPreview } from "./src/tool.ts";
 import { errorText, isLive, type PreparedTask, type Profile } from "./src/types.ts";
-import { matchesKey } from "@earendil-works/pi-tui";
-import { plain, syncWidget, type WidgetSlot } from "./src/ui.ts";
+import { Text } from "@earendil-works/pi-tui";
+import { BoundaryEditor } from "./src/navigation.ts";
+import { HumanState, stateLabel } from "./src/presentation.ts";
+import { plain, syncWidget, type WidgetSlot, type NavigationHost } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
+
+/** Match the stable Pi 1.x peer range; minor/patch upgrades are not host changes. */
+export function assertSupportedPiHost(version: string, bun = "Bun" in globalThis): void {
+  if (!/^1\.(0|[1-9]\d*)\.(0|[1-9]\d*)(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/.test(version) || bun) {
+    throw new Error(`Unsupported Pi host ${version}; use local npm Pi 1.x on Node (>=1.0.0, <2.0.0; no prereleases)`);
+  }
+}
 
 // Reload can replace module instances. Unknown cleanup must still block launches
 // in the same process; it must not disappear with the old extension runtime.
@@ -43,18 +52,37 @@ function admittedCount(ctx: ExtensionContext, owner: string): number {
 }
 
 export default function subagents(pi: ExtensionAPI): void {
-  let host: { owner: string; ctx: ExtensionContext; manager: RunManager; widget: WidgetSlot; unsubInput?: () => void; boundUi?: unknown; inspecting?: boolean } | undefined;
+  let host: { owner: string; ctx: ExtensionContext; manager: RunManager; widget: WidgetSlot; unsubInput?: () => void; inspecting?: boolean; closeThread?: () => void } | undefined;
   let closing: Promise<void> | undefined;
   let runtime: Promise<ModelRuntime> | undefined;
   let refresh: ReturnType<typeof setTimeout> | undefined;
   let clock: ReturnType<typeof setInterval> | undefined;
   const inspectors = new Set<() => void>();
   const agentDir = getAgentDir();
+  let plainEditor: BoundaryEditor | undefined;
+  let plainFactory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
+  pi.on("session_start", (_event, ctx) => {
+    if (ctx.mode !== "tui" || typeof ctx.ui.getEditorComponent !== "function" || ctx.ui.getEditorComponent()) return;
+    plainFactory = (tui, theme, keys) => {
+      plainEditor = new BoundaryEditor(tui, theme, keys);
+      plainEditor.onDownBoundary = () => { if (!host?.inspecting) host?.widget.instance?.focusRoster(); };
+      return plainEditor;
+    };
+    ctx.ui.setEditorComponent(plainFactory);
+  });
+
+  pi.registerMessageRenderer?.("minimal-subagent", (message, { expanded }, theme) => {
+    const details = message.details as { title?: string; state?: string; kind?: string } | undefined;
+    const title = details?.title ?? "Sub-agent";
+    const status = details?.kind === "question" ? "Needs reply" : details?.state ?? "Finished · report saved (unverified)";
+    return new Text(`${theme.fg("accent", plain(title, 180))} · ${plain(status)}${expanded ? `\n${plain(typeof message.content === "string" ? message.content : JSON.stringify(message.content), 4096)}` : ""}`, 0, 0);
+  });
 
   function draw(): void {
     if (!host) return;
+    bindKeys(host.ctx);
     const live = host.manager.live();
-    try { syncWidget(host.ctx, live, Boolean(health[HEALTH]), id => { void openThread(host!.ctx, id); }, host.widget); } catch { /* Terminal availability is not run evidence. */ }
+    try { syncWidget(host.ctx, host.manager.list(), Boolean(health[HEALTH]), id => { void openThread(host!.ctx, id); }, host.widget); } catch { /* Terminal availability is not run evidence. */ }
     const ticking = live.some(run => !run.endedAt);
     if (ticking && !clock) clock = setInterval(draw, 1000);
     else if (!ticking && clock) { clearInterval(clock); clock = undefined; }
@@ -68,7 +96,7 @@ export default function subagents(pi: ExtensionAPI): void {
     // Never mint a replacement manager while the previous one is still stopping sub-agents.
     if (closing) await closing;
     if (ctx.mode !== "tui") throw new Error("Minimal subagents requires interactive npm Pi; print/RPC/standalone delegation is unsupported");
-    if (!/^1\.0\./.test(VERSION) || "Bun" in globalThis) throw new Error(`Unsupported Pi host ${VERSION}; use local npm Pi 1.0.x on Node`);
+    assertSupportedPiHost(VERSION);
     const owner = ctx.sessionManager.getSessionId();
     if (host && host.owner !== owner) throw new Error("Agent session changed without shutdown; refuse to transfer run ownership");
     if (host) { host.ctx = ctx; bindKeys(ctx); return host; }
@@ -95,10 +123,11 @@ export default function subagents(pi: ExtensionAPI): void {
           : `Sub-agent finished (unverified): ${resultPreview(presentNotice(record))}`;
         // Pi acknowledges submission only; asynchronous delivery failures are
         // reported by the host. The registry/artifacts remain authoritative.
-        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind } }, { triggerTurn: true, deliverAs: "followUp" });
+        host.widget.state!.remember(manager.list());
+        pi.sendMessage({ customType: "minimal-subagent", content, display: true, details: { id: record.id, kind, title: host.widget.state!.title(record), state: stateLabel(record) } }, { triggerTurn: true, deliverAs: "followUp" });
       },
     });
-    host = { owner, ctx, manager, widget: {} };
+    host = { owner, ctx, manager, widget: { state: new HumanState() } };
     bindKeys(ctx);
     return host;
   }
@@ -114,27 +143,46 @@ export default function subagents(pi: ExtensionAPI): void {
     };
   }
   function bindKeys(ctx: ExtensionContext): void {
-    if (!host || ctx.mode !== "tui" || typeof ctx.ui.onTerminalInput !== "function") return;
-    if (host.boundUi === ctx.ui) return;
-    try { host.unsubInput?.(); } catch { /* Previous UI may already be disposed. */ }
-    host.boundUi = ctx.ui;
-    host.unsubInput = ctx.ui.onTerminalInput(data => {
-      if (!host || host.inspecting || !matchesKey(data, "down")) return;
-      const live = host.manager.live();
-      if (!live.length) return;
-      let text: string;
-      try { text = host.ctx.ui.getEditorText(); } catch { return; }
-      if (text.includes("\n")) return;
-      void openThread(host.ctx, live[0]!.id);
-      return { consume: true };
-    });
+    if (!host || ctx.mode !== "tui") return;
+    if (host.widget.navigation?.isActive?.() === false) { host.unsubInput?.(); host.widget.navigation = undefined; }
+    if (host.widget.navigation) return;
+    const state = host;
+    pi.events?.emit("subagent:ui-host-request", { version: 1, owner: state.owner, accept: (navigation: NavigationHost) => {
+      if (host !== state || navigation.version !== 1) return;
+      state.widget.navigation = navigation;
+      state.unsubInput = navigation.bindDown(() => { if (!state.inspecting) state.widget.instance?.focusRoster(); });
+    } });
+    if (!state.widget.navigation && plainEditor && ctx.ui.getEditorComponent?.() === plainFactory) {
+      const editor = plainEditor;
+      state.widget.navigation = {
+        version: 1,
+        isActive: () => ctx.ui.getEditorComponent?.() === plainFactory && plainEditor === editor,
+        focusEditor(data?: string) {
+          // Use the editor-owned TUI through the roster callback, not a raw global key listener.
+          state.widget.instance?.focusMain(editor, data);
+        },
+        bindDown(handler) { editor.onDownBoundary = handler; return () => { if (editor.onDownBoundary === handler) editor.onDownBoundary = undefined; }; },
+      };
+    }
   }
   async function openThread(ctx: ExtensionContext, id: string): Promise<void> {
     if (!host || host.inspecting) return;
-    host.inspecting = true;
-    try { await attach(ctx, id, actions(host.manager)); }
-    catch (error) { try { ctx.ui.notify(plain(errorText(error)), "error"); } catch { /* Overlay is optional. */ } }
-    finally { if (host) host.inspecting = false; draw(); }
+    const state = host;
+    state.inspecting = true;
+    state.widget.state!.remember(state.manager.list());
+    state.widget.state!.selected = id;
+    try { await attach(ctx, id, actions(state.manager), state.widget.state, state.widget.navigation, close => { state.closeThread = close; }); }
+    catch (error) { try { ctx.ui.notify(plain(errorText(error)), "error"); } catch { /* UI never determines execution success. */ } }
+    finally {
+      state.closeThread = undefined;
+      if (host === state) {
+        state.inspecting = false;
+        const returnFocus = state.widget.navigation?.isActive?.() !== false && state.widget.navigation?.canFocusRoster?.() !== false;
+        if (returnFocus) state.widget.state!.selected = id;
+        draw();
+        if (returnFocus) state.widget.instance?.focusRoster(id);
+      }
+    }
   }
 
   async function shutdown(): Promise<void> {
@@ -144,7 +192,7 @@ export default function subagents(pi: ExtensionAPI): void {
     clearTimeout(refresh); refresh = undefined;
     clearInterval(clock); clock = undefined;
     runtime = undefined;
-    try { previous?.unsubInput?.(); previous?.ctx.ui.setWidget("minimal-subagents", undefined); } catch { /* UI may already be disposed. */ }
+    try { previous?.closeThread?.(); previous?.unsubInput?.(); previous?.ctx.ui.setWidget("minimal-subagents", undefined); } catch { /* UI may already be disposed. */ }
     inspectors.clear();
     closing = Promise.resolve(previous?.manager.shutdown()).finally(() => { closing = undefined; });
     return closing;
@@ -157,6 +205,22 @@ export default function subagents(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "subagent", label: "Sub-agent", description: DESCRIPTION, parameters: Parameters,
     outputSchema: OutputSchema, executionMode: "sequential", exposure: "direct",
+    renderCall(input, theme) {
+      const request = input as { action?: string; tasks?: { agent: string }[] };
+      return new Text(theme.fg("accent", `Sub-agents · ${plain(request.action ?? "action")} ${request.tasks ? `(${request.tasks.length})` : ""}`), 0, 0);
+    },
+    renderResult(result, { expanded, isPartial }, theme, renderContext) {
+      if (isPartial) return new Text(theme.fg("dim", "Sub-agent action in progress…"), 0, 0);
+      if (renderContext?.isError) return new Text(theme.fg("error", plain(result.content.filter(block => block.type === "text").map(block => block.text).join(" "), 600)), 0, 0);
+      if (expanded) return new Text(plain(JSON.stringify(result.details), 8192), 0, 0);
+      const data = result.details as { runs?: { id: string }[]; id?: string; name?: string } | { name: string }[] | undefined;
+      const refs = Array.isArray(data) ? [] : data?.runs ?? (data?.id ? [{ id: data.id }] : []);
+      const labels = refs.map(ref => {
+        try { const record = host!.manager.status(ref.id); return `${host!.widget.state!.title(record)} · ${stateLabel(record)}`; }
+        catch { return "Sub-agent · saved evidence (open expanded details for exact IDs)"; }
+      });
+      return new Text(theme.fg("accent", labels.join("\n") || (Array.isArray(data) ? data.map(profile => plain(profile.name)).join(" · ") : "Sub-agent action acknowledged")), 0, 0);
+    },
     async execute(_id, input, signal, _onUpdate, ctx) {
       const request = parseRequest(input);
       const state = await current(ctx);
@@ -247,7 +311,10 @@ export default function subagents(pi: ExtensionAPI): void {
             ctx.ui.notify(health[HEALTH] ? `Cleanup unknown; launches blocked. Evidence: ${JSON.stringify(health[HEALTH])}` : "No runs in this agent runtime.", "info");
             return;
           }
-          const labels = runs.map(run => `${run.id.slice(0, 8)} · ${run.agent} · ${run.state}`);
+          state.widget.state!.remember(runs);
+          draw();
+          if (state.widget.navigation && state.widget.instance) { state.widget.instance.focusRoster(); return; }
+          const labels = runs.map(run => `${state.widget.state!.title(run)} · ${stateLabel(run)}`);
           const picked = await ctx.ui.select("Inspect a sub-agent", labels);
           if (!picked) return;
           await openThread(ctx, runs[labels.indexOf(picked)]!.id);

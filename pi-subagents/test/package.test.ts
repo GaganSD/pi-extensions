@@ -25,6 +25,12 @@ test("packed package is public, contains no retired runtime, and loads with host
   assert.deepEqual(Object.keys(manifest.exports), ["."]);
   assert.deepEqual(Object.keys(manifest.dependencies), ["yaml"]);
   assert.equal(manifest.bin, undefined);
+  for (const peer of ["pi-ai", "pi-coding-agent", "pi-tui"]) {
+    assert.equal(manifest.peerDependencies[`@earendil-works/${peer}`], "^1.0.0", "Pi minor/patch upgrades must remain installable");
+    assert.deepEqual(manifest.peerDependenciesMeta[`@earendil-works/${peer}`], { optional: true });
+  }
+  const lock = JSON.parse(await readFile(path.join(repo, "package-lock.json"), "utf8"));
+  assert.deepEqual(lock.packages[""].peerDependencies, manifest.peerDependencies);
   // Local dependencies are supplied explicitly, just as required for a local Pi
   // package. No SDK is placed beside it: Pi must resolve host peers itself.
   await mkdir(path.join(packaged, "node_modules"));

@@ -107,8 +107,9 @@ test("real SDK: worker tools differ, no model/scoped/thinking fallback", async t
   assert.deepEqual(names.sort(), [...EDIT_TOOLS].sort());
   assert.throws(() => prepareNative({ ...options, task: { ...options.task, model: "fixture/missing" } }), /unavailable/);
   assert.throws(() => prepareNative({ ...options, scopedModels: ["different/provider"] }), /scope/);
-  assert.throws(() => prepareNative({ ...options, agentThinking: "high" }), /unsupported/);
-  assert.throws(() => prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "high" } }), /unsupported/);
+  const unsupportedThinking = /Thinking level 'high' is unsupported by fixture\/test; supported levels: off; set an explicit supported level on the task or profile/;
+  assert.throws(() => prepareNative({ ...options, agentThinking: "high" }), unsupportedThinking);
+  assert.throws(() => prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "high" } }), unsupportedThinking);
   assert.equal(prepareNative({ ...options, agentThinking: "off", task: { ...options.task, thinking: "off" } }).thinking, "off");
 });
 

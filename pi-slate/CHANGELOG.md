@@ -4,6 +4,12 @@
 
 ### Added
 
+- Versioned UI-only conversation bridge for pi-subagents: editor-owned Down
+  boundary handoff and scoped lending of Slate's fullscreen chat slot. Preserve
+  sidebar and original editor/chat objects, yield to parent dialogs, and release
+  leases without taking unselected surfaces or model authority. Same-TUI editor
+  remounts keep the Down handler and an open conversation loan.
+
 - Independent surfaces: `header`, `footer`, `editor`, `sidebar`, `tool-cards`, `transcript`. `/slate surfaces` shows the set; `set <names...>`, `full`, and `none` save it for `/reload`.
 - Fresh settings select editor, sidebar, and tool-cards; focused mode keeps the selected sidebar hidden. Valid legacy settings without surfaces retain all six and preserve appearance preferences. Invalid settings activate nothing, warn, and preserve the file.
 - `/exit` quits Pi, same as `/quit`
