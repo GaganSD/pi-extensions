@@ -45,6 +45,15 @@ is correct. Preserve transcripts, errors, and reported usage. Do not promote a
 sub-agent's claims into verified evidence. The agent runs checks, commissions review
 when requested, and decides whether the task is accepted.
 
+## Human conversations, not a diagnostic dashboard
+
+Make switching among the agent and its sub-agents feel like editor navigation.
+Focus and activation are separate. Use human names in normal surfaces; retain
+exact IDs for routing and on-demand evidence. Preserve drafts, native parent
+editor state and readable conversations. Cooperative layout owners lend their
+own slots; unavailable host capabilities require a disclosed fallback, not
+private container discovery or damage to another extension's UI.
+
 ## Compose before inventing
 
 Reuse Pi's agent loop, sessions, tools, model/auth services, and events. The agent

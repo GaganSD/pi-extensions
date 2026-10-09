@@ -17,7 +17,7 @@ const record = (id = "run-a"): RunRecord => ({
   contextUsage: { tokens: 32640, contextWindow: 272000, percent: 12 },
 });
 const theme = { fg: (_color: string, text: string) => text } as unknown as Theme;
-const tui = { requestRender() {} } as unknown as TUI;
+const tui = { requestRender() {}, setFocus() {} } as unknown as TUI;
 // Pi 1.1 adds aborted; a shared value also satisfies Pi 1.0's smaller event shape.
 const settledEvent = { type: "agent_settled" as const, aborted: false };
 
@@ -222,34 +222,39 @@ test("cancelled startup never manufactures native identity; failed startup keeps
   }
 });
 
-test("widget formats native IDs, shortens colliding prefixes, sanitizes, keeps context at narrow widths and routes exact runs", () => {
+test("widget shows human labels, hides diagnostic IDs, sanitizes and explicitly activates exact runs", () => {
   const a = record(), b = { ...record("run-b"), sessionId: "01a11744-bbbb-bbbb-bbbb-bbbbbbbbbbbb" };
-  assert.equal(rowText(a), "worker · PID-12345 01a11744… · 12%/272K");
-  assert.equal(rowText({ ...a, sessionId: undefined, state: "starting", contextUsage: { tokens: null, percent: null, contextWindow: 272000 } }), "worker · PID-12345 starting · ?%/272K");
-  assert.match(rowText(a, Infinity, [a, b]), /01a11744-a…/);
-  assert.match(rowText(b, Infinity, [a, b]), /01a11744-b…/);
+  assert.equal(rowText(a), "Worker 1 · private task · Running");
+  assert.match(rowText({ ...a, state: "starting" }), /Starting/);
+  assert.match(rowText(a, Infinity, [a, b]), /Worker 1/);
+  assert.match(rowText(b, Infinity, [a, b]), /Worker 2/);
+  assert(!rowText(a).includes(a.sessionId!) && !rowText(a).includes("PID-"));
   const unsafe = { ...a, agent: "界".repeat(32) + "\u001b\n\u202e", sessionId: "native\u001b\n\u202e", question: { id: "q", message: "ask" } };
   for (const width of [1, 4, 10, 20, 30, 40, 80, 120]) {
     const text = rowText(unsafe, width);
     assert(visibleWidth(text) <= width);
     assert(!/[\u001b\n\u202e]/.test(stripTerminalSequences(text)));
-    if (width >= 20) assert(text.includes("12%/272K") && text.includes("ask"));
+    assert(!text.includes("PID-") && !text.includes("native"));
   }
   const clicks: string[] = [];
   const widget = new SubagentWidget(tui, theme, id => clicks.push(id));
   widget.update([a, b], false);
-  assert.equal(widget.render(80)[0], "↓  2");
+  assert.match(widget.render(80)[0]!, /Sub-agents/);
   for (let i = 0; i < 50; i++) assert(widget.render(30).every(line => visibleWidth(line) <= 30));
   const mouse = { type: "click" as const, button: "left" as const, x: 0, screenX: 0, screenY: 0, width: 80, height: 3, shift: false, alt: false, ctrl: false };
   for (const y of [0, 1, 2, 3]) widget.handleMouse({ ...mouse, y });
-  assert.deepEqual(clicks, ["run-a", "run-b"]);
+  assert.equal(clicks.length, 0, "mouse selection alone never opens a thread");
+  widget.handleInput("\r");
+  assert.deepEqual(clicks, ["run-b"]);
   assert.equal(nextLive([a, b], a.id), b.id);
   widget.update([a], false, id => clicks.push("updated:" + id));
-  widget.handleMouse({ ...mouse, y: 0 });
+  widget.render(80);
+  widget.handleMouse({ ...mouse, y: 1 });
+  widget.handleInput(" ");
   assert.equal(clicks.at(-1), "updated:run-a");
 });
 
-test("settled widgets unmount, render is snapshot-only and never reads native telemetry", () => {
+test("unread settled widgets remain accessible; clearing an empty runtime unmounts", () => {
   let mounts = 0, clears = 0;
   const ctx = { mode: "tui", ui: { setWidget: (_key: string, factory?: (tui: TUI, theme: Theme) => SubagentWidget) => {
     if (factory) { mounts++; factory(tui, theme); } else clears++;
@@ -260,6 +265,9 @@ test("settled widgets unmount, render is snapshot-only and never reads native te
   for (let i = 0; i < 100; i++) slot.instance!.render(80);
   syncWidget(ctx, [{ ...a, state: "completed" }], false, () => {}, slot);
   assert.equal(mounts, 1);
+  assert.equal(clears, 0);
+  assert(slot.instance!.render(80).some(line => line.includes("Finished")));
+  syncWidget(ctx, [], false, () => {}, slot);
   assert.equal(clears, 1);
   assert.equal(slot.instance, undefined);
 });

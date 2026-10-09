@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Replace UUID/PID-heavy inspection with human worker names, focusable inline
+  selection and dedicated wrapped conversations. Down hands off only after
+  normal editor navigation; Enter/Space activates, Esc returns.
+- Cooperate with Slate's owned chat slot on compatible fullscreen Pi 1.1+
+  hosts, retaining sidebar and original editor/chat objects. Use a disclosed
+  opaque full-viewport fallback elsewhere; never patch another custom editor.
+- Keep unread/selected completions visible and reviewed ones in Recent. Preserve
+  per-run drafts/history pages, clear only successful submitted revisions, bind
+  exact questions and keep confirmed Stop available while sending.
+- Add bounded async conversation pages and human tool/notice renderers without
+  changing execution authority, exact machine JSON or saved evidence contracts.
+
 - List the selected model's supported thinking levels in preflight errors, so
   mixed-model batches can be corrected without guessing or automatic fallback.
 
