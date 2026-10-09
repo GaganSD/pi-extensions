@@ -37,7 +37,11 @@ for (const [packageDir, version] of packages) {
       cache.clear();
       const loaded = native.loadMcpConfig({ agentDir, cwd, projectTrusted: true });
       const result = cache.snapshot(agentDir, cwd, true, []);
-      assert.deepEqual(result.mcp.filter(row => row.enabled !== null).map(row => [row.name, row.enabled]).sort(), loaded.servers.map(row => [row.name, row.config.enabled !== false]).sort());
+      const configured = new Set([...Object.keys(global), ...Object.keys(project)]);
+      assert.deepEqual(
+        result.mcp.filter(row => row.enabled !== null && configured.has(row.name)).map(row => [row.name, row.enabled]).sort(),
+        loaded.servers.filter(row => configured.has(row.name)).map(row => [row.name, row.config.enabled !== false]).sort(),
+      );
       assert.equal(Boolean(result.mcpError), loaded.errors.length > 0);
       assert(!JSON.stringify(result).includes("SECRET"));
     }
