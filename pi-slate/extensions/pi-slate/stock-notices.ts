@@ -34,6 +34,39 @@ export function isBlankSpacer(component: Component): boolean {
   return plain.trim() === "";
 }
 
+const STOCK_NEW_SESSION_NOTICE = "✓ New session started";
+
+export function isStockNewSessionNotice(component: Component): boolean {
+  return renderedPlain(component).trim() === STOCK_NEW_SESSION_NOTICE;
+}
+
+export type ChatContainer = NoticeContainer & {
+  addChild(component: Component): void;
+};
+
+const newSessionNoticeFilters = new WeakSet<ChatContainer>();
+
+/**
+ * Keeps the stock chat copy of "✓ New session started" out of the transcript so
+ * the chip lives only in the header. Also drops the blank spacer core adds right
+ * before the notice. The wrap is installed once per container and binds the
+ * addChild present at install time, so it composes with MessageWindow in either
+ * install order and survives a later MessageWindow install.
+ */
+export function installNewSessionNoticeFilter(container: ChatContainer): void {
+  if (newSessionNoticeFilters.has(container)) return;
+  newSessionNoticeFilters.add(container);
+  const addChild = container.addChild.bind(container);
+  container.addChild = (component: Component): void => {
+    if (!isStockNewSessionNotice(component)) {
+      addChild(component);
+      return;
+    }
+    const previous = container.children.at(-1);
+    if (previous && isBlankSpacer(previous)) container.removeChild(previous);
+  };
+}
+
 function removeOneStockNotice(container: NoticeContainer): boolean {
   const { children } = container;
   for (let i = 0; i < children.length; i++) {

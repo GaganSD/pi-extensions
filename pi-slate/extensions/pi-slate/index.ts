@@ -72,7 +72,8 @@ import {
   openExternalArgs,
   SLATE_ISSUES_URL,
 } from "./bug.ts";
-import { syncMessageWindow, type MessageWindow } from "./message-window.ts";
+import { findChatContainer, layoutRootOf, syncMessageWindow, type MessageWindow } from "./message-window.ts";
+import { installNewSessionNoticeFilter } from "./stock-notices.ts";
 import {
   STYLE_LABELS,
   STYLES,
@@ -425,6 +426,11 @@ export default function piSlate(pi: ExtensionAPI): void {
       updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
+        // The header owns the ✓ chip; keep the stock chat copy out of the transcript.
+        queueMicrotask(() => {
+          const chat = findChatContainer(layoutRootOf(tui));
+          if (chat) installNewSessionNoticeFilter(chat);
+        });
         return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => ({
           version: VERSION,
           model: currentContext ? modelStatusLabel(currentContext.model, config.modelDisplay) : "",
