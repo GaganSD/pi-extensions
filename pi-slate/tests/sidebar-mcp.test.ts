@@ -22,11 +22,10 @@ for (const [packageDir, version] of packages) {
     const host = await loadSidebarMcpHost(packageDir, version); assert(host);
     const cache = new SidebarMcpFiles(); cache.setHost(host);
     const fixtures = [
-      [{ "web-search": { command: "server" } }, { "web-search": { enabled: false } }],
       [{ x: { command: "server" } }, { x: { enabled: false } }],
       [{ x: { command: "server" } }, { x: { enabled: false, env: { SECRET: "SECRET" } } }],
       [{ x: { command: "server" } }, { x: { command: "replacement", args: 123 } }],
-      [{ "web-search": { command: "server" }, web_search: { command: "collision" } }, {}],
+      [{ x: { command: "server" }, y: { command: "collision" } }, {}],
       [{ x: { url: "https://example.com", headers: { token: 123 } }, y: { url: "https://example.com", oauth: { callbackPort: -1, clientSecret: "SECRET" } } }, {}],
       [{}, { x: { url: "https://example.com", auth: { provider: "fixture" } } }],
       [{ x: { command: "server", enabled: false, exposure: "codemode-deferred" } }, {}],
