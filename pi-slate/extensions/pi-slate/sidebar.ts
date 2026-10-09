@@ -319,21 +319,16 @@ export class Sidebar implements Component {
     const view = this.imageView();
     if (height <= 0 || !view) return [];
     const inner = Math.max(0, width - 2);
-    const title = height <= 2 ? `Preview · ${sidebarText(view.title ?? view.filePath)}` : "Preview";
-    const lines = [this.decorateLine(this.pair(this.heading(title), this.paint("muted", this.pinned ? "pinned" : "caret"), inner), width)];
+    const lines = [this.decorateLine(this.heading("Preview"), width)];
     if (height === 1) return lines;
     const controls: Array<{ label: string; action: () => void }> = [
-      { label: this.pinned ? "[unpin]" : "[pin]", action: () => this.pinImage() },
       { label: "[open]", action: () => { if (view.filePath) this.actions?.openFile(view.filePath); } },
       { label: "[copy]", action: () => { if (view.filePath) this.actions?.copy(view.filePath); } },
-      { label: "[clear]", action: () => this.clearImage() },
     ];
     while (visibleWidth(controls.map(x => x.label).join(" ")) > inner && controls.length > 1) controls.splice(1, 1);
-    const caption = height > 2 ? 1 : 0;
-    const bodyHeight = Math.max(0, height - 2 - caption);
+    const bodyHeight = Math.max(0, height - 2);
     if (bodyHeight && inner) lines.push(...view.render(inner, bodyHeight).slice(0, bodyHeight).map(line => this.decorateLine(line, width)));
-    while (lines.length < height - 1 - caption) lines.push(this.decorateLine("", width));
-    if (caption) lines.push(this.decorateLine(this.paint("dim", sidebarText(view.title ?? view.filePath)), width));
+    while (lines.length < height - 1) lines.push(this.decorateLine("", width));
     const actions = controls.map(x => x.label).join(" ");
     let x = 2;
     if (inner >= visibleWidth(actions)) for (const control of controls) {

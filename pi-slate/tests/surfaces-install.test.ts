@@ -375,7 +375,7 @@ test("pending Expand and Pin menu choices remain idempotent after mouse actions"
   answer("Expand sidebar section"); await foldMenu; assert.equal(sidebar.getFolds().mcp, true);
   sidebar.setView({ id: "image:fixture", filePath: f.imagePath, title: "Image", invalidate() {}, render: () => ["image"] });
   const imageMenu = f.commands.get("slate")!.handler("session image", f.ctx);
-  click("[pin]"); assert.equal(sidebar.isImagePinned(), true);
+  sidebar.pinImage(); assert.equal(sidebar.isImagePinned(), true);
   answer("Pin"); await imageMenu; assert.equal(sidebar.isImagePinned(), true);
 });
 

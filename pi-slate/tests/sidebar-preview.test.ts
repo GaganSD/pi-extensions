@@ -163,14 +163,14 @@ test("unpinned image preview hides when the caret leaves and recovers on the nex
   assert(plain(sidebar.render(40)).some(line => line.includes("Preview")));
 });
 
-test("copy/open/clear image hit regions align with painted controls", () => {
+test("copy/open image hit regions align with painted controls", () => {
   const { sidebar } = fixture(); const copied: string[] = []; const opened: string[] = [];
   sidebar.setActions({ copy: x => copied.push(x), openFile: x => opened.push(x) }); sidebar.setView(image());
+  const painted = plain(sidebar.render(80)).join("\n");
+  assert(!/caret|\[pin\]|\[clear\]|a\.png/.test(painted), "preview chrome is title plus open/copy");
   const click = (label: string) => { const lines = plain(sidebar.render(80)); const y = lines.findIndex(line => line.includes(label)); assert(y >= 0); return sidebar.handleMouse(mouse(y, { width: 80, x: lines[y]!.indexOf(label) + 2 })); };
   click("[copy]"); assert.deepEqual(copied, ["/tmp/a.png"]);
   click("[open]"); assert.deepEqual(opened, ["/tmp/a.png"]);
-  click("[pin]"); assert(sidebar.isImagePinned());
-  click("[clear]"); assert.equal(sidebar.currentViewId(), undefined); assert.equal(sidebar.isImagePinned(), false);
 });
 
 test("image double-click uses native clickCount or the fallback timer", () => {

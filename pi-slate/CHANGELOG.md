@@ -27,6 +27,7 @@
 ### Fixed
 
 - Unpinned image previews now hide when the caret leaves the image token; previously the shelf stayed painted until `[clear]`.
+- Image preview chrome is just Preview plus `[open]` `[copy]`; the caret/pin chips, filename caption, and `[clear]` control are gone.
 - With `header` selected, `/new` no longer duplicates `✓ New session started` in the chat transcript; the chip lives only in the header. Stock update cards and ordinary chat remain untouched.
 
 ### Limitations

@@ -105,7 +105,7 @@ Previews are bounded: 256 KiB snapshots, 2,000 parsed rows, 16 collapsed / 400 e
 
 Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 
-> Usage: Caret-peek over image tokens to display. Pin an image to keep it selected, or open, copy, and clear it from the image shelf. Double-click the image to open it. Task inspection never replaces the image. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
+> Usage: Caret-peek over image tokens to display. Open or copy from the image shelf, or double-click the image to open it. The peek leaves when the caret does. Task inspection never replaces the image. Pi-generated clipboard image paths are converted into `[image-N]` tokens.
 
 ![Chat with image tokens and the sidebar image preview](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-media.png)
 
