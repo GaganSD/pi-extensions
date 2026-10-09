@@ -43,6 +43,14 @@ and print/RPC/standalone hosts are not supported.
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
+### Model and thinking selection
+
+Model and thinking resolve from the task, then the profile, then the owning agent.
+Models can support different thinking levels. If a selected level is unsupported,
+the batch is rejected before any sub-agent launches and the error lists the valid
+levels. Set `tasks[].thinking` or the profile's `thinking` explicitly; the package
+never silently falls back to a different model or thinking level.
+
 ### Live telemetry
 
 Running rows show `worker · PID-12345 01a11744… · 12%/272K`.

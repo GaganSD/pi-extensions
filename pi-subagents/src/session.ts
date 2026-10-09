@@ -66,7 +66,8 @@ export function prepareNative(options: NativeOptions): PreparedTask {
   if (options.scopedModels.length && !options.scopedModels.includes(name)) throw new Error(`Model '${name}' is outside the agent's model scope`);
   if (!runtime.hasConfiguredAuth(model.provider)) throw new Error(`No configured authentication for ${model.provider}`);
   const thinking = task.thinking ?? profile.thinking ?? options.agentThinking;
-  if (!getSupportedThinkingLevels(model).includes(thinking)) throw new Error(`Thinking level '${thinking}' is unsupported by ${name}; set an explicit supported level on the task or profile`);
+  const supportedThinking = getSupportedThinkingLevels(model);
+  if (!supportedThinking.includes(thinking)) throw new Error(`Thinking level '${thinking}' is unsupported by ${name}; supported levels: ${supportedThinking.join(", ")}; set an explicit supported level on the task or profile`);
   // No extension discovery is allowed; only trusted global/project instruction
   // files and ordinary Pi settings are inherited. This manager never writes them.
   const disk = SettingsManager.create(options.cwd, options.agentDir, { projectTrusted: true });

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- List the selected model's supported thinking levels in preflight errors, so
+  mixed-model batches can be corrected without guessing or automatic fallback.
+
 - Accept stable Pi 1.x, including 1.1.x, in both npm peer dependencies and the
   shared `/subagents`/`subagent` runtime guard. Minor and patch updates no longer
   cause install conflicts or an `Unsupported Pi host` error. Keep the Node-only,
