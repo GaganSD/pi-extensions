@@ -16,6 +16,7 @@ import { errorText, isLive, type PreparedTask, type Profile } from "./src/types.
 import { matchesKey } from "@earendil-works/pi-tui";
 import { plain, syncWidget, type WidgetSlot } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
+import { backgroundTaskSnapshot } from "./src/dashboard.ts";
 
 // Reload can replace module instances. Unknown cleanup must still block launches
 // in the same process; it must not disappear with the old extension runtime.
@@ -50,10 +51,21 @@ export default function subagents(pi: ExtensionAPI): void {
   let clock: ReturnType<typeof setInterval> | undefined;
   const inspectors = new Set<() => void>();
   const agentDir = getAgentDir();
+  let dashboardKey = "";
+  let unsubDashboard: (() => void) | undefined;
+  function publishDashboard(force = false): void {
+    if (!host || typeof pi.events?.emit !== "function") return;
+    const snapshot = backgroundTaskSnapshot(host.owner, host.manager.list());
+    const key = JSON.stringify(snapshot);
+    if (!force && key === dashboardKey) return;
+    dashboardKey = key;
+    try { pi.events.emit("pi:background-tasks", snapshot); } catch { /* Display consumers never determine run authority. */ }
+  }
 
   function draw(): void {
     if (!host) return;
     const live = host.manager.live();
+    publishDashboard();
     try { syncWidget(host.ctx, live, Boolean(health[HEALTH]), id => { void openThread(host!.ctx, id); }, host.widget); } catch { /* Terminal availability is not run evidence. */ }
     const ticking = live.some(run => !run.endedAt);
     if (ticking && !clock) clock = setInterval(draw, 1000);
@@ -99,6 +111,12 @@ export default function subagents(pi: ExtensionAPI): void {
       },
     });
     host = { owner, ctx, manager, widget: {} };
+    dashboardKey = "";
+    unsubDashboard = pi.events?.on?.("pi:background-tasks:request", data => {
+      const request = data as { version?: unknown; sessionId?: unknown } | null;
+      if (request?.version === 1 && request.sessionId === host?.owner) publishDashboard(true);
+    });
+    publishDashboard(true);
     bindKeys(ctx);
     return host;
   }
@@ -140,6 +158,11 @@ export default function subagents(pi: ExtensionAPI): void {
   async function shutdown(): Promise<void> {
     if (closing) return closing; // Serialize: concurrent shutdowns share one teardown.
     const previous = host;
+    try { unsubDashboard?.(); } catch { /* Runtime may already be disposed. */ }
+    unsubDashboard = undefined; dashboardKey = "";
+    if (previous && typeof pi.events?.emit === "function") {
+      try { pi.events.emit("pi:background-tasks", backgroundTaskSnapshot(previous.owner, [])); } catch { /* Display-only cleanup. */ }
+    }
     host = undefined; // notify() already no-ops once host.manager is no longer this manager.
     clearTimeout(refresh); refresh = undefined;
     clearInterval(clock); clock = undefined;

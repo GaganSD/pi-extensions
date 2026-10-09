@@ -62,4 +62,15 @@ until the next response. Real zero and values over 100% are preserved. Narrow
 terminals shorten roles/IDs and drop decoration before context fields. Ask/error/
 stop indicators remain useful; elapsed time is in the inspector.
 
+### Session dashboards
+
+When a session dashboard such as Slate is installed, sub-agents also publish
+optional `pi:background-tasks` display snapshots and answer matching-owner
+`pi:background-tasks:request` events. Completed/cancelled runs leave that shelf;
+live/uncertain-cleanup runs take priority over bounded failed history (64 rows
+per source). Snapshots include exact run IDs,
+state and shared host PID, not native session objects, private questions or run
+control. Use `/subagents` for authoritative inspection and control. Listener
+failures cannot change run outcomes; reload/shutdown clears the source.
+
 **Note:** I've stressed tested the library to work well locally. TODO: Improve UI & Developer Experience. Support Cloud Sub-agents. Message me if you feedback, TIA!
