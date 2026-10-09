@@ -5,7 +5,8 @@
 ### Added
 
 - Tokyo Night as the default theme choice: `/slate theme default` or `/slate theme tokyo-night`. Existing theme selections are not overwritten on load; explicit Catppuccin default/style aliases remain available.
-- Quiet Workbench: compact workspace header, a ready cue only for empty conversations, concise resource counts, and a bounded command catalog. Usage is grouped with context in one stable numeric lane; runtime/cache/rate accounting stays in details. Empty shelves disappear.
+- Header restores the stock Pi mark, version, model, path, update hairline, and `✓ New session started`. Composer keeps project/branch and model.
+- Rail usage lane now includes Cache, Uncached, and Rate. Commands stay behind `/` and `/slate session commands`.
 - Short/narrow fullscreen layouts hide the rail below 30 rows or 100 columns, preserve preferences and previews, and return condensed context/cost metadata to the composer.
 - Native MCP configuration parity verified for Pi 1.1.0; unsupported host versions still report unknown state.
 
@@ -16,7 +17,7 @@
 
 ### Changed
 
-- Composer avoids duplicating visible workspace/model metadata and restores its density after the host copies native padding onto the custom editor. Native cursor, draft, paste, selection and working/thinking behavior are preserved.
+- Composer shows project/branch and model on the frame. Density still restores after the host copies native padding. Native cursor, draft, paste, selection and working/thinking behavior are preserved.
 - Unselected surfaces leave host setters, patches, watchers, and cleanup untouched. Theme/fullscreen are explicit preferences, not automatic install defaults.
 - Composer metadata is named `composerMetadata` in settings; the legacy `footer` key is still read and written, and `/slate footer` remains an alias. Footer-slot ownership only hides Pi's footer with the existing zero-row component.
 - Image rewrites patch only Slate's composer instance; foreign editors and `Editor.prototype` remain untouched. `/prompts` and thinking timing are editor-scoped; `/exit` is always registered.

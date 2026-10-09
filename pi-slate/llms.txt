@@ -16,7 +16,7 @@ Observed TUI thinking adds elapsed seconds and available token rate to the compo
 
 Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow `/slate theme`. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
-Quiet Workbench: one selected-header identity line, no repeated model/identity on the composer while the rail is visible. Input/Output/Cost share one numeric lane beneath context; runtime/cache/rate accounting lives in details. Concise independently folded MCP/Skills counts describe enabled configuration and observed instruction loading, not connectivity/retention. Commands open a bounded insertion-only catalog. Empty task/image shelves disappear. Below 100 columns or 30 rows the rail hides without changing preferences; condensed context/cost returns to the composer, and /slate session stays reachable. Pin/inspection and session/root ownership protections remain intact.
+Header uses the stock Pi mark plus version, model, path, optional update hairline, and a session chip. Composer keeps project/branch and model. The rail shows session, context, Input/Output/Cache/Uncached/Cost/Rate, folded MCP/Skills, and live background shells. Commands stay behind / and /slate session commands. Empty task/image shelves disappear. Below 100 columns or 30 rows the rail hides without changing preferences; condensed context/cost returns to the composer. Pin/inspection and session/root ownership protections remain intact.
 
 ## Documentation
 

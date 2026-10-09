@@ -425,8 +425,13 @@ export default function piSlate(pi: ExtensionAPI): void {
       updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
-        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => gitBranch,
-          () => branchFacts?.counts.messages === 0 && branchFacts.usage.total === 0 && (typeof currentContext?.isIdle !== "function" || currentContext.isIdle()));
+        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => ({
+          version: VERSION,
+          model: currentContext ? modelStatusLabel(currentContext.model, config.modelDisplay) : "",
+          thinking: currentContext?.thinkingLevel ?? "",
+          ready: branchFacts?.counts.messages === 0 && branchFacts.usage.total === 0
+            && (typeof currentContext?.isIdle !== "function" || currentContext.isIdle()),
+        }));
       });
     }
     if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());

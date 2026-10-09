@@ -61,7 +61,7 @@ test("growing usage and money keep a stable label lane and value edge with the r
     for (const value of [0, 999, 128400, 999900000, 1e12, 1e20, 1e308, null]) {
       sidebar.setSession({ ...session, usage: { ...session.usage, input: value, output: value, cost: value } });
       const rows = sidebar.render(width).map(stripVTControlCharacters);
-      for (const label of ["Input", "Output", "Cost"]) {
+      for (const label of ["Input", "Output", "Cache", "Uncached", "Cost", "Rate"]) {
         const line = rows.find(row => row.startsWith("│ " + label + " "))!;
         assert(line, label); assert.equal(visibleWidth(line), width);
         assert.equal(visibleWidth(line.trimEnd()), width, "right edge must not move");
@@ -87,9 +87,10 @@ test("quiet editor avoids duplicate identity/model and restores compact facts wi
   let text = editor.render(100).map(stripVTControlCharacters).join("\n");
   assert.match(text, /› Preserve this draft/);
   assert.equal(editor.getPaddingX(), 4, "density must restore native cursor and mouse geometry");
-  assert.doesNotMatch(text, /project|feat\/workbench|sample-model|ctx/);
-  assert.match(text, /enter send/);
-  source.working = true; assert.match(editor.render(100).map(stripVTControlCharacters).join("\n"), /enter steer/);
+  assert.match(text, /project \/ feat\/workbench/);
+  assert.match(text, /sample-model/);
+  assert.doesNotMatch(text, /enter send|Ready when you are/);
+  source.working = true; assert.match(editor.render(100).map(stripVTControlCharacters).join("\n"), /project \/ feat\/workbench/);
   source.dashboardVisible = false;
   for (const width of [38, 80, 100]) {
     const lines = editor.render(width);

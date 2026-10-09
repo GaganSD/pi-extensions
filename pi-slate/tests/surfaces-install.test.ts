@@ -263,19 +263,16 @@ test("Tokyo Night is an explicit default choice and preserves unrelated native s
   assert.deepEqual(saved.packages, ["keep-this-package"]);
 });
 
-test("rail command heading opens the catalog and inserts without disturbing a pinned preview", async t => {
+test("rail omits the command catalog; /slate session still inserts without disturbing a pinned preview", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
   f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });
   await f.emit("agent_settled");
   const sidebar = railOf(f);
   sidebar.setView({ id: "image:pinned", title: "pinned.png", invalidate() {}, render: () => ["preview"] });
   sidebar.pinImage();
+  assert(!sidebar.render(40).map(unstyled).some(row => row.includes("Commands")));
   f.choices.push("/hello · extension");
-  const rows = sidebar.render(40).map(unstyled), y = rows.findIndex(row => row.includes("› Commands"));
-  assert(y >= 0);
-  sidebar.handleMouse({ type: "click", button: "left", x: 3, y, width: 40, height: 40,
-    screenX: 103, screenY: y, shift: false, alt: false, ctrl: false });
-  await new Promise(resolve => setImmediate(resolve));
+  await f.commands.get("slate")!.handler("session commands", f.ctx);
   assert.equal(f.draft(), "existing draft/hello ");
   assert.equal(sidebar.currentViewId(), "image:pinned"); assert.equal(sidebar.isImagePinned(), true);
   assert(!f.calls.includes("branch-git"), "catalog must not execute commands");

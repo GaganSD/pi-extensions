@@ -42,9 +42,9 @@ function task(i: number): BackgroundTask {
 test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["SESSION", "Sidebar redesign", "pid 8421", "sonnet-4.6", "16%", "31.6k / 200k", "Input", "Output", "Cost", "MCP · 6 enabled", "Skills · 1 loaded", "Commands · 6"])
+  for (const label of ["SESSION", "Sidebar redesign", "pid 8421", "sonnet-4.6", "16%", "31.6k / 200k", "Input", "Output", "Cache", "Uncached", "Cost", "Rate", "MCP · 6 enabled", "Skills · 1 loaded"])
     assert(lines.some(line => line.includes(label)), label);
-  for (const label of ["Stats", "Tokens · branch", "cache read", "Tasks", "Preview", "no selection", "/run-0"])
+  for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0"])
     assert(!lines.some(line => line.includes(label)), label);
   assert.match(sidebar.sessionDetails(), /Cache read: 48k/);
 });
@@ -71,7 +71,7 @@ test("usage is a single stable label/value lane; full accounting stays in detail
   const { sidebar } = fixture();
   for (const width of [18, 28, 40, 80]) {
     const text = plain(sidebar.render(width)).join("\n");
-    for (const value of ["pid 8421", "Input", "61.4k", "Output", "876", "$0.12"]) assert(text.includes(value), value);
+    for (const value of ["pid 8421", "Input", "61.4k", "Output", "876", "Cache", "48k", "Uncached", "7.3k", "$0.12", "~82/s"]) assert(text.includes(value), value);
   }
   assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
   assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
@@ -121,22 +121,20 @@ test("MCP is limited to five rows; list wheel scroll does not move the session h
   assert(after.some(line => line.includes("skill-0")), "other list unchanged");
 });
 
-test("skill lists scroll and clamp; commands stay behind the catalog action", () => {
+test("skill lists scroll and clamp; the rail does not list commands", () => {
   const { sidebar } = fixture(); sidebar.setFolds({ mcp: false, skills: true });
   sidebar.handleMouse(mouse(row(sidebar, "skill-0"), { type: "wheel", wheelDelta: -2 }));
   assert(plain(sidebar.render(40)).some(line => line.includes("skill-4")));
   assert(!plain(sidebar.render(40)).some(line => line.includes("/run-0")));
   sidebar.setResources({ ...resources, skills: resources.skills.slice(0, 1), commands: resources.commands.slice(0, 1) });
   assert(plain(sidebar.render(40)).some(line => line.includes("skill-0")));
-  assert(plain(sidebar.render(40)).some(line => line.includes("Commands · 1")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("Commands")));
 });
 
-test("command catalog and read-only task actions preserve the pinned image", () => {
-  const { sidebar } = fixture(); let catalogs = 0; const inspected: string[] = [], opened: string[] = [];
-  sidebar.setActions({ copy() {}, openFile: x => opened.push(x), commands: () => { catalogs++; }, inspect: title => inspected.push(title) });
+test("read-only task actions preserve the pinned image", () => {
+  const { sidebar } = fixture(); const inspected: string[] = [], opened: string[] = [];
+  sidebar.setActions({ copy() {}, openFile: x => opened.push(x), inspect: title => inspected.push(title) });
   sidebar.setView(image()); sidebar.pinImage(); sidebar.setTasks([task(0)]);
-  sidebar.handleMouse(mouse(row(sidebar, "Commands")));
-  assert.equal(catalogs, 1);
   sidebar.handleMouse(mouse(row(sidebar, "job-0")));
   assert.deepEqual(inspected, ["job-0"]);
   assert.equal(sidebar.currentViewId(), "image:a");
@@ -181,7 +179,7 @@ test("short terminals collapse the image body, keep tasks visible, and scroll mi
   assert(lines.some(line => line.includes("Tasks")));
   sidebar.handleMouse(mouse(6, { type: "wheel", wheelDelta: -40 }));
   const scrolled = plain(sidebar.render(40));
-  assert(scrolled.some(line => line.includes("Commands")));
+  assert(scrolled.some(line => line.includes("Skills") || /server-\d/.test(scrolled.join("\n"))));
   assert.equal(scrolled[0], lines[0]);
   assert.equal(sidebar.imagePath(), "/tmp/a.png");
 });

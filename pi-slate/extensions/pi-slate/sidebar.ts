@@ -6,7 +6,7 @@ import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
-import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset } from "./sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, sidebarRate, sidebarUncached } from "./sidebar-layout.ts";
 
 export const DOUBLE_CLICK_MS = 400;
 type ListName = "mcp" | "skills" | "tasks";
@@ -141,7 +141,7 @@ export class Sidebar implements Component {
   isImagePinned(): boolean { return this.pinned; }
   sessionDetails(): string {
     const s = this.session;
-    const uncached = s.usage.input === null || s.usage.cacheRead === null || s.usage.cacheWrite === null ? null : Math.max(0, s.usage.input - s.usage.cacheRead - s.usage.cacheWrite);
+    const uncached = sidebarUncached(s.usage);
     const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
     return [`${sidebarText(s.name)} · ${s.id || "—"}`, `PID: ${s.pid}`, `Model: ${s.model} · ${s.thinking}`,
       `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
@@ -243,7 +243,9 @@ export class Sidebar implements Component {
       { text: this.paint(tone, "█".repeat(filled)) + this.paint("dim", "─".repeat(width - filled)) },
       { text: this.paint("muted", occupancy) },
       { text: "" },
-      ...[["Input", formatCompactTokenCount(s.usage.input)], ["Output", formatCompactTokenCount(s.usage.output)], ["Cost", sidebarCost(s.usage.cost)]].map(([label, value]) => ({
+      ...[["Input", formatCompactTokenCount(s.usage.input)], ["Output", formatCompactTokenCount(s.usage.output)],
+        ["Cache", formatCompactTokenCount(s.usage.cacheRead)], ["Uncached", formatCompactTokenCount(sidebarUncached(s.usage))],
+        ["Cost", sidebarCost(s.usage.cost)], ["Rate", sidebarRate(s.rate)]].map(([label, value]) => ({
         text: this.pair(this.paint("muted", label!), this.paint("text", value!), width),
         action: () => this.actions?.inspect?.("Branch usage", this.sessionDetails()),
       })),
@@ -267,7 +269,6 @@ export class Sidebar implements Component {
     }
     rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} loaded`), action: () => this.toggleSection("skills") });
     if (this.folds.skills) rows.push(...this.resourceRows("skills", width));
-    rows.push({ text: "" }, { text: resourceHeading("› Commands", String(this.resources.commands.length)), action: () => this.actions?.commands?.() });
     return rows;
   }
   private resourceRows(list: Exclude<ListName, "tasks">, width: number): Row[] {

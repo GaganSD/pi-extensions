@@ -397,8 +397,6 @@ export class ComposerEditor extends CustomEditor {
   protected renderBottomBorder(width: number, hiddenLineCount: number): string {
     const src = this.source();
     const more = hiddenLineCount > 0 ? this.borderColor(` ↓ ${hiddenLineCount} more `) : "";
-    if (src.dashboardVisible) return inscribedBorder(more, src.theme.fg("dim", ` ${src.working ? "enter steer" : "enter send"} · / commands `), width,
-      text => this.borderColor(text), "╰", "╯");
     const { left, right } = composerLabels(
       {
         project: src.project,
@@ -417,8 +415,9 @@ export class ComposerEditor extends CustomEditor {
         ? src.theme.fg("muted", ` ${modelStatusLabel(src.model, src.modelDisplay)}${width >= 80 && src.thinking ? ` · ${src.thinking}` : ""} `) : "";
       return inscribedBorder(`${more}${facts}${src.workspaceHeader ? "" : left}`, model, width, text => this.borderColor(text), "╰", "╯");
     }
+    if (src.dashboardVisible) return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "╰", "╯");
     const compactRight = src.footer === "minimal" ? (src.context?.tokens ? src.theme.fg("muted", ` ${src.context.tokens} `) : "") : right;
-    return inscribedBorder(`${more}${src.workspaceHeader ? "" : left}`, compactRight, width, (text) => this.borderColor(text), "╰", "╯");
+    return inscribedBorder(`${more}${left}`, compactRight, width, (text) => this.borderColor(text), "╰", "╯");
   }
 
   render(width: number): string[] {
