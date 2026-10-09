@@ -44,20 +44,21 @@ export type ChatContainer = NoticeContainer & {
   addChild(component: Component): void;
 };
 
-const newSessionNoticeFilters = new WeakSet<ChatContainer>();
+const FILTERED = Symbol("pi-slate.new-session-notice-filter");
+
+type FilteredAdd = ChatContainer["addChild"] & { [FILTERED]?: true };
 
 /**
  * Keeps the stock chat copy of "✓ New session started" out of the transcript so
  * the chip lives only in the header. Also drops the blank spacer core adds right
- * before the notice. The wrap is installed once per container and binds the
- * addChild present at install time, so it composes with MessageWindow in either
- * install order and survives a later MessageWindow install.
+ * before the notice. The wrap binds the addChild present at install time, so it
+ * composes with MessageWindow in either order. If a later wrap replaces addChild,
+ * calling this again re-wraps the current function.
  */
 export function installNewSessionNoticeFilter(container: ChatContainer): void {
-  if (newSessionNoticeFilters.has(container)) return;
-  newSessionNoticeFilters.add(container);
+  if ((container.addChild as FilteredAdd)[FILTERED]) return;
   const addChild = container.addChild.bind(container);
-  container.addChild = (component: Component): void => {
+  const wrapped: FilteredAdd = (component: Component): void => {
     if (!isStockNewSessionNotice(component)) {
       addChild(component);
       return;
@@ -65,6 +66,8 @@ export function installNewSessionNoticeFilter(container: ChatContainer): void {
     const previous = container.children.at(-1);
     if (previous && isBlankSpacer(previous)) container.removeChild(previous);
   };
+  wrapped[FILTERED] = true;
+  container.addChild = wrapped;
 }
 
 function removeOneStockNotice(container: NoticeContainer): boolean {

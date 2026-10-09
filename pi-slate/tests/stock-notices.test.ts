@@ -142,4 +142,15 @@ test("filter composes with the message window in either install order", () => {
   second.addChild(other);
   assert.deepEqual(second.children, [other]);
   early.dispose();
+  addStockNewSessionBanner(second);
+  assert.deepEqual(second.children, [other]);
+
+  // If addChild is replaced, a later install re-wraps.
+  const third = new Container();
+  const raw = third.addChild.bind(third);
+  installNewSessionNoticeFilter(third);
+  third.addChild = raw;
+  installNewSessionNoticeFilter(third);
+  addStockNewSessionBanner(third);
+  assert.deepEqual(third.children, []);
 });
