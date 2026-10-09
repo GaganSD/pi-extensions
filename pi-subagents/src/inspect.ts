@@ -43,48 +43,69 @@ export interface InspectActions {
 
 export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), navigation?: NavigationHost, onView?: (close: () => void) => void): Promise<void> {
   actions.status(id);
-  if (navigation?.mount && await mountThread(ctx, id, actions, state, navigation, onView)) return;
-  // No owned slot, or the host withdrew it: opaque entire viewport. Never pretend it preserves a sidebar.
+  let notice: string | undefined;
+  if (navigation?.mount) {
+    const result = await mountThread(ctx, id, actions, state, navigation, onView);
+    if (result === "mounted") return;
+    if (result === "failed") {
+      notice = "Workspace mount failed · full-viewport overlay (sidebar not preserved)";
+      try { ctx.ui.notify(notice, "warning"); } catch { /* UI never determines execution success. */ }
+    }
+  }
+  // Unavailable slot or failed offered mount: opaque entire viewport. Never pretend it preserves a sidebar.
   await ctx.ui.custom((tui, theme, _keys, done) => {
-    const view = new InspectView(tui, theme, id, actions, done, state);
+    const view = new InspectView(tui, theme, id, actions, done, state, notice);
     onView?.(() => view.dispose());
+    try { tui.setFocus(view); } catch { /* Overlay still paints without host focus. */ }
     return view;
   }, {
     overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 },
   });
 }
 
-async function mountThread(ctx: ExtensionContext, id: string, actions: InspectActions, state: HumanState, navigation: NavigationHost, onView?: (close: () => void) => void): Promise<boolean> {
+async function mountThread(ctx: ExtensionContext, id: string, actions: InspectActions, state: HumanState, navigation: NavigationHost, onView?: (close: () => void) => void): Promise<"mounted" | "unavailable" | "failed"> {
+  let view: InspectView | undefined;
+  let release: (() => void) | undefined;
   let mounted = false;
+  let reason: "unavailable" | "failed" = "unavailable";
+  const drop = (): void => {
+    const loan = release; release = undefined;
+    try { loan?.(); } catch { /* Loan must not survive a failed attach. */ }
+    const created = view; view = undefined;
+    try { created?.dispose(); } catch { /* Listener must not survive a failed attach. */ }
+  };
   try {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      const fail = (error: unknown) => {
+      const fail = (error: unknown, kind: "unavailable" | "failed" = "failed") => {
         if (settled) return;
         settled = true;
+        reason = kind;
         reject(error instanceof Error ? error : new Error(String(error)));
       };
       const empty = { render: () => [] as string[], invalidate() {}, dispose() {} };
       try {
         // Obtain the host's active TUI without occupying/changing the main editor.
         ctx.ui.setWidget("minimal-subagents:thread-host", (tui, theme) => {
-          let release: (() => void) | undefined;
-          const view = new InspectView(tui, theme, id, actions, () => {
-            release?.();
+          view = new InspectView(tui, theme, id, actions, () => {
+            try { release?.(); } catch { /* Restore independently of view teardown. */ }
             if (mounted && !settled) { settled = true; resolve(); }
           }, state);
-          onView?.(() => view.dispose());
-          try { release = navigation.mount!(view); } catch (error) { view.dispose(); fail(error); return empty; }
-          if (!release) { view.dispose(); fail(new Error("Conversation workspace unavailable")); return empty; }
+          onView?.(() => view?.dispose());
+          try { release = navigation.mount!(view); }
+          catch (error) { drop(); fail(error, "failed"); return empty; }
+          if (!release) { drop(); fail(new Error("Conversation workspace unavailable"), "unavailable"); return empty; }
           mounted = true;
-          return { render: () => [], invalidate() {}, dispose() { if (mounted) view.dispose(); } };
+          return { render: () => [], invalidate() {}, dispose() { if (mounted) view?.dispose(); } };
         }, { placement: "belowEditor" });
-      } catch (error) { fail(error); return; }
-      if (!mounted) fail(new Error("Conversation workspace unavailable"));
+      } catch (error) { fail(error, "failed"); return; }
+      if (!mounted) fail(new Error("Conversation workspace unavailable"), "unavailable");
     });
-    return true;
-  } catch { return false; }
-  finally { try { ctx.ui.setWidget("minimal-subagents:thread-host", undefined); } catch { /* Host UI may already be gone. */ } }
+    return "mounted";
+  } catch {
+    drop();
+    return reason;
+  } finally { try { ctx.ui.setWidget("minimal-subagents:thread-host", undefined); } catch { /* Host UI may already be gone. */ } }
 }
 
 export class InspectView implements Component, Focusable {
@@ -123,9 +144,10 @@ export class InspectView implements Component, Focusable {
   private readonly done: (value?: void) => void;
   private readonly state: HumanState;
   constructor(tui: TUI, theme: Theme, id: string,
-    actions: InspectActions, done: (value?: void) => void, state = new HumanState()) {
+    actions: InspectActions, done: (value?: void) => void, state = new HumanState(), notice?: string) {
     this.tui = tui; this.theme = theme; this.id = id;
     this.actions = actions; this.done = done; this.state = state;
+    if (notice) this.note = notice;
     const record = actions.status(id);
     this.state.open = id;
     this.draft = state.draft(record);
@@ -185,6 +207,7 @@ export class InspectView implements Component, Focusable {
   render(width: number): string[] {
     this.lastWidth = Math.max(1, width);
     const inner = this.lastWidth, height = Math.max(1, this.tui.terminal.rows), record = this.safeStatus();
+    if (!this.closed && this.focused && record && this.isPresented()) this.state.markRead(record);
     const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
       this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))} · ${record.thinking} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
     this.input.focused = this.focused && this.zone === "message" && !this.details;
@@ -256,10 +279,13 @@ export class InspectView implements Component, Focusable {
     this.inputCrop = from;
     return lines.slice(from, from + limit);
   }
+  private isPresented(): boolean {
+    const current = (this.tui as TUI & { getFocusedComponent?(): Component | null }).getFocusedComponent?.();
+    return current === undefined || current === this;
+  }
   private refresh(): void {
     if (this.closed) return;
     const record = this.safeStatus();
-    if (record) this.state.markRead(record);
     try { this.preview = this.actions.preview(this.id); } catch { this.preview = []; }
     this.contentRevision++;
     if (!this.draft.text) this.draft.questionId = record?.question?.id;

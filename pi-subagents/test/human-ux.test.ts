@@ -70,12 +70,38 @@ test("Down focuses and selects without activating; Enter and Space activate exac
   widget.focusRoster("a"); widget.handleInput("\x1b[A"); assert.equal(returned.at(-1), undefined);
 });
 
-test("unfocused roster paints every live run instead of clipping to a focus window", () => {
-  const runs = Array.from({ length: 12 }, (_, i) => record(`run-${i}`));
-  const widget = new SubagentWidget(terminal(), theme, () => {});
+test("idle roster stays bounded and keeps all live rows plus a paging cue for hidden unread", () => {
+  const live = Array.from({ length: 4 }, (_, i) => ({ ...record(`live-${i}`), task: `Live task ${i}` }));
+  const unread = Array.from({ length: 28 }, (_, i) => ({ ...record(`done-${i}`, "completed"), endedAt: new Date(i + 1).toISOString(), task: `Settled task ${i}` }));
+  const runs = [...unread, ...live];
+  const opened: string[] = [];
+  const tui = terminal();
+  const editor = { render: () => ["MAIN EDITOR"], invalidate() {}, focused: true, handleInput() {} };
+  tui.setFocus(editor);
+  const widget = new SubagentWidget(tui, theme, id => opened.push(id));
   widget.update(runs, false);
-  const labels = widget.render(80).filter(line => line.includes("Worker"));
-  assert.equal(labels.length, 12);
+  const idle = widget.render(80);
+  assert(idle.length <= 10, `idle roster must leave the editor usable, got ${idle.length} lines`);
+  for (const task of ["Live task 0", "Live task 1", "Live task 2", "Live task 3"]) {
+    assert(idle.some(line => line.includes(task)), task);
+  }
+  assert.match(idle[0]!, /4 live · 28 unread/);
+  assert.match(idle.join("\n"), /hidden|more/);
+  const selected = unread[27]!.id;
+  widget.focusRoster(selected);
+  assert(widget.render(80).some(line => line.includes("Settled task 27")));
+  widget.handleInput("\x1b[32u");
+  assert.equal(opened.at(-1), selected, "Kitty space must activate the exact hidden unread id");
+  widget.focusRoster(live[2]!.id);
+  const painted = widget.render(80);
+  const row = painted.findIndex(line => line.includes("Live task 2"));
+  assert(row > 0, "focused window must paint the selected live row");
+  widget.handleMouse({ type: "click", button: "left", x: 0, y: row, screenX: 0, screenY: 0, width: 80, height: painted.length, shift: false, alt: false, ctrl: false, clickCount: 2 });
+  assert.equal(opened.at(-1), live[2]!.id);
+  const focusedId = live[0]!.id;
+  widget.focusRoster(focusedId);
+  widget.update([...unread, { ...live[1]!, state: "completed", endedAt: new Date(100).toISOString() }, live[0]!, live[2]!, live[3]!], false);
+  assert.equal(widget.state.selected, focusedId, "completion must not reorder the focused selection");
 });
 
 test("Recent is separately focusable and opening reviewed workers still routes exact IDs", () => {
@@ -254,6 +280,87 @@ test("a host that offers mount but cannot lend a slot falls back to the opaque o
   assert.equal(mounted, 1);
   assert.equal(overlay, 1);
   assert.equal(h.listeners, 0);
+});
+
+test("setWidget throw after a successful mount still releases the loan when unset also throws", async () => {
+  const done = { ...record("done", "completed"), endedAt: new Date(1).toISOString() };
+  const h = harness(done);
+  const state = new HumanState();
+  let released = 0, overlay = 0, closer: (() => void) | undefined;
+  const notices: string[] = [];
+  const tui = terminal();
+  const ctx = {
+    ui: {
+      setWidget(_key: string, factory?: (tui: TUI, theme: Theme) => { dispose(): void }) {
+        if (!factory) throw new Error("unset failed");
+        factory(tui, theme);
+        throw new Error("setWidget failed after factory");
+      },
+      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
+        overlay++;
+        factory(tui, theme, undefined, () => {}).dispose();
+      },
+      notify(message: string) { notices.push(message); },
+    },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+  await attach(ctx, done.id, h.actions, state, {
+    version: 1, focusEditor() {}, bindDown() { return () => {}; },
+    mount() {
+      let once = false;
+      return () => { if (once) return; once = true; released++; };
+    },
+  }, close => { closer = close; });
+  closer?.();
+  assert.equal(released, 1);
+  assert.equal(h.listeners, 0);
+  assert.equal(overlay, 1);
+  assert.equal(state.open, undefined);
+  assert.match(notices.join("\n"), /overlay|sidebar not preserved/i);
+});
+
+test("constructing or failing to open a thread does not mark a completed worker read", async () => {
+  const done = { ...record("done", "completed"), endedAt: new Date(1).toISOString() };
+  const constructed = harness(done);
+  const state = new HumanState();
+  const tui = terminal();
+  const view = new InspectView(tui, theme, done.id, constructed.actions, () => {}, state);
+  assert.equal(state.unread(done), true);
+  view.render(80);
+  assert.equal(state.unread(done), true, "constructing and painting without focus cannot mark read");
+  const dialog = { render: () => ["dialog"], invalidate() {} };
+  tui.setFocus(view); tui.setFocus(dialog);
+  view.render(80);
+  assert.equal(state.unread(done), true, "foreign-dialog focus cannot mark read");
+  view.dispose();
+  const failed = harness(done);
+  const unread = new HumanState();
+  const ctx = {
+    ui: {
+      setWidget(_key: string, factory?: (tui: TUI, theme: Theme) => { dispose(): void }) {
+        if (!factory) throw new Error("unset failed");
+        factory(tui, theme);
+        throw new Error("setWidget failed after factory");
+      },
+      async custom() { throw new Error("overlay failed"); },
+      notify() {},
+    },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+  await assert.rejects(attach(ctx, done.id, failed.actions, unread, {
+    version: 1, focusEditor() {}, bindDown() { return () => {}; },
+    mount() { return () => {}; },
+  }));
+  assert.equal(unread.unread(done), true);
+  assert.equal(failed.listeners, 0);
+});
+
+test("Kitty space activates thread action buttons", () => {
+  const h = harness();
+  let closed = 0;
+  const view = new InspectView(terminal(), theme, record().id, h.actions, () => closed++);
+  view.handleInput("\t"); view.handleInput("\t");
+  view.handleInput("\x1b[32u");
+  assert.equal(closed, 1);
+  view.dispose();
 });
 
 test("unknown custom editors restore their original focused component without an editor replacement", () => {

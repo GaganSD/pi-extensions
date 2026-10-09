@@ -300,7 +300,11 @@ export class ComposerSelectionController {
           originalHandleInput.call(editor, data);
           return;
         }
+        // Keep selectionActive through native handling so configured Down cannot
+        // also leave the editor on the keystroke that consumes the selection.
+        originalHandleInput.call(editor, data);
         collapse();
+        return;
       }
 
       originalHandleInput.call(editor, data);

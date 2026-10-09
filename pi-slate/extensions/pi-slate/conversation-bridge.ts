@@ -57,14 +57,22 @@ export function installConversationBridge(pi: ExtensionAPI, source: {
         view.render = guardedRender;
         const release = () => {
           if (!active) return;
-          active = false; returnFocus = !foreignFocus();
+          active = false;
+          try { returnFocus = !foreignFocus(); } catch { /* Focus probe cannot pin the loan. */ }
           if (view.render === guardedRender) view.render = originalRender;
-          restore(); leases.delete(close); tui.requestRender(true);
+          leases.delete(close);
+          try { restore(); } catch { /* Slot restore cannot skip dispose. */ }
+          try { tui.requestRender(true); } catch { /* Render cannot skip dispose. */ }
         };
-        const close = () => { release(); view.dispose?.(); };
+        const close = () => { try { release(); } finally { try { view.dispose?.(); } catch { /* View dispose is best-effort. */ } } };
         leases.add(close);
-        tui.setFocus(view);
-        tui.requestRender(true);
+        try {
+          tui.setFocus(view);
+          tui.requestRender(true);
+        } catch (error) {
+          close();
+          throw error;
+        }
         return release;
       } }),
     });

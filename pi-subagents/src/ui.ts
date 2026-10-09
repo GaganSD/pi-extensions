@@ -135,14 +135,31 @@ export class SubagentWidget implements Component, Focusable {
     this.leave(data); // Typing returns to the real editor without discarding that key.
   }
   render(width: number): string[] {
-    const inner = Math.max(1, width), entries = this.entries();
-    // Live/unread/selected rows stay painted; only a focused long list windows.
-    const index = Math.max(0, entries.indexOf(this.selectedId ?? ""));
-    const windowed = this.focused && entries.length > 8;
-    const start = windowed ? Math.max(0, Math.min(index - 6, entries.length - 8)) : 0;
-    const shown = windowed ? entries.slice(start, start + 8) : entries;
+    const inner = Math.max(1, width), entries = this.entries(), capacity = 8;
+    const liveIds = this.runs.filter(run => isLive(run.state)).map(run => run.id);
+    const unreadCount = this.runs.filter(run => !isLive(run.state) && this.state.unread(run)).length;
+    let start = 0, shown: string[];
+    if (this.focused) {
+      const index = Math.max(0, entries.indexOf(this.selectedId ?? ""));
+      start = entries.length > capacity ? Math.max(0, Math.min(index - 3, entries.length - capacity)) : 0;
+      shown = entries.slice(start, start + capacity);
+    } else {
+      const pinned = new Set(entries.filter(id => liveIds.includes(id) || id === this.selectedId || id === this.state.open));
+      const extra = new Set<string>();
+      for (const id of entries) {
+        if (pinned.has(id) || extra.size >= Math.max(0, capacity - pinned.size)) continue;
+        extra.add(id);
+      }
+      const keep = new Set([...pinned, ...extra]);
+      shown = entries.filter(id => keep.has(id));
+    }
     this.mouseRows = shown;
-    const lines = [this.theme.fg(this.blocked ? "error" : "dim", truncateToWidth(this.blocked ? "Sub-agents · cleanup unknown — launches blocked" : "Sub-agents · ↓ select · enter/space open", inner))];
+    const hidden = Math.max(0, entries.length - shown.length);
+    const summary = `${liveIds.length} live · ${unreadCount} unread`;
+    const heading = this.blocked ? `Sub-agents · cleanup unknown — launches blocked · ${summary}`
+      : hidden ? `Sub-agents · ${summary} · ${hidden} hidden · ↓ page`
+      : `Sub-agents · ${summary} · ↓ select · enter/space open`;
+    const lines = [this.theme.fg(this.blocked ? "error" : "dim", truncateToWidth(heading, inner))];
     for (const id of shown) {
       const selected = this.focused && this.selectedId === id;
       const run = this.runs.find(item => item.id === id);
@@ -150,6 +167,14 @@ export class SubagentWidget implements Component, Focusable {
         : run ? rowText(run, Math.max(1, inner - 2), this.runs, this.state) : "Unavailable";
       const prefix = selected ? `${CURSOR_MARKER}› ` : "  ";
       lines.push(this.theme.fg(selected ? "accent" : run?.question ? "warning" : "dim", truncateToWidth(prefix + label, inner)));
+    }
+    if (hidden) {
+      const above = this.focused ? start : 0;
+      const below = this.focused ? Math.max(0, entries.length - start - shown.length) : hidden;
+      const cue = this.focused && (above || below)
+        ? `${above ? `▴ ${above} above` : ""}${above && below ? " · " : ""}${below ? `▾ ${below} below` : ""}`
+        : `▾ ${hidden} more · focus to page`;
+      lines.push(this.theme.fg("dim", truncateToWidth(`  ${cue}`, inner)));
     }
     return lines;
   }
