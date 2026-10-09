@@ -1,6 +1,6 @@
 {
   "name": "@gagansd/pi-subagents",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Tiny yet powerful, benchmarked sub-agents for Pi",
   "license": "MIT",
   "type": "module",
