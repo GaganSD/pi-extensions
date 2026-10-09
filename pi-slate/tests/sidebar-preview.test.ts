@@ -2,454 +2,241 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { noteComposerFrameLines } from "../extensions/pi-slate/composer.ts";
-import { DOUBLE_CLICK_MS, Sidebar } from "../extensions/pi-slate/sidebar.ts";
+import { Sidebar, DOUBLE_CLICK_MS } from "../extensions/pi-slate/sidebar.ts";
+import type { SidebarResources, SidebarSession } from "../extensions/pi-slate/sidebar-data.ts";
+import { sessionSidebarSlots } from "../extensions/pi-slate/sidebar-layout.ts";
 import { DiffWorkspaceView, type WorkspaceView } from "../extensions/pi-slate/workspace.ts";
-import type { FileChange } from "../extensions/pi-slate/files-modified.ts";
+import type { BackgroundTask } from "../extensions/pi-slate/background-tasks.ts";
 
-function theme(): Theme {
-  return {
-    fg: (color, text) => `[${color}]${text}`,
-    bold: (text) => text,
-  } as Theme;
+const theme = (code = 32) => ({ fg: (_tone: string, text: string) => `\x1b[${code}m${text}\x1b[0m`, bold: (text: string) => text }) as Theme;
+const stripAnsi = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+const plain = (lines: string[]) => lines.map(line => stripAnsi(line).replace(/^│ ?/, "").trimEnd());
+const session: SidebarSession = { id: "session-a", name: "Sidebar redesign", pid: 8421, cwd: "/tmp/project", model: "sonnet-4.6", thinking: "medium", tokens: 31600, percent: 16, contextWindow: 200000, estimated: false, rate: 82, startedAt: 1000, lastTurnMs: 5000, working: true, turns: 2, messages: 5, usage: { input: 61400, output: 876, total: 62276, cacheRead: 48000, cacheWrite: 6100, cost: 0.12 } };
+const resources: SidebarResources = {
+  mcp: Array.from({ length: 7 }, (_, i) => ({ name: `server-${i}`, enabled: i !== 2, source: "global" })),
+  skills: Array.from({ length: 6 }, (_, i) => ({ name: `skill-${i}`, path: `/tmp/skills/${i}/SKILL.md`, loaded: i === 0, source: "project" })),
+  commands: Array.from({ length: 6 }, (_, i) => ({ name: `run-${i}`, source: "extension" })),
+};
+function fixture(rows = 60) {
+  let clock = 4000; let renders = 0;
+  const sidebar = new Sidebar(() => clock);
+  const terminal = { rows, columns: 140 };
+  sidebar.attach({ terminal, requestRender() { renders++; }, showOverlay() { return { hide() {} }; } } as unknown as TUI, theme());
+  sidebar.setSession(session); sidebar.setResources(resources);
+  return { sidebar, terminal, advance: (ms: number) => { clock += ms; }, renders: () => renders };
+}
+function mouse(y: number, extra: Partial<TuiMouseEvent> = {}): TuiMouseEvent {
+  return { type: "click", button: "left", x: 2, y, screenX: 112, screenY: y, width: 40, height: 60, shift: false, alt: false, ctrl: false, ...extra };
+}
+function row(sidebar: Sidebar, text: string, width = 40): number {
+  const index = plain(sidebar.render(width)).findIndex(line => line.includes(text));
+  assert(index >= 0, `missing ${text}`); return index;
+}
+function image(id = "a"): WorkspaceView {
+  return { id: `image:${id}`, title: `${id}.png`, filePath: `/tmp/${id}.png`, render: (w, h) => Array.from({ length: h }, () => "IMAGE".slice(0, w)), invalidate() {} };
+}
+function task(i: number): BackgroundTask {
+  return { id: `task-${i}`, source: "sample", label: `job-${i}`, kind: "subagent", state: i === 1 ? "waiting" : "running", startedAt: 1000, detail: "No control action is performed" };
 }
 
-function view(id: string): WorkspaceView {
-  return { id, render: () => [id], invalidate() {} };
-}
-
-function strip(line: string): string {
-  return line
-    .replace(/\[(?!clear\]|copy(?: path)?\])\w+\]/g, "")
-    .replace(/^[╭╰├│]\s?/, "")
-    .replace(/\s?[╮╯┤│]$/, "")
-    .replace(/^─\s?/, "")
-    .replace(/\s─+$/, "")
-    .replace(/\s+$/, "");
-}
-
-function actionX(line: string, label: string): number {
-  const x = strip(line).indexOf(label);
-  assert.ok(x >= 0, `missing ${label}`);
-  return x + 2;
-}
-
-function mouse(partial: Partial<TuiMouseEvent> & Pick<TuiMouseEvent, "type" | "y">): TuiMouseEvent {
-  return {
-    button: "left",
-    x: 2,
-    screenX: 2,
-    screenY: partial.y,
-    width: 40,
-    height: 24,
-    shift: false,
-    alt: false,
-    ctrl: false,
-    ...partial,
-  };
-}
-
-function attachSidebar(rows = 24): Sidebar {
-  const sidebar = new Sidebar();
-  const tui = {
-    terminal: { rows, columns: 80 },
-    requestRender() {},
-    showOverlay() {
-      return { hide() {} };
-    },
-  } as unknown as TUI;
-  sidebar.attach(tui, theme());
-  return sidebar;
-}
-
-test("DiffWorkspaceView highlights added, removed, and context lines", () => {
-  const preview = new DiffWorkspaceView(
-    "a.ts",
-    "diff",
-    ["diff --git a/a.ts b/a.ts", "@@ -1,1 +1,2 @@", " context", "-removed", "+added"].join("\n"),
-    theme(),
-  );
-  assert.equal(preview.id, "diff:a.ts:diff");
-  assert.deepEqual(preview.render(80, 5), [
-    "[dim]diff --git a/a.ts b/a.ts",
-    "[accent]@@ -1,1 +1,2 @@",
-    "[toolDiffContext] context",
-    "[toolDiffRemoved]-removed",
-    "[toolDiffAdded]+added",
-  ]);
-  assert.deepEqual(new DiffWorkspaceView("a.ts", "loading", "", theme()).render(80, 1), [
-    "[toolDiffContext]Loading change…",
-  ]);
-  const long = new DiffWorkspaceView("a.ts", "diff", ["one", "two", "three"].join("\n"), theme(), "a.ts");
-  assert.deepEqual(long.render(80, 2), ["[toolDiffContext]one", "[toolDiffContext]two"]);
-  assert.equal(long.handleWheel(1), true);
-  assert.deepEqual(long.render(80, 2), ["[toolDiffContext]two", "[toolDiffContext]three"]);
+test("quiet session rail merges usage into context and hides empty shelves", () => {
+  const { sidebar } = fixture();
+  const lines = plain(sidebar.render(80));
+  for (const label of ["SESSION", "Sidebar redesign", "pid 8421", "sonnet-4.6", "16%", "31.6k / 200k", "Input", "Output", "Cache", "Uncached", "Cost", "Rate", "MCP · 6 enabled", "Skills · 1 loaded"])
+    assert(lines.some(line => line.includes(label)), label);
+  for (const label of ["Stats", "Tokens · branch", "Commands ·", "Tasks", "Preview", "no selection", "/run-0"])
+    assert(!lines.some(line => line.includes(label)), label);
+  assert.match(sidebar.sessionDetails(), /Cache read: 48k/);
 });
 
-test("a selected file preview returns after a temporary image peek", () => {
-  const sidebar = new Sidebar();
-  const fileView = view("diff:a.ts:diff");
-  const imageView = view("image:1:/tmp/pic.png");
+test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny terminals", () => {
+  const { sidebar, terminal } = fixture();
+  sidebar.setSession({ ...session, name: "长会话 👩‍💻 café\n\x1b[2J", model: "非常长的模型名字".repeat(8) });
+  sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2), task(3)]);
+  for (let height = 0; height <= 60; height++) {
+    terminal.rows = height;
+    for (const width of [0, 1, 2, 3, 8, 20, 28, 40, 80]) {
+      const lines = sidebar.render(width);
+      assert.equal(lines.length, height);
+      assert(lines.every(line => visibleWidth(line) <= width), `${width}×${height}`);
+      assert(lines.every(line => !line.includes("\x1b[2J") && !line.includes("\n")));
+      const slots = sessionSidebarSlots(height, 4, true);
+      assert.equal(Object.values(slots).reduce((a, b) => a + b, 0), height);
+      assert(Object.values(slots).every(x => x >= 0));
+    }
+  }
+});
 
-  sidebar.setSelectedPreview(fileView);
-  assert.equal(sidebar.currentViewId(), "diff:a.ts:diff");
+test("usage is a single stable label/value lane; full accounting stays in details", () => {
+  const { sidebar } = fixture();
+  for (const width of [18, 28, 40, 80]) {
+    const text = plain(sidebar.render(width)).join("\n");
+    for (const value of ["pid 8421", "Input", "61.4k", "Output", "876", "Cache", "48k", "Uncached", "7.3k", "$0.12", "~82/s"]) assert(text.includes(value), value);
+  }
+  assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
+  assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
+});
 
-  sidebar.setView(imageView);
-  assert.equal(sidebar.currentViewId(), "image:1:/tmp/pic.png");
+test("a 24-row terminal still renders an image body; a very short one prioritizes tasks", () => {
+  const { sidebar, terminal } = fixture(24); sidebar.setView(image()); sidebar.setTasks([task(0)]);
+  assert(plain(sidebar.render(40)).some(line => line.includes("IMAGE")), "normal-height thumbnails must not disappear");
+  terminal.rows = 14;
+  const text = plain(sidebar.render(40)).join("\n");
+  assert(text.includes("Tasks")); assert(!text.includes("IMAGE"));
+});
 
+test("foldable MCP and Skills sections persist independently and keep counts visible", () => {
+  const { sidebar } = fixture(); const saved: unknown[] = [];
+  sidebar.setActions({ copy() {}, openFile() {}, persistFold: (section, expanded) => { const folds = { ...sidebar.getFolds(), [section]: expanded }; saved.push(folds); return folds; } });
+  assert(!plain(sidebar.render(40)).some(line => line.includes("server-0")));
+  const mcp = row(sidebar, "MCP"); sidebar.handleMouse(mouse(mcp));
+  assert.equal(sidebar.getFolds().mcp, true);
+  assert.equal(sidebar.getFolds().skills, false);
+  assert(plain(sidebar.render(40)).some(line => line.includes("server-0")));
+  sidebar.handleMouse(mouse(row(sidebar, "Skills")));
+  assert.equal(sidebar.getFolds().skills, true);
+  assert.deepEqual(saved, [{ mcp: true, skills: false }, { mcp: true, skills: true }]);
+  sidebar.handleMouse(mouse(row(sidebar, "MCP")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("server-0")));
+  assert(plain(sidebar.render(40)).some(line => line.includes("6 enabled")));
+});
+
+test("a failed preference save cannot change the visible fold state", () => {
+  const { sidebar } = fixture();
+  sidebar.setActions({ copy() {}, openFile() {}, persistFold: () => undefined });
+  sidebar.toggleSection("skills");
+  assert.equal(sidebar.getFolds().skills, false);
+});
+
+test("MCP is limited to five rows; list wheel scroll does not move the session header", () => {
+  const { sidebar } = fixture(); sidebar.setFolds({ mcp: true, skills: true });
+  const before = plain(sidebar.render(40));
+  assert.equal(before.filter(line => /server-\d/.test(line)).length, 5);
+  assert(!before.some(line => line.includes("server-5")));
+  sidebar.handleMouse(mouse(row(sidebar, "server-0"), { type: "wheel", wheelDelta: -1 }));
+  const after = plain(sidebar.render(40));
+  assert(after.some(line => line.includes("server-5")));
+  assert(!after.some(line => line.includes("server-0")));
+  assert.equal(after[0], before[0]);
+  assert(after.some(line => line.includes("skill-0")), "other list unchanged");
+});
+
+test("skill lists scroll and clamp; the rail does not list commands", () => {
+  const { sidebar } = fixture(); sidebar.setFolds({ mcp: false, skills: true });
+  sidebar.handleMouse(mouse(row(sidebar, "skill-0"), { type: "wheel", wheelDelta: -2 }));
+  assert(plain(sidebar.render(40)).some(line => line.includes("skill-4")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("/run-0")));
+  sidebar.setResources({ ...resources, skills: resources.skills.slice(0, 1), commands: resources.commands.slice(0, 1) });
+  assert(plain(sidebar.render(40)).some(line => line.includes("skill-0")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("Commands")));
+});
+
+test("read-only task actions preserve the pinned image", () => {
+  const { sidebar } = fixture(); const inspected: string[] = [], opened: string[] = [];
+  sidebar.setActions({ copy() {}, openFile: x => opened.push(x), inspect: title => inspected.push(title) });
+  sidebar.setView(image()); sidebar.pinImage(); sidebar.setTasks([task(0)]);
+  sidebar.handleMouse(mouse(row(sidebar, "job-0")));
+  assert.deepEqual(inspected, ["job-0"]);
+  assert.equal(sidebar.currentViewId(), "image:a");
+  assert.equal(sidebar.isImagePinned(), true); assert.deepEqual(opened, []);
+});
+
+test("image pin prevents caret replacement; clear only removes selection until caret leaves", () => {
+  const { sidebar } = fixture(); sidebar.setView(image("a")); sidebar.pinImage();
+  sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:a");
+  sidebar.setView(undefined); assert.equal(sidebar.currentViewId(), "image:a");
+  sidebar.pinImage(); sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
+  sidebar.clearImage(); sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), undefined);
+  sidebar.setView(undefined); sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
+  sidebar.setView({ ...image(), id: "diff:file.ts" }); assert.equal(sidebar.currentViewId(), "image:b");
+});
+
+test("unpinned image preview hides when the caret leaves and recovers on the next peek", () => {
+  const { sidebar } = fixture(); sidebar.setView(image("a"));
+  assert.equal(sidebar.currentViewId(), "image:a");
+  assert(plain(sidebar.render(40)).some(line => line.includes("Preview")));
   sidebar.setView(undefined);
-  assert.equal(sidebar.currentViewId(), "diff:a.ts:diff");
-});
-
-test("clicking a changed file selects it instead of copying its path", () => {
-  const sidebar = attachSidebar();
-  const selected: FileChange[] = [];
-  const copied: string[] = [];
-  sidebar.setActions({
-    copy: (text) => copied.push(text),
-    openFile() {},
-    selectFile: (file) => {
-      selected.push(file);
-      sidebar.setSelectedPreview(new DiffWorkspaceView(file.path, "diff", "+ok", theme(), file.path, file.path));
-    },
-  });
-  sidebar.setFiles([
-    { index: " ", worktree: "M", path: "src/a.ts" },
-    { index: "?", worktree: "?", path: "src/b.ts" },
-  ]);
-  sidebar.render(40);
-
-  const heading = sidebar.handleMouse(mouse({ type: "click", y: 2 }));
-  assert.equal(heading, undefined);
-  const first = sidebar.handleMouse(mouse({ type: "click", y: 3 }));
-  assert.deepEqual(first, { handled: true });
-  assert.equal(selected[0]?.path, "src/a.ts");
-  assert.deepEqual(copied, []);
-  const labels = sidebar.render(40).map(strip);
-  assert.ok(labels.some((line) => line.includes("> M src/a.ts")));
-  assert.ok(labels.some((line) => line.includes("Preview · src/a.ts") && line.includes("[clear]")));
-});
-
-test("two rapid clicks on the same file row open that path once", () => {
-  const sidebar = attachSidebar();
-  const selected: FileChange[] = [];
-  const opened: string[] = [];
-  sidebar.setActions({
-    copy() {},
-    openFile: (filePath) => opened.push(filePath),
-    selectFile: (file) => {
-      selected.push(file);
-      sidebar.setSelectedPreview(new DiffWorkspaceView(file.path, "diff", "+ok", theme(), file.path, file.path));
-    },
-  });
-  sidebar.setFiles([
-    { index: " ", worktree: "M", path: "src/a.ts" },
-    { index: "?", worktree: "?", path: "src/b.ts" },
-  ]);
-  sidebar.render(40);
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3 })), { handled: true });
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3 })), { handled: true });
-  assert.equal(selected.length, 2);
-  assert.equal(selected[0]?.path, "src/a.ts");
-  assert.deepEqual(opened, ["src/a.ts"]);
-});
-
-test("a late second click on a file row selects it but does not open", (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
-  const sidebar = attachSidebar();
-  const selected: FileChange[] = [];
-  const opened: string[] = [];
-  sidebar.setActions({
-    copy() {},
-    openFile: (filePath) => opened.push(filePath),
-    selectFile: (file) => selected.push(file),
-  });
-  sidebar.setFiles([
-    { index: " ", worktree: "M", path: "src/a.ts" },
-    { index: "?", worktree: "?", path: "src/b.ts" },
-  ]);
-  sidebar.render(40);
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3 })), { handled: true });
-  t.mock.timers.tick(DOUBLE_CLICK_MS + 1);
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3 })), { handled: true });
-  assert.equal(selected.length, 2);
-  assert.deepEqual(opened, []);
-});
-
-test("double-clicking a preview with a real path opens that file", () => {
-  const sidebar = attachSidebar();
-  const opened: string[] = [];
-  sidebar.setActions({
-    copy() {},
-    openFile: (filePath) => opened.push(filePath),
-    selectFile() {},
-  });
-  sidebar.setFiles([{ index: " ", worktree: "M", path: "src/a.ts" }]);
-  sidebar.setSelectedPreview(new DiffWorkspaceView("src/a.ts", "diff", "+ok", theme(), "src/a.ts", "src/a.ts"));
-  const labels = sidebar.render(40).map(strip);
-  const preview = labels.findIndex((line) => line.includes("Preview · src/a.ts"));
-  assert.ok(preview >= 0);
-
-  assert.equal(sidebar.handleMouse(mouse({ type: "click", y: preview + 1 })), undefined);
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: preview + 1 })), { handled: true });
-  assert.deepEqual(opened, ["src/a.ts"]);
-});
-
-test("TUI clickCount opens after the fallback timer would have expired", (t) => {
-  t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
-  const sidebar = attachSidebar();
-  const opened: string[] = [];
-  sidebar.setActions({
-    copy() {},
-    openFile: (filePath) => opened.push(filePath),
-    selectFile() {},
-  });
-  sidebar.setFiles([{ index: " ", worktree: "M", path: "src/a.ts" }]);
-  sidebar.render(40);
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3, clickCount: 1 })), { handled: true });
-  t.mock.timers.tick(DOUBLE_CLICK_MS + 50);
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3, clickCount: 2 })), { handled: true });
-  assert.deepEqual(opened, ["src/a.ts"]);
-});
-
-test("TUI clickCount 1 twice does not open", () => {
-  const sidebar = attachSidebar();
-  const opened: string[] = [];
-  sidebar.setActions({
-    copy() {},
-    openFile: (filePath) => opened.push(filePath),
-    selectFile() {},
-  });
-  sidebar.setFiles([{ index: " ", worktree: "M", path: "src/a.ts" }]);
-  sidebar.render(40);
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3, clickCount: 1 })), { handled: true });
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: 3, clickCount: 1 })), { handled: true });
-  assert.deepEqual(opened, []);
-});
-
-test("summary leaves blank lines between its sections and shows a disjoint activity breakdown", () => {
-  const sidebar = attachSidebar();
-  sidebar.setFiles([
-    { index: " ", worktree: "M", path: "src/a.ts" },
-    { index: "?", worktree: "?", path: "src/b.ts" },
-  ]);
-  sidebar.setTurnImpact({
-    revision: 1,
-    toolsCalled: 6,
-    events: [
-      { id: "read", toolName: "read", title: "read a.ts", detail: "", isError: false, pending: false },
-      ...Array.from({ length: 5 }, (_, index) => ({ id: `bash-${index}`, toolName: "bash", title: "bash test", detail: "", isError: false, pending: false })),
-    ],
-  });
-  const labels = sidebar.render(40).map(strip);
-  const summary = labels.indexOf("Summary");
-  const files = labels.indexOf("Files Changed · 2");
-  const lastTurn = labels.indexOf("Last Turn");
-  assert.ok(summary >= 0 && files === summary + 2);
-  assert.equal(labels[summary + 1], "");
-  assert.ok(lastTurn > files);
-  assert.equal(labels[lastTurn - 1], "");
-  assert.equal(labels[lastTurn + 1], "  6 actions");
-  assert.equal(labels[lastTurn + 2], "  1 inspected · 5 ran");
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: lastTurn + 2 })), { handled: true, render: true });
-  assert.equal(sidebar.currentViewId(), "turn:activity");
-  const selected = sidebar.render(40).map(strip);
-  assert.equal(selected[lastTurn + 1], "  6 actions");
-  assert.equal(selected[lastTurn + 2], "> 1 inspected · 5 ran");
-  assert.ok(selected.some((line) => line.includes("Preview · activity")));
-});
-
-test("empty activity is intentional, non-clickable, and narrow summaries stay within the sidebar", () => {
-  const sidebar = attachSidebar();
-  const empty = sidebar.render(40).map(strip);
-  const lastTurn = empty.indexOf("Last Turn");
-  assert.equal(empty[lastTurn + 1], "  No tool activity");
-  assert.equal(sidebar.handleMouse(mouse({ type: "click", y: lastTurn + 1 })), undefined);
   assert.equal(sidebar.currentViewId(), undefined);
-
-  sidebar.setTurnImpact({
-    revision: 1, toolsCalled: 3,
-    events: [
-      { id: "read", toolName: "read", title: "read a.ts", detail: "", isError: false, pending: false },
-      { id: "bash", toolName: "bash", title: "bash test", detail: "", isError: false, pending: false },
-      { id: "powershell", toolName: "powershell", title: "powershell test", detail: "", isError: false, pending: false },
-    ],
-  });
-  assert.ok(sidebar.render(8).every((line) => visibleWidth(strip(line)) <= 8));
+  const hidden = plain(sidebar.render(40));
+  assert(!hidden.some(line => line.includes("Preview") || line.includes("caret")), "hide leaves no preview shelf");
+  sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
+  assert(plain(sidebar.render(40)).some(line => line.includes("Preview")));
 });
 
-test("a short sidebar keeps the visible total clickable when its breakdown is clipped", () => {
-  const sidebar = attachSidebar(11);
-  sidebar.setTurnImpact({
-    revision: 1, toolsCalled: 2,
-    events: [
-      { id: "read", toolName: "read", title: "read a.ts", detail: "", isError: false, pending: false },
-      { id: "bash", toolName: "bash", title: "bash test", detail: "", isError: false, pending: false },
-    ],
-  });
-  const labels = sidebar.render(40).map(strip);
-  const total = labels.indexOf("  2 actions");
-  assert.ok(total >= 0);
-  assert.equal(labels.length, 11);
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: total })), { handled: true, render: true });
-  assert.equal(sidebar.currentViewId(), "turn:activity");
+test("copy/open image hit regions align with painted controls", () => {
+  const { sidebar } = fixture(); const copied: string[] = []; const opened: string[] = [];
+  sidebar.setActions({ copy: x => copied.push(x), openFile: x => opened.push(x) }); sidebar.setView(image());
+  const painted = plain(sidebar.render(80)).join("\n");
+  assert(!/caret|\[pin\]|\[clear\]|a\.png/.test(painted), "preview chrome is title plus open/copy");
+  const click = (label: string) => { const lines = plain(sidebar.render(80)); const y = lines.findIndex(line => line.includes(label)); assert(y >= 0); return sidebar.handleMouse(mouse(y, { width: 80, x: lines[y]!.indexOf(label) + 2 })); };
+  click("[copy]"); assert.deepEqual(copied, ["/tmp/a.png"]);
+  click("[open]"); assert.deepEqual(opened, ["/tmp/a.png"]);
 });
 
-test("context dock keeps the heading, rule, and spend", () => {
-  const sidebar = attachSidebar();
-  sidebar.setContext({ tokens: 18958, percent: 2.4, tokensPerSec: 42.4, spend: 1.234 });
-  sidebar.setSkillsLoaded(12);
-  sidebar.setMcpConnected(0);
-  const dock = sidebar.render(80).slice(-4).map((line) => strip(line).replace(/^─+$/, "─"));
-  assert.deepEqual(dock, [
-    "Context",
-    "18,958 tokens · 2% used · 42 tokens/sec",
-    "$1.23 · 12 skills loaded · 0 MCPs enabled",
-    "─",
-  ]);
+test("image double-click uses native clickCount or the fallback timer", () => {
+  const { sidebar, advance } = fixture(); const opened: string[] = [];
+  sidebar.setActions({ copy() {}, openFile: x => opened.push(x) }); sidebar.setView(image());
+  const y = row(sidebar, "IMAGE");
+  sidebar.handleMouse(mouse(y)); advance(DOUBLE_CLICK_MS + 1); sidebar.handleMouse(mouse(y));
+  assert.deepEqual(opened, []); sidebar.handleMouse(mouse(y, { clickCount: 2 }));
+  assert.deepEqual(opened, ["/tmp/a.png"]);
 });
 
-test("section titles follow the theme heading color", () => {
-  const sidebar = attachSidebar();
-  sidebar.setFiles([{ index: " ", worktree: "M", path: "src/a.ts" }]);
-  const lines = sidebar.render(40);
-  assert.ok(lines.some((line) => line.includes("[mdHeading]Summary")));
-  assert.ok(lines.some((line) => line.includes("[mdHeading]Files Changed")));
-  assert.ok(lines.some((line) => line.includes("[mdHeading]Last Turn")));
-  assert.ok(lines.some((line) => line.includes("[mdHeading]Preview")));
-  assert.ok(lines.some((line) => line.includes("[mdHeading]Context")));
+test("short terminals collapse the image body, keep tasks visible, and scroll middle overflow", () => {
+  const { sidebar } = fixture(18); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
+  sidebar.setFolds({ mcp: true, skills: true });
+  const lines = plain(sidebar.render(40));
+  assert.equal(sidebar.imagePath(), "/tmp/a.png");
+  assert(!lines.some(line => line.includes("IMAGE")));
+  assert(lines.some(line => line.includes("Tasks")));
+  sidebar.handleMouse(mouse(6, { type: "wheel", wheelDelta: -40 }));
+  const scrolled = plain(sidebar.render(40));
+  assert(scrolled.some(line => line.includes("Skills") || /server-\d/.test(scrolled.join("\n"))));
+  assert.equal(scrolled[0], lines[0]);
+  assert.equal(sidebar.imagePath(), "/tmp/a.png");
 });
 
-test("context facts stay on consecutive rows when the composer grows", () => {
-  const sidebar = attachSidebar(24);
-  sidebar.splitActive = true;
-  noteComposerFrameLines(6);
-  sidebar.setContext({ tokens: 18958, percent: 2.4, tokensPerSec: 42.4, spend: 1.234 });
-  sidebar.setSkillsLoaded(12);
-  sidebar.setMcpConnected(0);
-  const dock = sidebar.render(80).slice(-6).map((line) => strip(line).replace(/^─+$/, "─"));
-  assert.deepEqual(dock, [
-    "Context",
-    "",
-    "",
-    "18,958 tokens · 2% used · 42 tokens/sec",
-    "$1.23 · 12 skills loaded · 0 MCPs enabled",
-    "─",
-  ]);
+test("task shelf scrolls and is not changed by composer height", () => {
+  const { sidebar } = fixture(); sidebar.setTasks(Array.from({ length: 7 }, (_, i) => task(i)));
+  const initial = plain(sidebar.render(40)); assert.equal(initial.filter(line => /job-\d/.test(line)).length, 3);
+  sidebar.handleMouse(mouse(row(sidebar, "job-0"), { type: "wheel", wheelDelta: -2 }));
+  assert(plain(sidebar.render(40)).some(line => line.includes("job-4")));
 });
 
-test("clicking a last-turn fact opens that list in Preview", () => {
-  const sidebar = attachSidebar();
-  sidebar.setTurnImpact({
-    revision: 1,
-    toolsCalled: 1,
-    events: [{ id: "r1", toolName: "read", title: "read a.ts", detail: "full read", isError: false, pending: false }],
-  });
-  const labels = sidebar.render(40).map(strip);
-  const lastTurn = labels.indexOf("Last Turn");
-  assert.equal(sidebar.handleMouse(mouse({ type: "move", y: lastTurn + 1 })), undefined);
-  assert.equal(sidebar.currentViewId(), undefined);
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: lastTurn + 1 })), { handled: true, render: true });
-  assert.equal(sidebar.currentViewId(), "turn:activity");
-  const preview = sidebar.render(40).map(strip);
-  assert.ok(preview.some((line) => line.includes("Preview · activity") && line.includes("[clear]")));
-  assert.ok(preview.some((line) => line.includes("> 1 action")));
-  assert.ok(preview.some((line) => /▸ read a.ts/.test(line)));
-  const heading = preview.findIndex((line) => line.includes("[clear]"));
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: heading, x: 38 })), { handled: true, render: true });
-  assert.equal(sidebar.currentViewId(), undefined);
+test("clock and theme changes invalidate cached output; pure repeated render is reused", () => {
+  const { sidebar, advance } = fixture();
+  const first = sidebar.render(80); assert.equal(sidebar.render(80), first);
+  assert.match(sidebar.sessionDetails(), /Wall time \(this runtime\): 3s/);
+  advance(2000); assert.notEqual(sidebar.render(80), first);
+  assert.match(sidebar.sessionDetails(), /Wall time \(this runtime\): 5s/);
+  let current = theme(31); sidebar.setThemeProvider(() => current);
+  assert(sidebar.render(80).some(line => line.includes("\x1b[31m")));
+  current = theme(34); sidebar.invalidate();
+  assert(sidebar.render(80).some(line => line.includes("\x1b[34m")));
 });
 
-test("clicking preview [copy] copies the file path and leaves [clear] working", () => {
-  const sidebar = attachSidebar();
-  const copied: string[] = [];
-  sidebar.setActions({
-    copy: (text) => copied.push(text),
-    openFile() {},
-    selectFile() {},
-  });
-  sidebar.setSelectedPreview(new DiffWorkspaceView("src/a.ts", "diff", "+ok", theme(), "src/a.ts", "src/a.ts"));
-  const lines = sidebar.render(40);
-  const heading = lines.findIndex((line) => strip(line).includes("[copy]") && strip(line).includes("[clear]"));
-  assert.ok(heading >= 0);
-  assert.ok(strip(lines[heading] ?? "").includes("Preview · src/a.ts"));
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: heading, x: actionX(lines[heading] ?? "", "[copy]") })), {
-    handled: true,
-  });
-  assert.deepEqual(copied, ["src/a.ts"]);
-  assert.equal(sidebar.currentViewId(), "diff:src/a.ts:diff");
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: heading, x: actionX(lines[heading] ?? "", "[clear]") })), {
-    handled: true,
-    render: true,
-  });
-  assert.equal(sidebar.currentViewId(), undefined);
+test("unknown values and invalid MCP config remain explicit even when folded", () => {
+  const { sidebar } = fixture();
+  sidebar.setSession({ ...session, percent: null, tokens: null, contextWindow: null, usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null } });
+  sidebar.setResources({ ...resources, mcpError: "MCP config unreadable" });
+  const lines = plain(sidebar.render(80));
+  assert(lines.some(line => line.includes("—%")));
+  assert.match(sidebar.sessionDetails(), /Cache read: —/);
+  assert(lines.some(line => line.includes("config error")));
+  assert(!lines.some(line => line.includes("$0.00")));
 });
 
-test("clicking image [copy path] copies the real filepath, not the placeholder", () => {
-  const sidebar = attachSidebar();
-  const copied: string[] = [];
-  sidebar.setActions({
-    copy: (text) => copied.push(text),
-    openFile() {},
-    selectFile() {},
-  });
-  const filePath = "/tmp/pi-clipboard-f2634509-b0a8-489a-85f7-ce9dc69b976a.png";
-  sidebar.setView({
-    id: `image:1:${filePath}`,
-    title: "shot.png",
-    filePath,
-    render: () => ["[image-1]"],
-    invalidate() {},
-  });
-  const lines = sidebar.render(40);
-  const heading = lines.findIndex((line) => strip(line).includes("[copy path]"));
-  assert.ok(heading >= 0);
-  assert.ok(strip(lines[heading] ?? "").includes("[clear]"));
-  assert.ok(!strip(lines[heading] ?? "").includes("[image-1]"));
-
-  assert.deepEqual(sidebar.handleMouse(mouse({
-    type: "click",
-    y: heading,
-    x: actionX(lines[heading] ?? "", "[copy path]"),
-  })), { handled: true });
-  assert.deepEqual(copied, [filePath]);
+test("reset discards old images, task rows and hit targets without changing fold preference", () => {
+  const { sidebar } = fixture(); sidebar.setFolds({ mcp: true, skills: false }); sidebar.setView(image()); sidebar.setTasks([task(0)]);
+  sidebar.render(40); sidebar.reset();
+  assert.equal(sidebar.currentViewId(), undefined); assert.deepEqual(sidebar.getFolds(), { mcp: true, skills: false });
+  assert(!plain(sidebar.render(40)).some(line => line.includes("job-0") || line.includes("server-0")));
+  sidebar.dispose(); sidebar.dispose();
 });
 
-test("clicking an activity item [copy] copies that item and does not expand it", () => {
-  const sidebar = attachSidebar();
-  const copied: string[] = [];
-  sidebar.setActions({
-    copy: (text) => copied.push(text),
-    openFile() {},
-    selectFile() {},
-  });
-  sidebar.setTurnImpact({
-    revision: 1,
-    toolsCalled: 1,
-    events: [{ id: "r1", toolName: "read", title: "read a.ts", detail: "full read", isError: false, pending: false }],
-  });
-  const summary = sidebar.render(40).map(strip);
-  const lastTurn = summary.indexOf("Last Turn");
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: lastTurn + 1 })), { handled: true, render: true });
-
-  const lines = sidebar.render(40);
-  const labels = lines.map(strip);
-  const heading = labels.findIndex((line) => line.includes("Preview · activity"));
-  assert.ok(heading >= 0);
-  assert.ok(labels[heading]?.includes("[clear]"));
-  assert.ok(!labels[heading]?.includes("[copy]"));
-  const row = labels.findIndex((line) => line.includes("▸ read a.ts") && line.includes("[copy]"));
-  assert.ok(row >= 0);
-
-  assert.deepEqual(sidebar.handleMouse(mouse({ type: "click", y: row, x: actionX(lines[row] ?? "", "[copy]") })), {
-    handled: true,
-  });
-  assert.deepEqual(copied, ["read a.ts\nfull read"]);
-  assert.match(strip(sidebar.render(40)[row] ?? ""), /▸ read a.ts/);
+test("DiffWorkspaceView remains independently usable for transcript diffs", () => {
+  const preview = new DiffWorkspaceView("a.ts", "diff", " context\n-removed\n+added", theme());
+  const lines = preview.render(80, 3);
+  assert.deepEqual(lines.map(stripAnsi), [" context", "-removed", "+added"]);
+  assert.equal(preview.handleWheel(1), false);
 });

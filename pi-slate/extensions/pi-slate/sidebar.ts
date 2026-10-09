@@ -1,73 +1,38 @@
-import { homedir } from "node:os";
-import { type Theme } from "@earendil-works/pi-coding-agent";
-import {
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-  type OverlayHandle,
-  type OverlayOptions,
-  type TUI,
-  type TuiMouseEvent,
-  type TuiMouseEventResult,
-} from "@earendil-works/pi-tui";
-import {
-  formatContextResources,
-  formatContextTokens,
-  isSidebarResizeHandle,
-  clampSidebarColumns,
-  parseSidebarPercent,
-  sidebarPercentFromColumns,
-  SIDEBAR_HIDDEN,
-  sidebarHandleColumn,
-  workspaceColumnWidth,
-} from "./layout.ts";
-import {
-  clampFilesOffset,
-  fileAtPanelRow,
-  fileKey,
-  fileMark,
-  filesPanel,
-  formatFileLabel,
-  sameFiles,
-  type FileChange,
-} from "./files-modified.ts";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
+import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
 import type { WorkspaceView } from "./workspace.ts";
-import { TurnLogView } from "./turn-log.ts";
-import { formatTurnImpact, type TurnImpactSnapshot } from "./turn-impact.ts";
-import {
-  filesWidgetDesiredHeight,
-  SIDEBAR_DOCK_LINES,
-  sidebarRowSlots,
-  splitSidebarContent,
-} from "./workspace-layout.ts";
-import { COMPOSER_SHELF_LINES, chromePaint, composerFrameLineCount, frameRow, inscribedTitle } from "./composer.ts";
-
-const KITTY_PREFIX = "\x1b_G";
-const CLEAR = "[clear]";
-const COPY = "[copy]";
-const COPY_PATH = "[copy path]";
-const PEEK_PAD = 2;
-
-export type SidebarContextData = {
-  tokens: number | null;
-  percent: number | null;
-  tokensPerSec: number;
-  spend: number;
-};
+import { chromePaint } from "./composer.ts";
+import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
+import type { BackgroundTask } from "./background-tasks.ts";
+import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset, sidebarRate, sidebarUncached } from "./sidebar-layout.ts";
 
 export const DOUBLE_CLICK_MS = 400;
-
+type ListName = "mcp" | "skills" | "tasks";
+type Row = { text: string; action?: () => void; list?: ListName; item?: number };
+type Hit = { y: number; x0: number; x1: number; action: () => void };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
-  selectFile(file: FileChange): void;
-  persistWidth?(columns: number | undefined): void;
+  commands?(): void;
+  inspect?(title: string, text: string): void;
+  persistWidth?(percent: number | undefined): void;
+  persistFold?(section: keyof SidebarFolds, expanded: boolean): SidebarFolds | undefined;
 };
+const EMPTY_SESSION: SidebarSession = {
+  id: "", name: "Session", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
+  percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
+  lastTurnMs: null, working: false, turns: 0, messages: 0,
+  usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null },
+};
+const EMPTY_RESOURCES: SidebarResources = { skills: [], commands: [], mcp: [] };
 
+/** One session rail; plain facts in, theme-aware bounded rows and matching hit regions out. */
 export class Sidebar implements Component {
   private tui?: TUI;
   private theme?: Theme;
+  private themeProvider?: () => Theme | undefined;
   private splitDispose?: SidebarSplitLease;
   private guideHandle?: OverlayHandle;
   private guideOptions?: OverlayOptions;
@@ -76,157 +41,129 @@ export class Sidebar implements Component {
   private resizeStartWidth = 0;
   private _preferredWidth?: number;
   hidden = false;
-  private selectedView?: WorkspaceView;
-  private transientView?: WorkspaceView;
-  private turnImpact: TurnImpactSnapshot = emptyTurnImpact();
-  private turnView?: TurnLogView;
-  private contextData: SidebarContextData = { tokens: null, percent: null, tokensPerSec: 0, spend: 0 };
-  private lastSlots = { summaryHeight: 0, peekHeight: 0, dividerHeight: 0, filesHeight: 0, filesStart: 0, impactStart: 0, impactHeight: 0 };
-  private mcpConnected: number | null = null;
-  private skillsLoaded = 0;
-  private files: FileChange[] = [];
-  private filesRev = 0;
-  private filesOffset = 0;
-  private selectedFileKey?: string;
-  private selectedActivityRow?: number;
-  private lastPeekHits?: Array<{ id: "clear" | "copy"; y: number; x0: number; x1: number }>;
-  private lastClick?: { target: string; at: number };
-  private cwd = "";
-  private home = homedir();
-  private contentCached?: { key: string; lines: string[] };
-  private dockCached?: { key: string; lines: string[] };
-  private actions?: SidebarActions;
   splitActive = false;
+  private session: SidebarSession = EMPTY_SESSION;
+  private resources: SidebarResources = EMPTY_RESOURCES;
+  private tasks: BackgroundTask[] = [];
+  private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
+  private offsets: Record<ListName, number> = { mcp: 0, skills: 0, tasks: 0 };
+  private middleOffset = 0;
+  private middleRows = 0;
+  private middleStart = 0;
+  private middleHeight = 0;
+  private listRows: Array<{ y: number; list: ListName }> = [];
+  private hits: Hit[] = [];
+  private selectedImage?: WorkspaceView;
+  private peekImage?: WorkspaceView;
+  private pinned = false;
+  private clearedImageId?: string;
+  private imageStart = 0;
+  private imageHeight = 0;
+  private lastClick?: { target: string; at: number };
+  private cached?: { key: string; lines: string[] };
+  private revision = 0;
+  private actions?: SidebarActions;
 
+  private readonly now: () => number;
+  constructor(now: () => number = Date.now) { this.now = now; }
   requireTheme(): Theme {
-    if (!this.theme) throw new Error("sidebar is not attached");
-    return this.theme;
+    const theme = this.themeProvider?.() ?? this.theme;
+    if (!theme) throw new Error("sidebar is not attached");
+    return theme;
   }
-
-  attach(tui: TUI, theme: Theme): void {
-    this.tui = tui;
-    this.theme = theme;
+  setThemeProvider(provider: () => Theme | undefined): void { this.themeProvider = provider; this.invalidate(); }
+  attach(tui: TUI, theme: Theme, onYield?: () => void): void {
+    this.tui = tui; this.theme = theme;
     if (this.splitDispose) return;
-    this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
+    this.splitDispose = installSidebarSplit(tui, this, () => this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth, () => {
+      this.splitActive = false; this.splitDispose = undefined;
+      this.hideResizeGuide(); this.resizing = false; this.hits = []; this.listRows = [];
+      onYield?.();
+    });
     this.splitActive = Boolean(this.splitDispose);
-    this.contentCached = undefined;
-    this.dockCached = undefined;
-    // Incompatible hosts remain untouched: no fullscreen preference or overlay fallback.
+    this.invalidate();
   }
-
+  isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
   ownsFocus(component: Component): boolean { return component === this || this.splitDispose?.ownsFocus(component) === true; }
-
   /** Scoped cooperative conversation surface; sidebar and underlying chat remain intact. */
   replaceChat(view: Component): (() => void) | undefined {
     return this.splitDispose?.replaceChat(view);
   }
-
-  get preferredWidth(): number | undefined {
-    return this._preferredWidth;
-  }
-
+  get preferredWidth(): number | undefined { return this._preferredWidth; }
   setPreferredWidth(width: number | undefined): void {
     const next = width === undefined ? undefined : parseSidebarPercent(width);
-    if (this._preferredWidth === next) return;
-    this._preferredWidth = next;
-    this.tui?.requestRender();
+    if (next === this._preferredWidth) return;
+    this._preferredWidth = next; this.changed();
   }
-
   setHidden(hidden: boolean): void {
     if (this.hidden === hidden) return;
-    this.hidden = hidden;
-    const tui = this.tui;
-    const theme = this.theme;
-    if (!tui || !theme) return;
-    // Keep the mounted split and toggle its visibility; never seize a replaced root.
-    tui.requestRender(true);
+    this.hidden = hidden; if (this.splitActive) this.tui?.requestRender(true);
   }
-
-  setActions(actions: SidebarActions): void {
-    this.actions = actions;
+  setActions(actions: SidebarActions): void { this.actions = actions; }
+  setSession(session: SidebarSession): void { this.session = { ...session, usage: { ...session.usage } }; this.changed(); }
+  setResources(resources: SidebarResources): void {
+    this.resources = { ...resources, mcp: resources.mcp.map(x => ({ ...x })), skills: resources.skills.map(x => ({ ...x })), commands: resources.commands.map(x => ({ ...x })) };
+    this.changed();
   }
-
-  /** Temporary image preview; it overrides but never discards a selected file preview. */
+  setTasks(tasks: readonly BackgroundTask[]): void { this.tasks = tasks.map(task => ({ ...task })); this.changed(); }
+  setFolds(folds: SidebarFolds): void { this.folds = { ...folds }; this.changed(); }
+  getFolds(): SidebarFolds { return { ...this.folds }; }
+  toggleSection(section: keyof SidebarFolds): void { this.setSection(section, !this.folds[section]); }
+  setSection(section: keyof SidebarFolds, expanded: boolean): void {
+    const next = this.actions?.persistFold
+      ? this.actions.persistFold(section, expanded) : { ...this.folds, [section]: expanded };
+    if (next) this.setFolds(next);
+  }
+  /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
+  reset(): void {
+    this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES; this.tasks = [];
+    this.offsets = { mcp: 0, skills: 0, tasks: 0 }; this.middleOffset = 0;
+    this.selectedImage = undefined; this.peekImage = undefined; this.pinned = false; this.clearedImageId = undefined;
+    this.hits = []; this.listRows = []; this.lastClick = undefined; this.changed();
+  }
+  /** Caret peeks update the image shelf, but cannot replace an explicitly pinned selection. */
   setView(view: WorkspaceView | undefined): void {
-    if (this.transientView?.id === view?.id) return;
-    this.transientView = view;
-    this.contentCached = undefined;
-    this.tui?.requestRender();
+    if (!view) { this.peekImage = undefined; this.clearedImageId = undefined; if (!this.pinned) this.selectedImage = undefined; this.changed(); return; }
+    if (!view.id.startsWith("image:") || view.id === this.clearedImageId) return;
+    this.peekImage = view;
+    if (!this.pinned) this.selectedImage = view;
+    this.changed();
   }
-
-  setSelectedPreview(view: WorkspaceView | undefined): void {
-    if (!view) {
-      this.selectedFileKey = undefined;
-      this.selectedActivityRow = undefined;
-    }
-    if (this.selectedView?.id === view?.id) return;
-    this.selectedView = view;
-    this.contentCached = undefined;
-    this.tui?.requestRender();
+  currentViewId(): string | undefined { return this.imageView()?.id; }
+  private imageView(): WorkspaceView | undefined { return this.pinned ? this.selectedImage : this.peekImage ?? this.selectedImage; }
+  pinImage(): void { this.setImagePinned(!this.pinned); }
+  setImagePinned(pinned: boolean): void {
+    const image = this.imageView();
+    if (!image || pinned === this.pinned) return;
+    if (pinned) this.selectedImage = image;
+    this.pinned = pinned; this.changed();
   }
-
-  setTurnImpact(impact: TurnImpactSnapshot): void {
-    if (this.turnImpact.revision === impact.revision) return;
-    this.turnImpact = impact;
-    this.turnView?.setEvents(impact.events);
-    this.contentCached = undefined;
-    this.tui?.requestRender();
+  clearImage(): void {
+    this.clearedImageId = this.imageView()?.id;
+    this.selectedImage = undefined; this.peekImage = undefined; this.pinned = false; this.changed();
   }
-
-  private effectiveView(): WorkspaceView | undefined { return this.transientView ?? this.selectedView; }
-
-  setContext(data: SidebarContextData): void {
-    if (
-      this.contextData.tokens === data.tokens &&
-      this.contextData.percent === data.percent &&
-      this.contextData.spend === data.spend &&
-      Math.round(this.contextData.tokensPerSec) === Math.round(data.tokensPerSec)
-    ) {
-      return;
-    }
-    this.contextData = data;
-    this.dockCached = undefined;
-    this.tui?.requestRender();
+  imagePath(): string | undefined { return this.imageView()?.filePath; }
+  isImagePinned(): boolean { return this.pinned; }
+  sessionDetails(): string {
+    const s = this.session;
+    const uncached = sidebarUncached(s.usage);
+    const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
+    return [`${sidebarText(s.name)} · ${s.id || "—"}`, `PID: ${s.pid}`, `Model: ${s.model} · ${s.thinking}`,
+      `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
+      `Wall time (this runtime): ${sidebarDuration(s.startedAt > 0 ? this.now() - s.startedAt : null)}`,
+      `Last turn: ${sidebarDuration(s.lastTurnMs)}`, `Turns: ${s.turns} · Messages: ${s.messages}`,
+      `Active-branch usage:`, `Input (uncached + cache read + cache write): ${formatCompactTokenCount(s.usage.input)}`,
+      `Output: ${formatCompactTokenCount(s.usage.output)} · Total: ${formatCompactTokenCount(s.usage.total)}`,
+      `Cache read: ${formatCompactTokenCount(s.usage.cacheRead)} · Cache write: ${formatCompactTokenCount(s.usage.cacheWrite)}`,
+      `Uncached input: ${formatCompactTokenCount(uncached)} · Cache-hit share: ${hit}`,
+      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd].join("\n");
   }
-
-  setCwd(cwd: string): void {
-    if (this.cwd === cwd) return;
-    this.cwd = cwd;
-    this.turnView?.setPlace(cwd, this.home);
-    this.contentCached = undefined;
+  tick(): void { if (!this.hidden && this.splitActive) this.tui?.requestRender(); }
+  invalidate(): void {
+    this.cached = undefined;
+    this.selectedImage?.invalidate(); this.peekImage?.invalidate();
   }
-
-  setFiles(files: FileChange[]): void {
-    if (sameFiles(this.files, files)) return;
-    this.files = files;
-    this.filesRev += 1;
-    this.filesOffset = clampFilesOffset(
-      this.filesOffset,
-      files.length,
-      Math.max(0, filesWidgetDesiredHeight(files.length) - 1),
-    );
-    this.contentCached = undefined;
-    this.tui?.requestRender();
-  }
-
-  setMcpConnected(count: number | null): void {
-    if (this.mcpConnected === count) return;
-    this.mcpConnected = count;
-    this.dockCached = undefined;
-    this.tui?.requestRender();
-  }
-
-  setSkillsLoaded(count: number): void {
-    const next = Math.max(0, Math.round(count));
-    if (this.skillsLoaded === next) return;
-    this.skillsLoaded = next;
-    this.dockCached = undefined;
-    this.tui?.requestRender();
-  }
-
-  currentViewId(): string | undefined {
-    return this.effectiveView()?.id;
-  }
+  private changed(): void { this.revision += 1; this.cached = undefined; if (this.splitActive) this.tui?.requestRender(); }
 
   handleSplitMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     const sidebarWidth = this.displayedWidth(event.width);
@@ -234,331 +171,202 @@ export class Sidebar implements Component {
     const divider = event.width - sidebarWidth;
     return this.handleResizeMouse(event, event.x >= divider - 1 && event.x <= divider + 1);
   }
-
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     const resize = this.handleResizeMouse(event, isSidebarResizeHandle(event));
     if (resize) return resize;
-
-    const { summaryHeight, filesHeight, dividerHeight, peekHeight, filesStart, impactStart, impactHeight } = this.lastSlots;
-    const peekStart = summaryHeight + dividerHeight;
-    const impactIndex = event.y - impactStart;
-    const overImpact = impactStart > 0 && impactIndex >= 0 && impactIndex < impactHeight;
-    if (event.type === "click" && event.button === "left" && overImpact) {
-      this.selectedFileKey = undefined;
-      this.selectedActivityRow = impactIndex;
-      this.setView(undefined);
-      this.setSelectedPreview(this.activityView());
-      return { handled: true, render: true };
-    }
-    if (event.type === "wheel" && event.y >= filesStart && event.y < filesStart + filesHeight) {
-      if (!this.scrollFiles(-(event.wheelDelta ?? 0))) return undefined;
-      return { handled: true };
-    }
-    if (event.type === "click" && event.button === "left" && event.y >= filesStart && event.y < filesStart + filesHeight) {
-      const file = fileAtPanelRow(this.files, filesHeight, this.filesOffset, event.y - filesStart);
-      if (!file) return undefined;
-      this.selectedActivityRow = undefined;
-      this.selectedFileKey = fileKey(file);
-      this.setView(undefined);
-      this.actions?.selectFile(file);
-      if (this.isDoubleClick(event, `file:${file.path}:${event.x}`)) this.actions?.openFile(file.path);
-      return { handled: true };
-    }
-    if (event.type === "click" && event.button === "left" && this.lastPeekHits) {
-      const hit = this.lastPeekHits.find((item) => (
-        event.y === item.y && event.x >= item.x0 && event.x < item.x1
-      ));
-      if (hit?.id === "clear") {
-        this.setView(undefined);
-        this.setSelectedPreview(undefined);
+    if (event.type === "wheel") {
+      const delta = -(event.wheelDelta ?? 0);
+      const list = this.listRows.find(row => row.y === event.y)?.list;
+      if (list && this.scrollList(list, delta)) return { handled: true, render: true };
+      if (event.y >= this.middleStart && event.y < this.middleStart + this.middleHeight) {
+        const next = sidebarListOffset(this.middleOffset + delta, this.middleRows, this.middleHeight);
+        if (next !== this.middleOffset) { this.middleOffset = next; this.changed(); }
         return { handled: true, render: true };
       }
-      if (hit?.id === "copy") {
-        const path = this.effectiveView()?.filePath;
-        if (path) this.actions?.copy(path);
-        return { handled: true };
-      }
-    }
-    const view = this.effectiveView();
-    const titleOffset = peekHeight > 1 ? 1 : 0;
-    const peekBodyStart = peekStart + titleOffset;
-    if (event.type === "wheel" && event.y >= peekBodyStart && event.y < peekStart + peekHeight) {
-      if (!view?.handleWheel?.(-(event.wheelDelta ?? 0))) return undefined;
-      this.contentCached = undefined;
-      this.tui?.requestRender();
-      return { handled: true };
-    }
-    if (event.type === "click" && event.button === "left" && event.y >= peekStart && event.y < peekStart + peekHeight) {
-      const path = view?.filePath;
-      if (path && this.isDoubleClick(event, `preview:${path}:${event.x}:${event.y}`)) {
-        this.actions?.openFile(path);
-        return { handled: true };
-      }
+      return undefined;
     }
     if (event.type !== "click" || event.button !== "left") return undefined;
-    const y = event.y - peekBodyStart;
-    if (y < 0 || y >= peekHeight - titleOffset) return undefined;
-    const peekX = event.x - PEEK_PAD;
-    const copied = view?.copyTextAt?.(peekX, y);
-    if (copied !== undefined) {
-      this.actions?.copy(copied);
-      return { handled: true };
+    const hit = this.hits.find(hit => hit.y === event.y && event.x >= hit.x0 && event.x < hit.x1);
+    if (hit) { hit.action(); return { handled: true, render: true }; }
+    if (event.y > this.imageStart && event.y < this.imageStart + this.imageHeight) {
+      const path = this.imagePath();
+      if (path && this.isDoubleClick(event, `image:${path}`)) {
+        this.actions?.openFile(path); return { handled: true };
+      }
     }
-    if (!view?.handleClick?.(peekX, y)) return undefined;
-    return { handled: true };
-  }
-
-  invalidate(): void {
-    this.contentCached = undefined;
-    this.dockCached = undefined;
-    this.selectedView?.invalidate();
-    this.transientView?.invalidate();
+    return undefined;
   }
 
   render(width: number): string[] {
-    const theme = this.theme;
-    const height = Math.max(1, this.tui?.terminal.rows ?? 1);
-    const dockWant = this.splitActive ? Math.max(COMPOSER_SHELF_LINES, composerFrameLineCount()) : SIDEBAR_DOCK_LINES;
-    const { contentHeight, dockHeight } = sidebarRowSlots(height, dockWant);
-    const contentKey = `${width}x${contentHeight}:${this.filesRev}:${this.filesOffset}:${this.turnImpact.revision}:${this.effectiveView()?.id ?? ""}:${this.selectedFileKey ?? ""}:${this.selectedActivityRow ?? ""}`;
-    const dockKey = `${width}x${dockHeight}:${this.contextData.tokens}:${this.contextData.percent}:${this.contextData.spend}:${Math.round(this.contextData.tokensPerSec)}:${this.skillsLoaded}:${this.mcpConnected}`;
-    const content = this.contentCached?.key === contentKey
-      ? this.contentCached.lines
-      : this.contentLines(width, contentHeight, theme);
-    const dock = this.dockCached?.key === dockKey
-      ? this.dockCached.lines
-      : this.dockLines(width, dockHeight, theme);
-    this.contentCached = { key: contentKey, lines: content };
-    this.dockCached = { key: dockKey, lines: dock };
-    return [...content, ...dock].slice(0, height);
+    const height = Math.max(0, this.tui?.terminal.rows ?? 1);
+    if (width <= 0) return Array.from({ length: height }, () => "");
+    const theme = this.themeProvider?.() ?? this.theme;
+    if (theme !== this.theme) { this.theme = theme; this.invalidate(); }
+    if (theme) { this.selectedImage?.setTheme?.(theme); this.peekImage?.setTheme?.(theme); }
+    const key = `${width}:${height}:${this.revision}:${Math.floor(this.now() / 1000)}`;
+    if (this.cached?.key === key) return this.cached.lines;
+    this.hits = []; this.listRows = [];
+    const slots = sessionSidebarSlots(height, this.tasks.length, Boolean(this.imageView()));
+    const inner = Math.max(0, width - 2);
+    const lines: string[] = [];
+    const add = (row: Row): void => {
+      const y = lines.length;
+      lines.push(this.decorateLine(row.text, width));
+      if (row.action && inner > 0) this.hits.push({ y, x0: 2, x1: width, action: row.action });
+      if (row.list) this.listRows.push({ y, list: row.list });
+    };
+    for (const row of this.headerRows(inner).slice(0, slots.header)) add(row);
+    const middle = this.middle(inner);
+    this.middleRows = middle.length; this.middleHeight = slots.middle; this.middleStart = lines.length;
+    this.middleOffset = sidebarListOffset(this.middleOffset, middle.length, slots.middle);
+    for (let i = 0; i < slots.middle; i++) add(middle[this.middleOffset + i] ?? { text: "" });
+    for (const row of this.taskRows(inner, slots.tasks)) add(row);
+    this.imageStart = lines.length; this.imageHeight = slots.image;
+    lines.push(...this.imageLines(width, slots.image, lines.length));
+    if (slots.footer) add({ text: this.paint("dim", "/slate session · details"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) });
+    while (lines.length < height) lines.push(this.decorateLine("", width));
+    this.cached = { key, lines: lines.slice(0, height) };
+    return this.cached.lines;
   }
 
-  private unmountPane(): void {
-    this.splitDispose?.();
-    this.splitDispose = undefined;
-    this.splitActive = false;
-  }
-
-  dispose(): void {
-    this.hideResizeGuide();
-    this.resizing = false;
-    this.unmountPane();
-    this.selectedView = undefined;
-    this.transientView = undefined;
-    this.files = [];
-    this.filesRev = 0;
-    this.filesOffset = 0;
-    this.selectedFileKey = undefined;
-    this.selectedActivityRow = undefined;
-    this.lastPeekHits = undefined;
-    this.lastClick = undefined;
-    this.cwd = "";
-    this.contentCached = undefined;
-    this.dockCached = undefined;
-    this.lastSlots = { summaryHeight: 0, peekHeight: 0, dividerHeight: 0, filesHeight: 0, filesStart: 0, impactStart: 0, impactHeight: 0 };
-    this.turnView = undefined;
-    this.tui = undefined;
-    this.theme = undefined;
-  }
-
-  private dockLines(width: number, height: number, theme: Theme | undefined): string[] {
-    if (height < 1) return [];
-    const tokens = formatContextTokens(
-      this.contextData.tokens,
-      this.contextData.percent,
-      this.contextData.tokensPerSec,
-    );
-    const resources = formatContextResources(this.contextData.spend, this.skillsLoaded, this.mcpConnected);
-    const paint = this.paint(theme);
-    if (height === 1) return [inscribedTitle(this.titled("Context", theme), width, paint, "bottom")];
-
-    const facts = [
-      theme ? this.body(tokens, width, theme, "muted") : this.decorateLine(tokens, width, theme),
-      theme ? this.body(resources, width, theme, "dim") : this.decorateLine(resources, width, theme),
+  private headerRows(width: number): Row[] {
+    const s = this.session;
+    const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
+    const filled = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * width / 100);
+    const tone = percent !== null && percent >= 80 ? "warning" : "success";
+    const identity = `${sidebarText(s.id).slice(0, 8) || "—"} · pid ${s.pid}`;
+    const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`;
+    const context = this.pair("Context", percent === null ? "—%" : `${Math.round(percent)}%`, width);
+    return [
+      { text: this.paint("muted", "SESSION"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) },
+      { text: this.heading(sidebarText(s.name) || "Untitled session") },
+      { text: this.paint("muted", visibleWidth(identity) > width ? this.pair(sidebarText(s.id).slice(0, 8), `pid ${s.pid}`, width) : identity), action: () => { if (s.id) this.actions?.copy(s.id); } },
+      { text: "" },
+      { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) },
+      { text: "" },
+      { text: this.paint("muted", context) },
+      { text: this.paint(tone, "█".repeat(filled)) + this.paint("dim", "─".repeat(width - filled)) },
+      { text: this.paint("muted", occupancy) },
+      { text: "" },
+      ...[["Input", formatCompactTokenCount(s.usage.input)], ["Output", formatCompactTokenCount(s.usage.output)],
+        ["Cache", formatCompactTokenCount(s.usage.cacheRead)], ["Uncached", formatCompactTokenCount(sidebarUncached(s.usage))],
+        ["Cost", sidebarCost(s.usage.cost)], ["Rate", sidebarRate(s.rate)]].map(([label, value]) => ({
+        text: this.pair(this.paint("muted", label!), this.paint("text", value!), width),
+        action: () => this.actions?.inspect?.("Branch usage", this.sessionDetails()),
+      })),
+      { text: "" },
+      { text: this.paint("dim", "─".repeat(width)) },
     ];
-    const lines = [inscribedTitle(this.titled("Context", theme), width, paint, "top")];
-    const inner = height - 1;
-    const factCount = Math.min(facts.length, Math.max(0, inner - lines.length));
-    while (lines.length + factCount < inner) lines.push(this.decorateLine("", width, theme));
-    lines.push(...facts.slice(0, factCount));
-    lines.push(inscribedTitle("", width, paint, "bottom"));
+  }
+  private middle(width: number): Row[] {
+    const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
+    const unknown = this.resources.mcp.some(x => x.enabled === null);
+    const loaded = this.resources.skills.filter(x => x.loaded).length;
+    const resourceHeading = (label: string, count: string): string =>
+      this.heading(label) + this.paint("muted", ` · ${count}`);
+    const rows: Row[] = [{ text: "" }, {
+      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, this.resources.mcpError ? "config error" : `${unknown ? "—" : enabled} enabled`),
+      action: () => this.toggleSection("mcp"),
+    }];
+    if (this.folds.mcp) {
+      if (this.resources.mcpError) rows.push({ text: this.paint("warning", this.resources.mcpError) });
+      rows.push(...this.resourceRows("mcp", width));
+    }
+    rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} loaded`), action: () => this.toggleSection("skills") });
+    if (this.folds.skills) rows.push(...this.resourceRows("skills", width));
+    return rows;
+  }
+  private resourceRows(list: Exclude<ListName, "tasks">, width: number): Row[] {
+    const items = this.resources[list];
+    const visible = list === "mcp" ? 5 : 3;
+    this.offsets[list] = sidebarListOffset(this.offsets[list], items.length, visible);
+    if (!items.length) return [{ text: this.paint("dim", list === "skills" ? "No skill catalog available" : "none"), list }];
+    const start = this.offsets[list];
+    const rows: Row[] = [];
+    for (let i = start; i < Math.min(items.length, start + visible); i++) {
+      if (list === "mcp") {
+        const server = this.resources.mcp[i]!;
+        const state = server.enabled === null ? "—" : server.enabled ? "enabled" : "disabled";
+        rows.push({ text: this.paint(server.enabled === null ? "warning" : server.enabled ? "muted" : "dim", this.pair(`${server.enabled ? "●" : "○"} ${sidebarText(server.name)}`, state, width)), list, item: i,
+          action: () => this.actions?.inspect?.(server.name, `${state} (configuration, not connection status)\nSource: ${server.source}\nUse /mcp to manage this server.`) });
+      } else if (list === "skills") {
+        const skill = this.resources.skills[i]!;
+        rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", this.pair(`${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`, skill.loaded ? "loaded" : "available", width)), list, item: i,
+          action: () => this.actions?.inspect?.(skill.name, `${skill.loaded ? "Instructions observed loaded on this branch" : "Available; instructions not observed loaded"}\nSource: ${skill.source}\n${skill.path}`) });
+      }
+    }
+    if (items.length > visible) rows.push({ text: this.paint("dim", `${start + 1}–${Math.min(items.length, start + visible)} / ${items.length} · scroll ↕`), list });
+    return rows;
+  }
+  private taskRows(width: number, height: number): Row[] {
+    if (height <= 0 || !this.tasks.length) return [];
+    const live = this.tasks.filter(t => t.state !== "failed" && t.state !== "cleanup_unknown").length;
+    const rows: Row[] = height >= 4 ? [{ text: "" }] : [];
+    rows.push({ text: this.pair(this.heading("Tasks"), this.paint("muted", live ? `${live} live` : `${this.tasks.length} recorded`), width),
+      action: () => this.actions?.inspect?.("Background tasks", this.tasks.map(t => this.taskDetails(t)).join("\n\n")) });
+    const visible = Math.max(1, Math.ceil((height - rows.length) / 2));
+    this.offsets.tasks = sidebarListOffset(this.offsets.tasks, this.tasks.length, visible);
+    for (const task of this.tasks.slice(this.offsets.tasks, this.offsets.tasks + visible)) {
+      const error = task.state === "failed" || task.state === "cleanup_unknown";
+      const icon = error ? "!" : task.state === "waiting" ? "?" : "●";
+      const action = () => this.actions?.inspect?.(task.label, this.taskDetails(task));
+      if (rows.length < height) rows.push({ text: this.paint(error ? "error" : task.state === "waiting" ? "warning" : "muted",
+        this.pair(`${icon} ${sidebarText(task.label)}`, task.state, width)), list: "tasks", action });
+      if (rows.length < height) rows.push({ text: this.paint("dim", `${task.kind} · ${sidebarDuration(this.now() - task.startedAt)}${task.pid ? ` · pid ${task.pid}` : ""}`), list: "tasks", action });
+    }
+    while (rows.length < height) rows.push({ text: "" });
+    return rows;
+  }
+  private taskDetails(task: BackgroundTask): string {
+    return `${task.kind} · ${task.state}\nSource: ${task.source}\nID: ${task.id}\n${task.pid ? `PID: ${task.pid}\n` : ""}Elapsed: ${sidebarDuration(this.now() - task.startedAt)}\n${task.detail ?? ""}`;
+  }
+  private imageLines(width: number, height: number, start: number): string[] {
+    const view = this.imageView();
+    if (height <= 0 || !view) return [];
+    const inner = Math.max(0, width - 2);
+    const lines = [this.decorateLine(this.heading("Preview"), width)];
+    if (height === 1) return lines;
+    const controls: Array<{ label: string; action: () => void }> = [
+      { label: "[open]", action: () => { if (view.filePath) this.actions?.openFile(view.filePath); } },
+      { label: "[copy]", action: () => { if (view.filePath) this.actions?.copy(view.filePath); } },
+    ];
+    while (visibleWidth(controls.map(x => x.label).join(" ")) > inner && controls.length > 1) controls.splice(1, 1);
+    const bodyHeight = Math.max(0, height - 2);
+    if (bodyHeight && inner) lines.push(...view.render(inner, bodyHeight).slice(0, bodyHeight).map(line => this.decorateLine(line, width)));
+    while (lines.length < height - 1) lines.push(this.decorateLine("", width));
+    const actions = controls.map(x => x.label).join(" ");
+    let x = 2;
+    if (inner >= visibleWidth(actions)) for (const control of controls) {
+      this.hits.push({ y: start + height - 1, x0: x, x1: x + visibleWidth(control.label), action: control.action });
+      x += visibleWidth(control.label) + 1;
+    }
+    lines.push(this.decorateLine(this.paint("muted", actions), width));
     return lines.slice(0, height);
   }
-
-  private contentLines(width: number, height: number, theme: Theme | undefined): string[] {
-    if (height < 1) {
-      this.lastSlots = { summaryHeight: 0, peekHeight: 0, dividerHeight: 0, filesHeight: 0, filesStart: 0, impactStart: 0, impactHeight: 0 };
-      return [];
-    }
-    const slots = splitSidebarContent(height, filesWidgetDesiredHeight(this.files.length));
-    this.lastSlots = { ...slots, filesStart: 0, impactStart: 0, impactHeight: 0 };
-    const lines: string[] = [...this.summaryLines(width, slots.summaryHeight, slots.filesHeight, theme)];
-    this.pushRule(lines, slots.dividerHeight, width, theme);
-    lines.push(...this.peekLines(width, slots.peekHeight, theme));
-    return lines;
+  private scrollList(list: ListName, delta: number): boolean {
+    const count = list === "tasks" ? this.tasks.length : this.resources[list].length;
+    const visible = list === "tasks" ? Math.max(1, Math.ceil(this.listRows.filter(x => x.list === "tasks").length / 2)) : list === "mcp" ? 5 : 3;
+    const next = sidebarListOffset(this.offsets[list] + delta, count, visible);
+    if (next === this.offsets[list]) return false;
+    this.offsets[list] = next; this.changed(); return true;
   }
-
-  private summaryLines(width: number, height: number, filesHeight: number, theme: Theme | undefined): string[] {
-    if (height < 1) return [];
-    const empty = this.decorateLine("", width, theme);
-    const files = this.filesLines(width, filesHeight, theme);
-    const impact = formatTurnImpact(this.turnImpact).map((line, index) => {
-      const selected = index === this.selectedActivityRow;
-      const clickable = this.turnImpact.toolsCalled > 0;
-      const text = `${selected ? "> " : "  "}${line}`;
-      if (selected) return this.decorateLine(theme ? theme.bold(theme.fg("muted", text)) : text, width, theme);
-      return this.body(text, width, theme, clickable ? "muted" : "dim");
-    });
-    const extra = Math.max(0, height - (1 + files.length + 1 + impact.length));
-    const lines = [inscribedTitle(this.titled("Summary", theme), width, this.paint(theme), "top")];
-    if (extra > 0) lines.push(empty);
-    this.lastSlots = { ...this.lastSlots, filesStart: lines.length };
-    lines.push(...files);
-    if (extra > 1) lines.push(empty);
-    if (lines.length < height) lines.push(this.heading("Last Turn", width, theme));
-    const impactStart = lines.length;
-    let impactHeight = 0;
-    for (const line of impact) {
-      if (lines.length >= height) break;
-      lines.push(line);
-      if (this.turnImpact.toolsCalled > 0) impactHeight += 1;
-    }
-    this.lastSlots = { ...this.lastSlots, impactStart, impactHeight };
-    return this.padBlock(lines, height, width, theme);
+  private pair(left: string, right: string, width: number): string {
+    const r = truncateToWidth(right, Math.max(0, width - 1), "…");
+    const l = truncateToWidth(left, Math.max(0, width - visibleWidth(r) - 1), "…");
+    return `${l}${" ".repeat(Math.max(0, width - visibleWidth(l) - visibleWidth(r)))}${r}`;
   }
-
-  private peekLines(width: number, maxHeight: number, theme: Theme | undefined): string[] {
-    if (maxHeight < 1) return [];
-    const view = this.effectiveView();
-    const lines = [this.peekHeading(width, theme, view)];
-    const close = maxHeight >= 2 ? 1 : 0;
-    const bodyHeight = maxHeight - 1 - close;
-    if (bodyHeight >= 1) {
-      if (!view) lines.push(this.body("none", width, theme, "dim"));
-      else {
-        const peek = view.render(Math.max(0, width - 2), bodyHeight);
-        for (let row = 0; row < bodyHeight; row++) {
-          lines.push(this.decorateLine(peek[row] ?? "", width, theme));
-        }
-      }
-    }
-    while (lines.length < maxHeight - close) lines.push(this.decorateLine("", width, theme));
-    if (close) lines.push(inscribedTitle("", width, this.paint(theme), "bottom"));
-    return lines.slice(0, maxHeight);
-  }
-
-  private filesLines(width: number, maxHeight: number, theme: Theme | undefined): string[] {
-    if (maxHeight < 1) return [];
-    const panel = filesPanel(this.files, maxHeight, this.filesOffset);
-    this.filesOffset = panel.offset;
-    return panel.lines.map((line) => {
-      if (line.type === "heading") {
-        const label = line.count > 0 ? `Files Changed · ${line.count}` : "Files Changed";
-        return this.heading(label, width, theme);
-      }
-      if (line.type === "empty") return this.body("none", width, theme, "dim");
-      const mark = fileMark(line.item);
-      const label = formatFileLabel(line.item);
-      const selected = fileKey(line.item) === this.selectedFileKey;
-      const prefix = selected ? "> " : "  ";
-      const text = `${prefix}${mark.mark} ${label}`;
-      if (!theme) return this.decorateLine(text, width, theme);
-      const colored = `${prefix}${theme.fg(mark.tone, mark.mark)} ${theme.fg("muted", label)}`;
-      return this.decorateLine(selected ? theme.bold(colored) : colored, width, theme);
-    });
-  }
-
+  private heading(text: string): string { const painted = this.paint("text", text); return this.theme?.bold?.(painted) ?? painted; }
+  private paint(tone: "text" | "muted" | "dim" | "success" | "warning" | "error" | "mdHeading", text: string): string { return this.theme?.fg(tone, text) ?? text; }
   private isDoubleClick(event: TuiMouseEvent, target: string): boolean {
     if (event.clickCount !== undefined) return event.clickCount === 2;
-    const at = Date.now();
-    const previous = this.lastClick;
+    const at = this.now(); const previous = this.lastClick;
     const doubled = Boolean(previous && previous.target === target && at - previous.at <= DOUBLE_CLICK_MS);
-    this.lastClick = doubled ? undefined : { target, at };
-    return doubled;
+    this.lastClick = doubled ? undefined : { target, at }; return doubled;
   }
-
-  private activityView(): TurnLogView {
-    if (!this.turnView) {
-      this.turnView = new TurnLogView(this.turnImpact.events, this.requireTheme(), () => {
-        this.contentCached = undefined;
-        this.tui?.requestRender();
-      }, this.cwd, this.home);
-    }
-    return this.turnView;
-  }
-
-  private scrollFiles(delta: number): boolean {
-    if (delta === 0 || this.files.length === 0) return false;
-    const bodyHeight = Math.max(0, this.lastSlots.filesHeight - (this.lastSlots.filesHeight > 1 ? 1 : 0));
-    const next = clampFilesOffset(this.filesOffset + delta, this.files.length, bodyHeight);
-    if (next === this.filesOffset) return false;
-    this.filesOffset = next;
-    this.contentCached = undefined;
-    this.tui?.requestRender();
-    return true;
-  }
-
-  private pushRule(lines: string[], height: number, width: number, theme: Theme | undefined): void {
-    if (height < 1) return;
-    lines.push(theme ? this.rule(width, theme) : frameRow("─".repeat(Math.max(0, width - 2)), width, (text) => text));
-  }
-
-  private padBlock(block: string[], height: number, width: number, theme: Theme | undefined): string[] {
-    const lines = block.slice(0, height);
-    while (lines.length < height) lines.push(this.decorateLine("", width, theme));
-    return lines;
-  }
-
-  private peekHeading(width: number, theme: Theme | undefined, view: WorkspaceView | undefined): string {
-    const title = view?.title ? `Preview · ${view.title}` : "Preview";
-    if (!view) {
-      this.lastPeekHits = undefined;
-      return this.heading(title, width, theme);
-    }
-    const inner = Math.max(0, width - 2);
-    const copyLabel = peekCopyLabel(view, inner);
-    const actions = copyLabel ? `${copyLabel} ${CLEAR}` : CLEAR;
-    const leftMax = Math.max(0, inner - actions.length - 1);
-    const left = truncateToWidth(title, leftMax, "…");
-    const pad = Math.max(0, inner - 1 - visibleWidth(left) - actions.length);
-    const y = this.lastSlots.summaryHeight + this.lastSlots.dividerHeight;
-    const clearX0 = Math.max(PEEK_PAD, width - 1 - CLEAR.length);
-    const hits: Array<{ id: "clear" | "copy"; y: number; x0: number; x1: number }> = [
-      { id: "clear", y, x0: clearX0, x1: Math.max(clearX0, width - 1) },
-    ];
-    if (copyLabel) {
-      const copyX1 = clearX0 - 1;
-      const copyX0 = Math.max(PEEK_PAD, copyX1 - copyLabel.length);
-      if (copyX0 < copyX1 && copyX0 >= PEEK_PAD) {
-        hits.unshift({ id: "copy", y, x0: copyX0, x1: Math.min(copyX1, clearX0) });
-      }
-    }
-    this.lastPeekHits = hits;
-    const action = theme ? theme.fg("dim", actions) : actions;
-    const label = this.titled(left, theme);
-    const row = frameRow(` ${left}${" ".repeat(pad)}${actions}`, width, this.paint(theme));
-    return row.replace(` ${left}`, ` ${label}`).replace(actions, action);
-  }
-
-  private titled(label: string, theme: Theme | undefined): string {
-    return theme ? theme.fg("mdHeading", label) : label;
-  }
-
-  private heading(label: string, width: number, theme: Theme | undefined): string {
-    return this.decorateLine(this.titled(label, theme), width, theme);
-  }
-
-  private body(text: string, width: number, theme: Theme | undefined, color: "muted" | "dim"): string {
-    if (!theme) return this.decorateLine(text, width, theme);
-    return this.decorateLine(theme.fg(color, text), width, theme);
-  }
-
-  private paint(theme: Theme | undefined): (text: string) => string {
-    return theme ? chromePaint(theme) : (text) => text;
-  }
-
-  private rule(width: number, theme: Theme): string {
-    return inscribedTitle("", width, this.paint(theme), "mid");
+  dispose(): void {
+    this.hideResizeGuide(); this.resizing = false;
+    this.splitDispose?.(); this.splitDispose = undefined; this.splitActive = false;
+    this.reset(); this.tui = undefined; this.theme = undefined; this.themeProvider = undefined; this.actions = undefined;
   }
 
   private handleResizeMouse(event: TuiMouseEvent, onHandle: boolean): TuiMouseEventResult | undefined {
@@ -579,7 +387,7 @@ export class Sidebar implements Component {
   }
 
   private displayedWidth(totalWidth = this.tui?.terminal.columns ?? 0): number {
-    return workspaceColumnWidth(totalWidth, this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
+    return dashboardColumnWidth(totalWidth, this.tui?.terminal.rows ?? 0, this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
   }
 
   private beginResize(screenX: number): void {
@@ -650,41 +458,23 @@ export class Sidebar implements Component {
     return sidebarHandleColumn(total, this.widthFromPointer(screenX));
   }
 
-  private decorateLine(line: string, width: number, theme: Theme | undefined): string {
-    if (line.includes(KITTY_PREFIX) || line.includes("\x1b]1337;File=")) {
-      return `${this.paint(theme)("│")} ${line}`;
-    }
-    const inner = Math.max(0, width - 2);
-    const body = line.length === 0 ? "" : truncateToWidth(` ${line}`, inner);
-    return frameRow(body, width, this.paint(theme));
+
+
+  private decorateLine(line: string, width: number): string {
+    if (width <= 0) return "";
+    const border = this.theme ? chromePaint(this.theme)("│") : "│";
+    if (width === 1) return border;
+    if (line.includes("\x1b_G") || line.includes("\x1b]1337;File=")) return `${border} ${line}`;
+    const body = truncateToWidth(line, Math.max(0, width - 2), "…");
+    const lineText = `${border} ${body}${" ".repeat(Math.max(0, width - 2 - visibleWidth(body)))}`;
+    return this.theme?.bg?.("customMessageBg", lineText) ?? lineText;
   }
 }
 
 class ResizeGuide implements Component {
   private readonly rows: () => number;
   private readonly theme?: Theme;
-
-  constructor(rows: () => number, theme?: Theme) {
-    this.rows = rows;
-    this.theme = theme;
-  }
-
+  constructor(rows: () => number, theme?: Theme) { this.rows = rows; this.theme = theme; }
   invalidate(): void {}
-
-  render(_width: number): string[] {
-    const mark = this.theme ? this.theme.fg("accent", "│") : "│";
-    return Array.from({ length: Math.max(1, this.rows()) }, () => mark);
-  }
-}
-
-function peekCopyLabel(view: WorkspaceView, inner: number): string | undefined {
-  if (!view.filePath) return undefined;
-  const preferred = view.id.startsWith("image:") ? COPY_PATH : COPY;
-  const needed = (label: string) => label.length + 1 + CLEAR.length + 1;
-  if (inner < needed(preferred) && preferred !== COPY) return COPY;
-  return preferred;
-}
-
-function emptyTurnImpact(): TurnImpactSnapshot {
-  return { revision: 0, toolsCalled: 0, events: [] };
+  render(): string[] { return Array.from({ length: Math.max(1, this.rows()) }, () => this.theme?.fg("accent", "│") ?? "│"); }
 }

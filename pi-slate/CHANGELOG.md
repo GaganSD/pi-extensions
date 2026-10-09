@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added
+
+- Tokyo Night as the default theme choice: `/slate theme default` or `/slate theme tokyo-night`. Existing theme selections are not overwritten on load; explicit Catppuccin default/style aliases remain available.
+- Header restores the stock Pi mark, version, model, path, update hairline, and `✓ New session started`. Composer keeps project/branch and model.
+- Rail usage lane now includes Cache, Uncached, and Rate. Commands stay behind `/` and `/slate session commands`.
+- Short/narrow fullscreen layouts hide the rail below 30 rows or 100 columns, preserve preferences and previews, and return condensed context/cost metadata to the composer.
+- Native MCP configuration parity verified for Pi 1.1.0; unsupported host versions still report unknown state.
+
+### Changed
+
+- Composer shows project/branch and model on the frame. Density still restores after the host copies native padding. Native cursor, draft, paste, selection and working/thinking behavior are preserved.
+
+### Fixed
+
+- Unpinned image previews now hide when the caret leaves the image token; previously the shelf stayed painted until `[clear]`.
+- Image preview chrome is just Preview plus `[open]` `[copy]`; the caret/pin chips, filename caption, and `[clear]` control are gone.
+- With `header` selected, `/new` no longer duplicates `✓ New session started` in the chat transcript; the chip lives only in the header. Stock update cards and ordinary chat remain untouched.
+
 ## 0.1.12
 
 Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.

@@ -18,6 +18,7 @@ import { BoundaryEditor } from "./src/navigation.ts";
 import { HumanState, stateLabel } from "./src/presentation.ts";
 import { plain, syncWidget, type WidgetSlot, type NavigationHost } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
+import { backgroundTaskSnapshot } from "./src/dashboard.ts";
 
 /** Match the stable Pi 1.x peer range; minor/patch upgrades are not host changes. */
 export function assertSupportedPiHost(version: string, bun = "Bun" in globalThis): void {
@@ -59,6 +60,16 @@ export default function subagents(pi: ExtensionAPI): void {
   let clock: ReturnType<typeof setInterval> | undefined;
   const inspectors = new Set<() => void>();
   const agentDir = getAgentDir();
+  let dashboardKey = "";
+  let unsubDashboard: (() => void) | undefined;
+  function publishDashboard(force = false): void {
+    if (!host || typeof pi.events?.emit !== "function") return;
+    const snapshot = backgroundTaskSnapshot(host.owner, host.manager.list());
+    const key = JSON.stringify(snapshot);
+    if (!force && key === dashboardKey) return;
+    dashboardKey = key;
+    try { pi.events.emit("pi:background-tasks", snapshot); } catch { /* Display consumers never determine run authority. */ }
+  }
   let plainEditor: BoundaryEditor | undefined;
   let plainFactory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
   pi.on("session_start", (_event, ctx) => {
@@ -82,6 +93,7 @@ export default function subagents(pi: ExtensionAPI): void {
     if (!host) return;
     bindKeys(host.ctx);
     const live = host.manager.live();
+    publishDashboard();
     try { syncWidget(host.ctx, host.manager.list(), Boolean(health[HEALTH]), id => { void openThread(host!.ctx, id); }, host.widget); } catch { /* Terminal availability is not run evidence. */ }
     const ticking = live.some(run => !run.endedAt);
     if (ticking && !clock) clock = setInterval(draw, 1000);
@@ -128,6 +140,12 @@ export default function subagents(pi: ExtensionAPI): void {
       },
     });
     host = { owner, ctx, manager, widget: { state: new HumanState() } };
+    dashboardKey = "";
+    unsubDashboard = pi.events?.on?.("pi:background-tasks:request", data => {
+      const request = data as { version?: unknown; sessionId?: unknown } | null;
+      if (request?.version === 1 && request.sessionId === host?.owner) publishDashboard(true);
+    });
+    publishDashboard(true);
     bindKeys(ctx);
     return host;
   }
@@ -180,7 +198,10 @@ export default function subagents(pi: ExtensionAPI): void {
         const returnFocus = state.widget.navigation?.isActive?.() !== false && state.widget.navigation?.canFocusRoster?.() !== false;
         if (returnFocus) state.widget.state!.selected = id;
         draw();
-        if (returnFocus) state.widget.instance?.focusRoster(id);
+        if (returnFocus) {
+          if (state.widget.instance) state.widget.instance.focusRoster(id);
+          else state.widget.navigation?.focusEditor();
+        }
       }
     }
   }
@@ -188,6 +209,11 @@ export default function subagents(pi: ExtensionAPI): void {
   async function shutdown(): Promise<void> {
     if (closing) return closing; // Serialize: concurrent shutdowns share one teardown.
     const previous = host;
+    try { unsubDashboard?.(); } catch { /* Runtime may already be disposed. */ }
+    unsubDashboard = undefined; dashboardKey = "";
+    if (previous && typeof pi.events?.emit === "function") {
+      try { pi.events.emit("pi:background-tasks", backgroundTaskSnapshot(previous.owner, [])); } catch { /* Display-only cleanup. */ }
+    }
     host = undefined; // notify() already no-ops once host.manager is no longer this manager.
     clearTimeout(refresh); refresh = undefined;
     clearInterval(clock); clock = undefined;
@@ -313,7 +339,8 @@ export default function subagents(pi: ExtensionAPI): void {
           }
           state.widget.state!.remember(runs);
           draw();
-          if (state.widget.navigation && state.widget.instance) { state.widget.instance.focusRoster(); return; }
+          const onlyLive = runs.every(run => isLive(run.state));
+          if (onlyLive && state.widget.navigation && state.widget.instance) { state.widget.instance.focusRoster(); return; }
           const labels = runs.map(run => `${state.widget.state!.title(run)} · ${stateLabel(run)}`);
           const picked = await ctx.ui.select("Inspect a sub-agent", labels);
           if (!picked) return;

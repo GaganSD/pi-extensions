@@ -13,7 +13,7 @@ import {
   type Terminal,
 } from "@earendil-works/pi-tui";
 import { installSidebarSplit } from "../extensions/pi-slate/sidebar-split.ts";
-import { MESSAGE_LENGTH_DEFAULT, SIDEBAR_HIDDEN, mainColumnWidth, workspaceColumnWidth } from "../extensions/pi-slate/layout.ts";
+import { MESSAGE_LENGTH_DEFAULT, SIDEBAR_HIDDEN, dashboardColumnWidth } from "../extensions/pi-slate/layout.ts";
 
 const identity = (text: string) => text;
 const theme: MarkdownTheme = {
@@ -25,7 +25,7 @@ const theme: MarkdownTheme = {
 
 class NullTerminal implements Terminal {
   columns = 140;
-  rows = 24;
+  rows = 40;
   kittyProtocolActive = false;
   start(_input: (data: string) => void, _resize: () => void): void {}
   stop(): void {}
@@ -108,15 +108,15 @@ function fixture(
     assert.equal(frame.lines.length, terminal.rows);
     for (const line of frame.lines) assert(visibleWidth(line) <= terminal.columns);
     const lines = frame.lines.map(stripVTControlCharacters);
-    if (workspaceColumnWidth(terminal.columns, preferred?.value)) {
+    if (dashboardColumnWidth(terminal.columns, terminal.rows, preferred?.value)) {
       const sidebarIndex = lines[0].indexOf("SIDEBAR");
       assert(sidebarIndex >= 0);
-      assert.equal(visibleWidth(lines[0].slice(0, sidebarIndex)), mainColumnWidth(terminal.columns, preferred?.value));
+      assert.equal(visibleWidth(lines[0].slice(0, sidebarIndex)), terminal.columns - dashboardColumnWidth(terminal.columns, terminal.rows, preferred?.value));
     } else {
       assert(lines.every((line) => !line.includes("SIDEBAR")));
     }
     assert(lines.at(-1)!.startsWith("footer"), "Footer must stay docked");
-    if (workspaceColumnWidth(terminal.columns, preferred?.value)) {
+    if (dashboardColumnWidth(terminal.columns, terminal.rows, preferred?.value)) {
       assert(lines.at(-1)!.includes("SIDEBAR"), "Sidebar divider reaches the composer");
     }
   }
@@ -166,7 +166,7 @@ test("streaming reformats only the active Markdown and preserves manual scroll p
 for (const count of [0, 1, MESSAGE_LENGTH_DEFAULT]) {
   test(`sidebar resizes and crosses its visibility threshold without cache thrashing (${count} messages)`, (t) => {
     const f = fixture(t, count);
-    for (const columns of [59, 60, 61, 80, 140, 200, 59]) {
+    for (const columns of [59, 60, 80, 99, 100, 101, 140, 200, 99]) {
       f.reset();
       f.terminal.columns = columns;
       f.tui.renderNow();
@@ -205,6 +205,17 @@ test("focused mode hides the sidebar and gives chat the full width", (t) => {
   preferred.value = undefined;
   f.tui.renderNow();
   f.assertFrame();
+});
+
+test("short terminal resize hides/restores the rail with one width reformat and no preference mutation", t => {
+  const preferred = { value: 30 };
+  const f = fixture(t, 5, "auto", preferred);
+  for (const rows of [29, 24, 30, 40]) {
+    f.reset(); f.terminal.rows = rows; f.tui.renderNow(); f.assertFrame();
+    assert.deepEqual(f.reformats, Array(5).fill(rows === 24 || rows === 40 ? 0 : 1));
+    assert.equal(preferred.value, 30);
+    f.reset(); f.tui.renderNow(); f.assertCached();
+  }
 });
 
 test("committing a preferred sidebar width reformats chat once", (t) => {

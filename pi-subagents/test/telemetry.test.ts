@@ -254,7 +254,7 @@ test("widget shows human labels, hides diagnostic IDs, sanitizes and explicitly 
   assert.equal(clicks.at(-1), "updated:run-a");
 });
 
-test("unread settled widgets remain accessible; clearing an empty runtime unmounts", () => {
+test("settled widgets unmount; an empty runtime stays unmounted", () => {
   let mounts = 0, clears = 0;
   const ctx = { mode: "tui", ui: { setWidget: (_key: string, factory?: (tui: TUI, theme: Theme) => SubagentWidget) => {
     if (factory) { mounts++; factory(tui, theme); } else clears++;
@@ -265,8 +265,8 @@ test("unread settled widgets remain accessible; clearing an empty runtime unmoun
   for (let i = 0; i < 100; i++) slot.instance!.render(80);
   syncWidget(ctx, [{ ...a, state: "completed" }], false, () => {}, slot);
   assert.equal(mounts, 1);
-  assert.equal(clears, 0);
-  assert(slot.instance!.render(80).some(line => line.includes("Finished")));
+  assert.equal(clears, 1);
+  assert.equal(slot.instance, undefined);
   syncWidget(ctx, [], false, () => {}, slot);
   assert.equal(clears, 1);
   assert.equal(slot.instance, undefined);

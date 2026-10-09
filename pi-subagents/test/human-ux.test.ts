@@ -64,17 +64,27 @@ test("overlay creation leaves focus to the host and restores an unknown custom e
   assert.equal(h.listeners, 0);
 });
 
-test("stable human identities retain unread, selected and open completions; reviewed completions enter Recent", () => {
+test("stable human identities drop settled completions from the roster", () => {
   const state = new HumanState(), a = record("a"), b = record("b");
   state.remember([a, b]);
   assert.match(state.title(a), /^Worker 1/); assert.match(state.title(b), /^Worker 2/);
   const done = { ...a, state: "completed" as const, endedAt: new Date(1).toISOString() };
-  assert.equal(state.visible([done, b]).length, 2);
+  assert.equal(state.visible([done, b]).length, 1);
+  assert.equal(state.visible([done, b])[0]?.id, b.id);
   state.markRead(done); assert.equal(state.recent([done, b]).length, 1);
-  state.selected = a.id; assert.equal(state.visible([done, b]).length, 2);
-  state.selected = undefined; state.open = a.id; assert.equal(state.recent([done, b]).length, 0);
-  state.open = undefined; assert.equal(state.visible([done, b]).length, 1);
+  state.selected = a.id; assert.equal(state.visible([done, b]).length, 1);
+  state.open = a.id; assert.equal(state.visible([done, b]).length, 1);
   assert.match(state.title(b), /^Worker 2/, "settling a sibling never renumbers the remaining worker");
+});
+
+test("settling the selected live row moves selection to a remaining worker", () => {
+  const opened: string[] = [];
+  const a = record("a"), b = record("b");
+  const widget = new SubagentWidget(terminal(), theme, id => opened.push(id));
+  widget.update([a, b], false); widget.focusRoster("a");
+  widget.update([{ ...a, state: "completed", endedAt: new Date(1).toISOString() }, b], false);
+  widget.handleInput("\r");
+  assert.deepEqual(opened, ["b"]);
 });
 
 test("Down focuses and selects without activating; Enter and Space activate exact IDs; typing returns intact to editor", () => {
@@ -90,7 +100,7 @@ test("Down focuses and selects without activating; Enter and Space activate exac
   widget.focusRoster("a"); widget.handleInput("\x1b[A"); assert.equal(returned.at(-1), undefined);
 });
 
-test("idle roster stays bounded and keeps all live rows plus a paging cue for hidden unread", () => {
+test("idle roster stays bounded and lists only live rows", () => {
   const live = Array.from({ length: 4 }, (_, i) => ({ ...record(`live-${i}`), task: `Live task ${i}` }));
   const unread = Array.from({ length: 28 }, (_, i) => ({ ...record(`done-${i}`, "completed"), endedAt: new Date(i + 1).toISOString(), task: `Settled task ${i}` }));
   const runs = [...unread, ...live];
@@ -105,13 +115,10 @@ test("idle roster stays bounded and keeps all live rows plus a paging cue for hi
   for (const task of ["Live task 0", "Live task 1", "Live task 2", "Live task 3"]) {
     assert(idle.some(line => line.includes(task)), task);
   }
-  assert.match(idle[0]!, /4 live · 28 unread/);
-  assert.match(idle.join("\n"), /hidden|more/);
-  const selected = unread[27]!.id;
-  widget.focusRoster(selected);
-  assert(widget.render(80).some(line => line.includes("Settled task 27")));
-  widget.handleInput("\x1b[32u");
-  assert.equal(opened.at(-1), selected, "Kitty space must activate the exact hidden unread id");
+  assert.match(idle[0]!, /4 live/);
+  assert.doesNotMatch(idle.join("\n"), /unread|Settled task/);
+  widget.focusRoster(unread[27]!.id);
+  assert.doesNotMatch(widget.render(80).join("\n"), /Settled task/);
   widget.focusRoster(live[2]!.id);
   const painted = widget.render(80);
   const row = painted.findIndex(line => line.includes("Live task 2"));
@@ -124,13 +131,14 @@ test("idle roster stays bounded and keeps all live rows plus a paging cue for hi
   assert.equal(widget.state.selected, focusedId, "completion must not reorder the focused selection");
 });
 
-test("Recent is separately focusable and opening reviewed workers still routes exact IDs", () => {
+test("a settled-only roster has no rows to activate", () => {
   const state = new HumanState(), done = { ...record("done", "completed"), endedAt: new Date(1).toISOString() };
   state.markRead(done);
   const opened: string[] = [], widget = new SubagentWidget(terminal(), theme, id => opened.push(id), state);
   widget.update([done], false); widget.focusRoster();
   widget.handleInput("\r"); assert.equal(opened.length, 0);
-  widget.handleInput("\x1b[B"); widget.handleInput(" "); assert.equal(opened.at(-1), "done");
+  widget.handleInput("\x1b[B"); widget.handleInput(" "); assert.equal(opened.length, 0);
+  assert.doesNotMatch(widget.render(80).join("\n"), /Finished|Recent|Worker/);
 });
 
 test("thread Space/arrows edit, Tab changes focus, Esc returns; per-run drafts survive switching", () => {

@@ -1,130 +1,114 @@
-import { homedir } from "node:os";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import {
-  compactPath,
-  modelLabel,
-  modelStatusLabel,
-  PI_LOGO,
-  PI_LOGO_ASCII,
-  paintLogo,
-  providerLabel,
-  type ModelDisplay,
-} from "./layout.ts";
+  backgroundAnsi, foregroundAnsi, rgbColor, truncateToWidth, visibleWidth, type Component, type TerminalColorMode,
+} from "@earendil-works/pi-tui";
 import { hairlineTextWidth, wrapHairlineText, symmetricHairline } from "./hairline.ts";
+import { sidebarText } from "./sidebar-data.ts";
 import { formatUpdateNotice, type UpdateNotice } from "./updates.ts";
 
-const MASTHEAD_GAP = "  ";
+const CORAL = rgbColor(228, 138, 122);
+const BLUE = rgbColor(79, 142, 179);
+const YELLOW = rgbColor(234, 182, 93);
+const RESET = "\x1b[0m";
+const LOGO_CELLS = 4;
 
-export function renderMasthead(
-  logo: readonly string[],
-  lines: readonly [string, string, string],
-  width: number,
-  paintLogoLine: (text: string) => string,
-  paintMuted: (text: string) => string,
-  paintDim: (text: string) => string,
-): string[] {
-  const markWidth = visibleWidth(logo[0] ?? "");
-  const textWidth = Math.max(0, width - markWidth - visibleWidth(MASTHEAD_GAP));
-  const painted = [paintMuted(lines[0]), paintMuted(lines[1]), paintDim(lines[2])];
-  return logo.map((mark, index) => {
-    const logoLine = paintLogoLine(mark);
-    const label = painted[index];
-    if (!label || textWidth <= 0) return logoLine;
-    return `${logoLine}${MASTHEAD_GAP}${truncateToWidth(label, textWidth, "…")}`;
-  });
+export function supportsPiLogo(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.TERM_PROGRAM !== "Apple_Terminal";
+}
+
+function colorMode(theme: Theme): TerminalColorMode {
+  return typeof theme.getColorMode === "function" ? theme.getColorMode() : "truecolor";
+}
+
+/** Stock Pi mark: 4 cells × 2 rows of half-blocks. Brand colors stay fixed. */
+export function piLogoLines(theme: Theme): [string, string] {
+  const mode = colorMode(theme);
+  const fg = (color: typeof CORAL) => foregroundAnsi(color, mode);
+  return [
+    `${fg(CORAL)}${backgroundAnsi(BLUE, mode)}▀${RESET}${fg(CORAL)}▀█${RESET} `,
+    `${fg(BLUE)}█▀${RESET} ${fg(YELLOW)}█${RESET}`,
+  ];
+}
+
+export function piWordmark(theme: Theme): string {
+  const mode = colorMode(theme);
+  return `${foregroundAnsi(CORAL, mode)}P${RESET}${foregroundAnsi(YELLOW, mode)}i${RESET}`;
 }
 
 export function renderUpdateHairlines(
-  notice: string,
-  width: number,
-  paintDash: (text: string) => string,
-  paintText: (text: string) => string,
+  notice: string, width: number, paintDash: (text: string) => string, paintText: (text: string) => string,
 ): string[] {
-  return wrapHairlineText(notice, hairlineTextWidth(width)).map((line) => (
-    symmetricHairline(paintText(line), width, paintDash)
-  ));
+  return wrapHairlineText(notice, hairlineTextWidth(width)).map(line => symmetricHairline(paintText(line), width, paintDash));
 }
 
+function padLine(text: string, width: number): string {
+  const gap = Math.max(0, width - visibleWidth(text));
+  return `${text}${" ".repeat(gap)}`;
+}
+
+function logoRow(mark: string, text: string, width: number): string {
+  const rest = truncateToWidth(text, Math.max(0, width - LOGO_CELLS - 1), "…");
+  return padLine(`${mark} ${rest}`, width);
+}
+
+export type HeaderIdentity = { version: string; model?: string; thinking?: string };
+
+/** Official mark + product stack. Ready is a session chip, never greeting copy. */
 export function renderSlateHeader(input: {
-  width: number;
-  version: string;
-  model: string;
-  path: string;
-  notice?: string;
-  ascii?: boolean;
-  truecolor?: boolean;
-  theme: Theme;
+  width: number; path: string; identity?: HeaderIdentity; notice?: string; ready?: boolean;
+  logo?: boolean; theme: Theme;
 }): string[] {
-  if (input.width < 20) return [];
-  const logo = input.ascii ? PI_LOGO_ASCII : PI_LOGO;
-  const paint = (token: "muted" | "dim" | "border" | "accent", text: string) => input.theme.fg(token, text);
-  const rows = renderMasthead(
-    logo,
-    [`Pi Agent v${input.version}`, input.model, input.path],
-    input.width,
-    (text) => paintLogo(text, input.truecolor !== false),
-    (text) => paint("muted", text),
-    (text) => paint("dim", text),
-  );
-  if (!input.notice) return rows;
-  return [
-    ...rows,
-    "",
-    ...renderUpdateHairlines(
-      input.notice,
-      input.width,
-      (text) => paint("border", text),
-      (text) => paint("accent", text),
-    ),
-  ];
+  const width = Math.max(0, input.width);
+  if (!width) return [];
+  const version = sidebarText(input.identity?.version) || "0";
+  const model = sidebarText(input.identity?.model);
+  const thinking = sidebarText(input.identity?.thinking);
+  const path = sidebarText(input.path);
+  const showLogo = input.logo ?? supportsPiLogo();
+  const modelLine = [model, thinking].filter(Boolean).join(" · ");
+  const rows: string[] = [];
+  if (showLogo && width >= 12) {
+    const [top, bottom] = piLogoLines(input.theme);
+    rows.push(
+      logoRow(top, input.theme.fg("text", `Pi Agent v${version}`), width),
+      logoRow(bottom, modelLine ? input.theme.fg("muted", modelLine) : "", width),
+      padLine(`${" ".repeat(LOGO_CELLS + 1)}${truncateToWidth(input.theme.fg("dim", path), Math.max(0, width - LOGO_CELLS - 1), "…")}`, width),
+    );
+  } else {
+    const mark = piWordmark(input.theme);
+    rows.push(padLine(truncateToWidth(`${mark} ${input.theme.fg("text", `Agent v${version}`)}`, width, "…"), width));
+    if (modelLine) rows.push(padLine(truncateToWidth(input.theme.fg("muted", modelLine), width, "…"), width));
+    if (path) rows.push(padLine(truncateToWidth(input.theme.fg("dim", path), width, "…"), width));
+  }
+  if (input.notice) rows.push(...renderUpdateHairlines(input.notice, width,
+    text => input.theme.fg("border", text), text => input.theme.fg("accent", text)));
+  else rows.push(input.theme.fg("border", "─".repeat(width)));
+  if (input.ready) rows.push(truncateToWidth(input.theme.fg("accent", "✓ New session started"), width, "…"));
+  return rows;
 }
 
 export class SlateHeader implements Component {
   private readonly theme: Theme;
-  private readonly getContext: () => ExtensionContext;
+  private readonly getContext: () => ExtensionContext | undefined;
   private readonly columnWidth: (width: number) => number;
   private readonly getNotice: () => UpdateNotice;
-  private readonly version: string;
-  private readonly getModelDisplay: () => ModelDisplay | undefined;
-
-  constructor(
-    theme: Theme,
-    getContext: () => ExtensionContext,
-    columnWidth: (width: number) => number,
-    getNotice: () => UpdateNotice,
-    version: string,
-    getModelDisplay: () => ModelDisplay | undefined = () => undefined,
-  ) {
-    this.theme = theme;
-    this.getContext = getContext;
-    this.columnWidth = columnWidth;
-    this.getNotice = getNotice;
-    this.version = version;
-    this.getModelDisplay = getModelDisplay;
+  private readonly getIdentity: () => HeaderIdentity & { ready: boolean };
+  constructor(theme: Theme, getContext: () => ExtensionContext | undefined,
+    columnWidth: (width: number) => number, getNotice: () => UpdateNotice,
+    getIdentity: () => HeaderIdentity & { ready: boolean }) {
+    this.theme = theme; this.getContext = getContext; this.columnWidth = columnWidth;
+    this.getNotice = getNotice; this.getIdentity = getIdentity;
   }
-
   invalidate(): void {}
-
   render(width: number): string[] {
     const ctx = this.getContext();
+    if (!ctx) return [];
     const notice = formatUpdateNotice(this.getNotice());
-    const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
-    const display = this.getModelDisplay();
-    const provider = providerLabel(ctx.model?.provider, display);
-    const modelText =
-      display?.providerSuffix && provider
-        ? modelStatusLabel(ctx.model, display)
-        : `${provider ? `${provider}/` : ""}${modelLabel(ctx.model, display)}`;
+    const identity = this.getIdentity();
     return renderSlateHeader({
-      width: this.columnWidth(width),
-      version: this.version,
-      model: `${modelText}${effort}`,
-      path: compactPath(ctx.cwd, homedir()),
+      width: this.columnWidth(width), path: ctx.cwd, identity,
+      ready: identity.ready, theme: ctx.ui.theme ?? this.theme,
       ...(notice ? { notice } : {}),
-      ascii: process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1",
-      truecolor: this.theme.getColorMode() === "truecolor",
-      theme: this.theme,
     });
   }
 }

@@ -39,7 +39,7 @@ and print/RPC/standalone hosts are not supported.
 - Fresh native Pi sessions, session-bound, no nested delegation
 - `subagent` tool: run (1–4 tasks), list, status, steer, stop, reply
 - `/subagents` to attach, steer, reply, or stop
-- Focusable worker roster, dedicated conversations, unread completions and Recent
+- Focusable worker roster and dedicated conversations; settled runs leave the roster
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
@@ -88,11 +88,21 @@ including native undo/paste/cursor state and background parent output.
 Per-run drafts and reading positions survive switching. Send failures keep the
 text; success clears only the submitted revision. A draft bound to an old question
 cannot silently answer a replacement question. Completions never jump focus:
-unread/selected results stay in the roster; viewed results collapse into bounded
-**Recent** after you leave their selection. Large rosters keep every live worker
-in the idle window, show unread/hidden counts, and page through all entries with
-focused Up/Down navigation. Only a focused, displayed thread marks results read. Finished means a saved report, not
+settled runs leave the roster as soon as they finish, fail, or cancel. Live
+workers stay in the idle window and page with focused Up/Down navigation.
+`/subagents` still opens saved reports. Finished means a saved report, not
 verified work.
+
+### Session dashboards
+
+When a session dashboard such as Slate is installed, sub-agents also publish
+optional `pi:background-tasks` display snapshots and answer matching-owner
+`pi:background-tasks:request` events. Completed/cancelled runs leave that shelf;
+live/uncertain-cleanup runs take priority over bounded failed history (64 rows
+per source). Snapshots include exact run IDs,
+state and shared host PID, not native session objects, private questions or run
+control. Use `/subagents` for authoritative inspection and control. Listener
+failures cannot change run outcomes; reload/shutdown clears the source.
 
 ### Telemetry and evidence
 

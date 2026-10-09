@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Optional `pi:background-tasks` display snapshots for session dashboards such as Slate. Live and uncertain-cleanup runs take priority; completed and cancelled runs leave the shelf.
+
+### Fixed
+
+- Settled sub-agents leave the below-editor roster as soon as they finish, fail, or cancel. Live runs and uncertain cleanup stay. `/subagents` still opens saved reports.
+
 ## 0.0.4
 
 Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.

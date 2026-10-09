@@ -145,7 +145,7 @@ test("transcript extract skips session headers and keeps user/sub-agent/tool lin
   assert.deepEqual(await readTranscript(undefined), ["(no transcript yet)"]);
 });
 
-test("widget lists live runs and retains unread completions", () => {
+test("widget lists live runs and drops settled completions", () => {
   const stub = (id: string, state: "running" | "completed"): import("../src/types.ts").RunRecord => ({
     id, owner: "p", agent: "worker", mode: "edit", task: id, cwd: "/" + id, workspace: "/" + id,
     model: "fixture/test", thinking: "off", state, startedAt: "t", elapsedMs: 1, metadataPath: "/" + id,
@@ -153,7 +153,6 @@ test("widget lists live runs and retains unread completions", () => {
   const live = [stub("aaaaaaaa-1", "running"), stub("bbbbbbbb-2", "running"), stub("cccccccc-3", "running")];
   assert.equal(rows(live).length, 4);
   const completed = rows(live.map(run => ({ ...run, state: "completed" })));
-  assert.equal(completed.length, 4);
-  assert(completed.slice(1).every(line => line.includes("Finished · report saved")));
-  assert.equal(rows([live[0]!, { ...live[1]!, state: "completed" }, { ...live[2]!, state: "completed" }]).length, 4);
+  assert.deepEqual(completed, []);
+  assert.equal(rows([live[0]!, { ...live[1]!, state: "completed" }, { ...live[2]!, state: "completed" }]).length, 2);
 });

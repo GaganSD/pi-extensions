@@ -33,7 +33,7 @@ export class HumanState {
   unread(run: RunRecord): boolean { return this.read.get(run.id) !== this.revision(run); }
   visible(runs: RunRecord[]): RunRecord[] {
     this.remember(runs);
-    return runs.filter(run => isLive(run.state) || this.unread(run) || run.id === this.selected || run.id === this.open);
+    return runs.filter(run => isLive(run.state));
   }
   recent(runs: RunRecord[]): RunRecord[] {
     return runs.filter(run => !isLive(run.state) && !this.unread(run) && run.id !== this.selected && run.id !== this.open).slice(-6).reverse();

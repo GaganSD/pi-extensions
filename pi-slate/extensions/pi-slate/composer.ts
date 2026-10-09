@@ -196,7 +196,7 @@ export function frameComposerLines(
   if (bottom < 1) bottom = lines.length - 1;
 
   const out = lines.slice();
-  const prompt = opts.empty && opts.paddingX >= 4;
+  const prompt = opts.paddingX >= 4;
   for (let i = 1; i < bottom; i++) {
     out[i] = sideBorder(out[i] ?? "", opts.width, opts.paint, prompt && i === 1, opts.theme);
   }
@@ -223,8 +223,12 @@ export type ComposerSource = {
   thinking?: string;
   footer: "standard" | "minimal";
   theme: Theme;
-  context?: { tokens: string; resources: string };
+  context?: { tokens: string; resources: string; summary?: string };
+  working?: boolean;
   showPid?: boolean;
+  workspaceHeader?: boolean;
+  dashboardVisible?: boolean;
+  paddingX?: number;
 };
 
 export function composerContextEdge(
@@ -420,10 +424,22 @@ export class ComposerEditor extends CustomEditor {
       src.theme,
       width,
     );
-    return inscribedBorder(`${more}${left}`, right, width, (text) => this.borderColor(text), "╰", "╯");
+    if (src.dashboardVisible === false && src.context) {
+      const facts = src.theme.fg("muted", ` ${src.context.summary ?? src.context.tokens} `);
+      const model = src.footer === "standard" && width >= 66
+        ? src.theme.fg("muted", ` ${modelStatusLabel(src.model, src.modelDisplay)}${width >= 80 && src.thinking ? ` · ${src.thinking}` : ""} `) : "";
+      return inscribedBorder(`${more}${facts}${src.workspaceHeader ? "" : left}`, model, width, text => this.borderColor(text), "╰", "╯");
+    }
+    if (src.dashboardVisible) return inscribedBorder(`${more}${left}`, right, width, text => this.borderColor(text), "╰", "╯");
+    const compactRight = src.footer === "minimal" ? (src.context?.tokens ? src.theme.fg("muted", ` ${src.context.tokens} `) : "") : right;
+    return inscribedBorder(`${more}${left}`, compactRight, width, (text) => this.borderColor(text), "╰", "╯");
   }
 
   render(width: number): string[] {
+    // The host copies native editorPaddingX onto custom editors after construction.
+    // Slate owns only this instance; restore its density before wrapping/cursor mapping.
+    const padding = this.source().paddingX;
+    if (padding !== undefined && this.getPaddingX() !== padding) super.setPaddingX(padding);
     const paint = (text: string) => this.borderColor(text);
     const raw = super.render(width);
     const selected = this.selectionActive && !this.isShowingAutocomplete()

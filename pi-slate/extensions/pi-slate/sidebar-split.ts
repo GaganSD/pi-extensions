@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   SIDEBAR_MIN_WIDTH,
-  workspaceColumnWidth,
+  dashboardColumnWidth,
 } from "./layout.ts";
 
 const SIDEBAR_SPLIT = Symbol.for("pi-slate.sidebar-split");
@@ -26,6 +26,7 @@ export function bindSplitHost<T>(
   host: SplitHost<T>,
   wrap: (component: T | undefined) => T | undefined,
   unwrap: (component: T | undefined) => T | undefined,
+  onYield?: () => void,
 ): () => void {
   const originalSet = host[ORIGINAL_SET_LAYOUT_ROOT] ?? host.setLayoutRoot.bind(host);
   const owner = {};
@@ -38,6 +39,7 @@ export function bindSplitHost<T>(
       if (host.setLayoutRoot === yieldRoot) host.setLayoutRoot = originalSet;
       delete host[ORIGINAL_SET_LAYOUT_ROOT];
       delete host[SPLIT_OWNER];
+      onYield?.();
     }
     originalSet(component);
   };
@@ -94,7 +96,7 @@ export class SidebarSplit extends HStack {
     };
   }
 
-  constructor(chat: Component, pane: Component, preferredWidth?: () => number | undefined) {
+  constructor(chat: Component, pane: Component, preferredWidth?: () => number | undefined, rows?: () => number) {
     super([
       // Skip full-width intrinsic measurement: switching widths thrashes leaf render caches.
       { component: chat, basis: 0, grow: 1, shrink: 1, minSize: 1 },
@@ -105,7 +107,7 @@ export class SidebarSplit extends HStack {
         minSize: SIDEBAR_MIN_WIDTH,
         basis: SIDEBAR_MIN_WIDTH,
         visible: (viewport) => {
-          const width = workspaceColumnWidth(viewport.width, preferredWidth?.());
+          const width = dashboardColumnWidth(viewport.width, rows?.() ?? viewport.height, preferredWidth?.());
           const entry = this.entries[1];
           if (entry && entry.basis !== width) entry.basis = Math.max(SIDEBAR_MIN_WIDTH, width);
           return width > 0;
@@ -134,6 +136,7 @@ export function installSidebarSplit(
   tui: TUI,
   pane: Component,
   preferredWidth?: () => number | undefined,
+  onYield?: () => void,
 ): SidebarSplitLease | undefined {
   if (!isViewportTUI(tui) || !(tui as TUI & { layoutRoot?: Component }).layoutRoot) return undefined;
 
@@ -142,10 +145,11 @@ export function installSidebarSplit(
     tui,
     (component) => {
       const chat = splitChat(component);
-      if (chat) split = new SidebarSplit(chat, pane, preferredWidth);
+      if (chat) split = new SidebarSplit(chat, pane, preferredWidth, () => tui.terminal.rows);
       return split ?? component;
     },
     splitChat,
+    onYield,
   );
   return Object.assign(dispose, {
     ownsFocus(component: Component) { return component === split && (tui as TUI & { layoutRoot?: Component }).layoutRoot === split; },

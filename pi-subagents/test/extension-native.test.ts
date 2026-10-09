@@ -41,6 +41,8 @@ test("public tool: native launch/question/reply/completion stay compact while ex
   });
   const previousDir = process.env.PI_CODING_AGENT_DIR, create = ModelRuntime.create;
   const hooks = new Map<string, () => Promise<void>>(), notices: string[] = [];
+  const snapshots: Array<{ sessionId: string; tasks: Array<{ id: string; state: string }> }> = [];
+  const bus = new Map<string, (value: unknown) => void>();
   let tool!: ToolDefinition;
   try {
     process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -50,6 +52,10 @@ test("public tool: native launch/question/reply/completion stay compact while ex
       on: (name: string, handler: () => Promise<void>) => { hooks.set(name, handler); return () => {}; },
       getThinkingLevel: () => "off", appendEntry() {},
       sendMessage: (message: { content: string }) => { notices.push(message.content); },
+      events: {
+        on(name: string, handler: (value: unknown) => void) { bus.set(name, handler); return () => bus.delete(name); },
+        emit(name: string, value: unknown) { if (name === "pi:background-tasks") snapshots.push(value as typeof snapshots[number]); },
+      },
     } as unknown as ExtensionAPI);
     const ctx = { cwd, mode: "tui", isProjectTrusted: () => true, scopedModels: [],
       sessionManager: SessionManager.inMemory(cwd), ui: { setWidget() {} },
@@ -64,6 +70,12 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     await until(() => notices.some(message => message.startsWith("Sub-agent question")));
     const waiting = await execute({ action: "status", id: receipt!.id });
     assert(Check(OutputSchema, waiting.structuredContent));
+    assert(snapshots.some(snapshot => snapshot.sessionId === ctx.sessionManager.getSessionId() && snapshot.tasks.some(task => task.id === receipt!.id && task.state === "waiting")));
+    const countBeforeRequest = snapshots.length;
+    bus.get("pi:background-tasks:request")?.({ version: 1, sessionId: "foreign" });
+    assert.equal(snapshots.length, countBeforeRequest, "foreign request does not leak owner snapshots");
+    bus.get("pi:background-tasks:request")?.({ version: 1, sessionId: ctx.sessionManager.getSessionId() });
+    assert.equal(snapshots.length, countBeforeRequest + 1);
     const question = (waiting.structuredContent as { question: { id: string } }).question;
     const reply = await execute({ action: "reply", id: receipt!.id, requestId: question.id, message: "Use existing API" });
     assert.deepEqual(reply.structuredContent, { ok: true });
@@ -71,6 +83,7 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     const final = await execute({ action: "status", id: receipt!.id });
     const record = final.details as RunRecord;
     assert.equal(record.state, "completed");
+    assert.deepEqual(snapshots.at(-1)!.tasks, [], "completed runs leave the background shelf");
     assert.equal(record.task, "PRIVATE_TASK_BRIEF");
     assert.equal(record.usage!.input, 10);
     assert.match(await readFile(record.reportPath!, "utf8"), /agent reply/);
@@ -84,6 +97,8 @@ test("public tool: native launch/question/reply/completion stay compact while ex
     assert.equal(calls, 2);
   } finally {
     await hooks.get("session_shutdown")?.();
+    assert.equal(bus.size, 0, "dashboard refresh listener is disposed");
+    if (snapshots.length) assert.deepEqual(snapshots.at(-1)!.tasks, []);
     ModelRuntime.create = create;
     if (previousDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousDir;
   }
