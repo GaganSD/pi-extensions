@@ -151,6 +151,18 @@ test("image pin prevents caret replacement; clear only removes selection until c
   sidebar.setView({ ...image(), id: "diff:file.ts" }); assert.equal(sidebar.currentViewId(), "image:b");
 });
 
+test("unpinned image preview hides when the caret leaves and recovers on the next peek", () => {
+  const { sidebar } = fixture(); sidebar.setView(image("a"));
+  assert.equal(sidebar.currentViewId(), "image:a");
+  assert(plain(sidebar.render(40)).some(line => line.includes("Preview")));
+  sidebar.setView(undefined);
+  assert.equal(sidebar.currentViewId(), undefined);
+  const hidden = plain(sidebar.render(40));
+  assert(!hidden.some(line => line.includes("Preview") || line.includes("caret")), "hide leaves no preview shelf");
+  sidebar.setView(image("b")); assert.equal(sidebar.currentViewId(), "image:b");
+  assert(plain(sidebar.render(40)).some(line => line.includes("Preview")));
+});
+
 test("copy/open/clear image hit regions align with painted controls", () => {
   const { sidebar } = fixture(); const copied: string[] = []; const opened: string[] = [];
   sidebar.setActions({ copy: x => copied.push(x), openFile: x => opened.push(x) }); sidebar.setView(image());

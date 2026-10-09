@@ -24,6 +24,10 @@
 - Sidebar and transcript attach independently through a zero-row below-editor widget. No overlay fallback or fullscreen forcing. Sidebar yields to a replacement layout root. Stock notices are no longer deleted.
 - Last-writer-wins chrome and first-registration-wins tools are respected without conflict repair. Tool-card registration losses are reported.
 
+### Fixed
+
+- Unpinned image previews now hide when the caret leaves the image token; previously the shelf stayed painted until `[clear]`.
+
 ### Limitations
 
 - Sidebar/transcript need a compatible fullscreen host. Header/footer ownership cannot be inspected through the host API, so shutdown disposes local resources without clearing chrome; `/reload` resets it.
