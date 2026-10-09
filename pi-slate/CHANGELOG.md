@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.13
+
+Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.
+
 ### Added
 
 - Tokyo Night as the default theme choice: `/slate theme default` or `/slate theme tokyo-night`. Existing theme selections are not overwritten on load; explicit Catppuccin default/style aliases remain available.

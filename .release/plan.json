@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "sourceSha": "d657431da600f4a2a619cf249fb620e334ca85d3",
-  "notes": "Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.\n\n- Accept Pi 1.x hosts, including 1.1, in peers and the runtime guard. List supported thinking levels when a batch is rejected; no silent model or thinking fallback.\n- Add a focusable roster, dedicated wrapped conversations, unread completions, and bounded Recent. Down hands off only after normal editor navigation; Enter/Space opens.\n- Let Slate lend its owned fullscreen chat slot while keeping the sidebar and original editor/chat objects. Disclose an opaque full-viewport fallback when that workspace is unavailable.\n- Preserve drafts, exact-question targeting, parent native undo, and confirmed Stop during sends. Failed mounts release the loan; overlay focus restore stays with the host.\n- Keep configured Down/select keys on the roster after handoff, page saturated lists, tick live elapsed, show the current tool, and hit-test only painted action buttons.",
+  "sourceSha": "934925accfcd04a945ab9f180f52a1ffd00d4cbd",
+  "notes": "Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.",
   "packages": [
     {
       "path": "pi-slate",
       "name": "pi-slate",
-      "from": "0.1.11",
-      "to": "0.1.12",
+      "from": "0.1.12",
+      "to": "0.1.13",
       "bump": "patch"
     },
     {
       "path": "pi-subagents",
       "name": "@gagansd/pi-subagents",
-      "from": "0.0.3",
-      "to": "0.0.4",
+      "from": "0.0.4",
+      "to": "0.0.5",
       "bump": "patch"
     }
   ]

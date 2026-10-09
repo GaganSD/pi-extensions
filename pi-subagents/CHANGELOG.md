@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.0.5
+
+Quiet Slate workbench: Tokyo Night default, restored Pi header, rail cache/rate, slim image preview, hide leftover peeks, and a single new-session chip. Settled sub-agents leave the roster and publish display-only dashboard snapshots.
+
 ### Added
 
 - Optional `pi:background-tasks` display snapshots for session dashboards such as Slate. Live and uncertain-cleanup runs take priority; completed and cancelled runs leave the shelf.
