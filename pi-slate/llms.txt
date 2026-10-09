@@ -2,15 +2,27 @@
 
 > Quiet focused-first TUI for the Pi coding agent. Adds no new model-facing tools, prompts, or model calls.
 
-Replaces Pi's header, footer, editor, and edit/write result rendering. Consecutive `read` cards collapse into one transcript line. Other extensions that replace the same surfaces or tool implementations may conflict.
+Select independent surfaces from the closed set: header, footer, editor, sidebar, tool-cards, transcript. Unselected surfaces receive no setter, patch, watcher, or cleanup write. Fresh missing settings select editor + sidebar + tool-cards, with the sidebar hidden by focused mode. Valid legacy settings without surfaces migrate to all six, preserving appearance. Invalid JSON, unknown surfaces, or bad versions activate nothing and preserve the file.
+
+`/slate surfaces` reports saved and active sets. `/slate surfaces set editor`, `/slate surfaces set header tool-cards`, `/slate surfaces full`, and `/slate surfaces none` save an explicit version-1 array and require `/reload`; appearance remains live. To use only cards, run `/slate surfaces set tool-cards` then `/reload`. Focus/width never enable a disabled sidebar.
+
+Theme and fullscreen remain user preferences, never automatic load actions. `/slate theme` is explicit. `composerMetadata` replaces the in-memory footer setting; old `footer` files and `/slate footer` remain compatible (both keys are written). The footer surface hides Pi's footer using a zero-row component; composer git branch comes from an editor-only service.
+
+Image handling patches only Slate's editor instance, never Editor.prototype or foreign editors. `/prompts` registers only with editor; `/exit` always. Tool-cards preserves native execution outside TUI and native model-facing results; grouped reads and highlighted diffs are rendering only. No stock-notice deletion.
+
+Chrome is last-writer-wins; tools are first-registration-wins, with losses reported and no repair engine. Sidebar/transcript use a namespaced zero-row below-editor TUI handle, need a compatible fullscreen host, and warn rather than forcing fullscreen or overlaying. The sidebar yields to a replaced root. Shutdown disposes local resources without clearing successor slots; `/reload` resets chrome because header/footer ownership getters are unavailable.
+
+Observed TUI thinking adds elapsed seconds and available token rate to the composer-edge working word (`Pondering · 7s · ↑↓42`). Native thinking visibility, streaming labels, and toggles remain unchanged; per-message settled durations await a host API.
 
 Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow `/slate theme`. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
 ## Documentation
 
-- [README](README.md): install, features, commands, themes, composer keys
-- [Extension entry](extensions/pi-slate/index.ts): TUI replacement
+- [README](README.md): install, features, commands (`/exit` aliases `/quit`), themes, composer keys
+- [Extension entry](extensions/pi-slate/index.ts): selected-surface installers and commands
+- [Surfaces](extensions/pi-slate/surfaces.ts): closed enum, parsing, migration
 - [Diff](extensions/pi-slate/diff.ts): edit/write rendering
 - [Read groups](extensions/pi-slate/read-group.ts): consecutive-read compaction
-- [Default theme](themes/black-metal.json): install default
+- [Thinking status](extensions/pi-slate/thinking-fold.ts): live composer timing, native transcript fallback
+- [Black Metal theme](themes/black-metal.json): optional theme, not an install default
 - [Package manifest](package.json): `npm:pi-slate`

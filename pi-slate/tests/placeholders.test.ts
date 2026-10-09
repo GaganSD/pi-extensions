@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import type { CustomEditor, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { Editor, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import type { CustomEditor, ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { Editor, Text, type Component, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import { installImagePlaceholders } from "../extensions/pi-slate/image-placeholders.ts";
 import { ImagePeek } from "../extensions/pi-slate/image-peek.ts";
 import {
@@ -50,6 +50,9 @@ function theme(): Theme {
 function attachSidebar(): Sidebar {
   const sidebar = new Sidebar();
   sidebar.attach({
+    [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
+    layoutRoot: new Text("chat", 0, 0),
+    setLayoutRoot(this: { layoutRoot?: Component }, component: Component | undefined) { this.layoutRoot = component; },
     terminal: { columns: 80, rows: 24 },
     requestRender() {},
     showOverlay() { return { hide() {} }; },
@@ -246,7 +249,8 @@ test("uses one verified path through editor insertion, preview, and submission",
   image("integration image.png", OTHER_PNG);
   const editor = new Editor({} as TUI, {} as EditorTheme);
   const sidebar = attachSidebar();
-  let inputHandler: ((event: { text: string; images?: ImageAttachment[] }) => Promise<unknown> | unknown) | undefined;
+  const ctx = { mode: "tui" } as ExtensionContext;
+  let inputHandler: ((event: { text: string; images?: ImageAttachment[] }, ctx: ExtensionContext) => Promise<unknown> | unknown) | undefined;
   const pi = {
     on(event: string, handler: typeof inputHandler) {
       if (event === "input") inputHandler = handler;
@@ -261,7 +265,7 @@ test("uses one verified path through editor insertion, preview, and submission",
   assert.equal(editor.getText(), "[image-1]");
   assert.equal(sidebar.currentViewId(), `image:1:${filePath}`);
 
-  const result = await inputHandler?.({ text: editor.getText() });
+  const result = await inputHandler?.({ text: editor.getText() }, ctx);
   assert.deepEqual(result, {
     action: "transform",
     text: "[image-1]",
@@ -278,12 +282,12 @@ test("uses one verified path through editor insertion, preview, and submission",
   editor.handleInput(`\x1b[200~see ${screenshot.replace(/ /g, "\\ ")}\x1b[201~`);
   assert.equal(editor.getText(), "see [image-1]");
   assert.equal(sidebar.currentViewId(), `image:1:${screenshot}`);
-  const pasted = await inputHandler?.({ text: editor.getText() });
+  const pasted = await inputHandler?.({ text: editor.getText() }, ctx);
   assert.deepEqual(pasted, { action: "transform", text: "see [image-1]", images: [loadFixture(screenshot)] });
 
   // Files removed after tokenization must not crash the production loader.
   rmSync(screenshot);
-  assert.deepEqual(await inputHandler?.({ text: editor.getText() }), { action: "continue" });
+  assert.deepEqual(await inputHandler?.({ text: editor.getText() }, ctx), { action: "continue" });
 });
 
 test("waits for complete character-by-character drops", async (t) => {

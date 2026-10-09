@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { parseFlavor, parseStyle, type Flavor, type Style } from "./catppuccin.ts";
+import { parseSurfaces, SURFACES, type Surface } from "./surfaces.ts";
 
 // The source SVG is a 4×4 square grid. Terminal cells are approximately twice
 // as tall as they are wide, so every source square occupies two columns.
@@ -293,7 +294,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -305,6 +306,11 @@ export function withoutCurrent(label: string): string {
 
 const THEME_STYLES = ["default", "quiet", "mauve", "sapphire", "peach", "teal"] as const;
 const SLATE_COMPLETIONS = [
+  "surfaces",
+  "surfaces set",
+  ...SURFACES.map((name) => `surfaces set ${name}`),
+  "surfaces full",
+  "surfaces none",
   "density",
   "density comfortable",
   "density compact",
@@ -336,6 +342,7 @@ const SLATE_COMPLETIONS = [
 
 export type SlateArgs =
   | { ok: true; kind: "menu" }
+  | { ok: true; kind: "surfaces"; value?: Surface[] }
   | { ok: true; kind: "density"; value?: "comfortable" | "compact" }
   | { ok: true; kind: "footer"; value?: "standard" | "minimal" }
   | { ok: true; kind: "width-menu" }
@@ -355,6 +362,16 @@ export function parseSlateArgs(raw: string): SlateArgs {
   const words = raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return { ok: true, kind: "menu" };
   const [head, tail, extra] = words;
+  if (head === "surfaces") {
+    if (!tail) return { ok: true, kind: "surfaces" };
+    if (words.length === 2 && tail === "full") return { ok: true, kind: "surfaces", value: [...SURFACES] };
+    if (words.length === 2 && tail === "none") return { ok: true, kind: "surfaces", value: [] };
+    if (tail === "set" && words.length > 2) {
+      const value = parseSurfaces(words.slice(2));
+      return value ? { ok: true, kind: "surfaces", value } : { ok: false };
+    }
+    return { ok: false };
+  }
   if (head === "theme") {
     if (words.length > 3) return { ok: false };
     if (!tail) return { ok: true, kind: "theme-menu" };
@@ -420,7 +437,12 @@ export function parseSlateArgs(raw: string): SlateArgs {
 
 export function slateArgumentCompletions(prefix: string): { value: string; label: string }[] | null {
   const normalized = prefix.trimStart().toLowerCase();
-  const matches = SLATE_COMPLETIONS.filter((value) => value.startsWith(normalized))
+  const setMatch = /^(surfaces set )(.*\s)(\S*)$/.exec(normalized);
+  const candidates = setMatch
+    ? SURFACES.filter((name) => !setMatch[2]!.trim().split(/\s+/).includes(name))
+      .map((name) => `${setMatch[1]}${setMatch[2]}${name}`)
+    : SLATE_COMPLETIONS;
+  const matches = candidates.filter((value) => value.startsWith(normalized))
     .map((value) => ({ value, label: value }));
   return matches.length ? matches : null;
 }

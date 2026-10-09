@@ -11,9 +11,9 @@
 **Option 1: Pi-agent Prompt**
 
 ```text
-- Save my pi-agent's tui and themes and safely disable them for now.
-- Install pi-slate using: `pi install npm:pi-slate` and enable fullscreen mode.
-- pi-slate replaces Pi's existing TUI; resolve any conflicts. Ask me to /reload session once complete.
+- Install pi-slate using: `pi install npm:pi-slate`.
+- Keep my current theme and other UI extensions. Select only the Slate surfaces I want.
+- Ask me to /reload after changing surfaces. Use fullscreen explicitly if I want the sidebar.
 ```
 
 **Option 2: Bash**
@@ -25,26 +25,65 @@ pi --tui-mode fullscreen
 
 Explore extension settings using `/slate` after installation. Releases: [CHANGELOG](CHANGELOG.md).
 
+## Independent Surfaces
+
+Slate can own one surface and leave the rest untouched. The closed set is `header`, `footer`, `editor`, `sidebar`, `tool-cards`, `transcript`; unselected surfaces get no setter, patch, watcher, or cleanup write.
+
+```text
+/slate surfaces
+/slate surfaces set editor
+/slate surfaces set header tool-cards
+/slate surfaces full
+/slate surfaces none
+```
+
+Surface changes are saved and require `/reload`; they never hot-swap host chrome. Appearance settings remain live. To keep your current header, footer, and editor while using Slate's cards: `/slate surfaces set tool-cards`, then `/reload`.
+
+| Surface | Owns |
+| --- | --- |
+| `header` | Masthead and update hairline, not title or sidebar bootstrap |
+| `footer` | Zero-row footer (hides Pi's native footer), not composer metadata |
+| `editor` | Composer, keys, paste/images, local working/thinking status; branch facts are independent of footer |
+| `sidebar` | Split workspace, files, activity, previews; no second editor |
+| `tool-cards` | Highlighted edit/write cards and grouped reads; native model-facing results |
+| `transcript` | Visible-message window, without deleting stock notices |
+
+A missing `~/.pi/agent/pi-slate.json` starts with `["editor", "sidebar", "tool-cards"]`. `focused: true` keeps the selected sidebar hidden. Existing valid settings without `surfaces` migrate in memory to all six, preserving appearance preferences; the next settings save writes version `1` and the explicit array. `full` saves six names, never a wildcard. Invalid JSON, unknown surfaces, or an unsupported version select nothing, warn, and leave the file untouched until you repair it and reload.
+
+`composerMetadata: "standard" | "minimal"` names the composer setting formerly called `footer`; Slate reads the old key and writes both aliases. `/slate footer` remains the compatible command. It does not select the `footer` surface. Focused and width commands never enable an unselected sidebar.
+
+Theme and fullscreen are preferences, not surfaces. Slate no longer applies either on load or writes `themeApplied` / `fullscreenApplied` markers. `/slate theme` is an explicit user action; use `pi --tui-mode fullscreen` explicitly for the sidebar.
+
+Header/footer/editor are last-writer-wins. Tools are first-registration-wins; Slate reports unavailable cards instead of repairing conflicts. Sidebar and transcript require a compatible fullscreen host: unavailable surfaces warn rather than forcing fullscreen or drawing a fallback overlay. The sidebar mounts once and yields if another writer replaces the root. The namespaced below-editor TUI handle renders zero rows.
+
+The current host cannot inspect header/footer slot ownership. Shutdown disposes Slate's local resources without clearing host chrome; `/reload` resets those slots.
+
 ## Features
 
 Slate renders cleanly into your terminal and stays customizable without adding new model-facing tools, prompts, or model calls.
 
 ### Focused-first Workspace
 
-Focused mode is the default. It unmounts the sidebar, gives chat the full window, and keeps the prompt compact.
+With the editor selected, focused mode is the default. It hides the selected sidebar, gives chat the full window, and keeps the prompt compact.
 
 - `/slate focused [on|off]` sets the saved focused-mode state.
 - `/slate pid [on|off]` toggles the agent PID label on the prompt's top edge; it stays off by default.
-- Choosing a sidebar width returns to standard sidebar mode.
+- Choosing a sidebar width returns to standard sidebar mode only when the sidebar is selected.
 - Working status stays on the left of the prompt's top edge.
 - When skills or MCPs are present, spend and nonzero counts stay on the right of the prompt's top edge.
 - The context footer shows usage percentage, context-window size, and estimated streamed tokens per second: `5%/1M tokens · ↑↓845`.
 
-![Slate focused mode with the sidebar unmounted](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
+![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
+
+### Thinking Status
+
+With the editor selected in the TUI, an observed thinking block adds elapsed whole seconds and the available estimated token rate to the existing prompt-edge working word: `Pondering · 7s · ↑↓42`. Under one second it omits the duration; without a rate it shows `Pondering · 7s`. The timer stops when thinking ends, a response is aborted, or the session shuts down. Print, RPC, and JSON modes are unchanged.
+
+Native thinking visibility, labels, click-to-expand, and `Ctrl+T` remain untouched, including during streaming and on session restore. Settled per-message `Thought 12s` needs a Pi per-message hidden-label API; the current global setter would incorrectly relabel older thoughts.
 
 ### Diff
 
-`edit` and `write` results are syntax-highlighted in the transcript. Enabled by default.
+With `tool-cards` selected (a fresh default), `edit` and `write` results are syntax-highlighted in the transcript.
 
 - Split edits (before/after) at 100+ columns; unified below that, and for every write.
 - Word-level emphasis on paired lines. 190+ languages via Shiki; unknown types stay plain text.
@@ -90,13 +129,13 @@ Slate keeps usage and spend visible without sending context to your LLM.
 
 ### Update Notices
 
-Pi and package updates appear as a centered hairline in the Slate header. Duplicate stock Pi/package update cards are removed from the transcript, keeping chat focused on the conversation.
+With `header` selected, Pi and package updates appear as a centered hairline. Stock Pi/package update cards remain in the transcript; no Slate surface deletes them.
 
 ### Themes
 
 The prompt, Summary, and Context share one frame. The Pi logo stays white in every theme.
 
-Black Metal is the install default. Catppuccin Mocha styles: Default, Quiet, Mauve, Sapphire, Peach, Teal.
+Your current theme remains unchanged on install. Black Metal is available, alongside Catppuccin Mocha styles: Default, Quiet, Mauve, Sapphire, Peach, Teal.
 
 `/slate` → Theme picks one. Or set it directly:
 
@@ -109,13 +148,13 @@ Selection is saved and also appears in `/settings`.
 
 ### Prompt Templates
 
-`/prompts` or `Ctrl+Alt+P` opens a searchable picker of Pi's loaded prompt templates. Search by filename, name, description, or body; use ↑↓ to choose and Enter to insert at the composer cursor. Esc or Ctrl+C closes without changing your draft. Configured Pi selection keys are respected.
+When `editor` is selected, `/prompts` or `Ctrl+Alt+P` opens a searchable picker of Pi's loaded prompt templates. Search by filename, name, description, or body; use ↑↓ to choose and Enter to insert at the composer cursor. Esc or Ctrl+C closes without changing your draft. Configured Pi selection keys are respected.
 
 The picker rereads templates when opened, reports unreadable files, and uses the filename when `name:` is missing or empty. Add new templates through Pi's prompt directories or settings, then run `/reload`. Inserting a template does not send a message or expand argument placeholders; edit those before submitting. If your terminal does not send the shortcut, use `/prompts`.
 
 ### Composer Keys
 
-These work from the prompt after `pi install npm:pi-slate`. No terminal configuration.
+These work when `editor` is selected. No terminal configuration.
 
 | Action | Keys |
 | --- | --- |
@@ -131,16 +170,17 @@ These work from the prompt after `pi install npm:pi-slate`. No terminal configur
 
 ## Commands
 
-`/slate` with no args opens the settings picker. `/prompts` opens the prompt-template picker.
+`/slate` with no args opens the settings picker. `/prompts` is registered only with `editor` selected. `/exit` always quits Pi, same as `/quit`.
 
 | Setting | Commands | Effect |
 | --- | --- | --- |
+| Surfaces | `/slate surfaces [set <names...>\|full\|none]` | Show or save the selected set; requires `/reload`. |
 | Focused | `/slate focused [on\|off]` | Set focused mode. Focused mode hides the sidebar; standard mode restores it. |
 | PID display | `/slate pid [on\|off]` | Show the agent process ID on the composer's top edge. Off by default; omitted when the frame is too narrow. |
 | Sidebar width | `/slate width [default\|narrow\|medium\|wide\|<percent>]` | Choose the sidebar width and return to standard mode. `default` is 20%. |
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
-| Footer | `/slate footer [standard\|minimal]` | Standard shows model and thinking on the composer; minimal hides them. |
+| Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
 | Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal]` | Catppuccin Mocha style. `/slate style` does the same. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
@@ -169,7 +209,7 @@ Slate adds no new model-facing tools, prompts, or model calls. Highlighted `edit
 ## Requirements
 
 - Pi Coding Agent and a modern terminal that can render Kitty or iTerm2 image protocol, such as Ghostty or Warp.
-- Disable other UI extensions or ask your agent to merge them. Slate replaces Pi's header, footer, and editor. Extensions that replace the same surfaces may conflict.
+- Keep other UI extensions enabled and select only the surfaces you want Slate to own. Same-slot writers follow host precedence; no automatic conflict repair.
 - Copy a bug report with `/slate bug`.
 
 ## License

@@ -179,7 +179,7 @@ for (const count of [0, 1, MESSAGE_LENGTH_DEFAULT]) {
   });
 }
 
-test("theme invalidation and root remounting keep correct cache lifetimes", (t) => {
+test("theme invalidation refreshes caches and a replacement root wins",  (t) => {
   const f = fixture(t, 10);
   f.reset();
   f.tui.invalidate();
@@ -188,11 +188,14 @@ test("theme invalidation and root remounting keep correct cache lifetimes", (t) 
   f.reset();
   f.tui.renderNow();
   f.assertCached();
-  // The extension rewraps roots when pi replaces its fullscreen composition.
+  // Slate yields instead of rewrapping another writer's fullscreen composition.
   f.tui.setLayoutRoot(f.main);
   f.tui.renderNow();
+  assert.deepEqual(f.reformats, Array(10).fill(1), "The new full-width allocation reformats once");
+  assert.equal((f.tui as unknown as { layoutRoot: unknown }).layoutRoot, f.main);
+  f.reset();
+  f.tui.renderNow();
   f.assertCached();
-  f.assertFrame();
 });
 
 test("focused mode hides the sidebar and gives chat the full width", (t) => {

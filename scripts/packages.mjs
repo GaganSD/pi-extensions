@@ -8,7 +8,7 @@ export const packages = {
   "pi-slate": {
     name: "pi-slate", tests: "tests",
     integration: ["install-defaults.test.ts", "sidebar-split.test.ts", "diff-tools.test.ts", "read.test.ts", "git-diff.test.ts", "package.test.mjs", "prompts.test.ts"],
-    commands: ["slate", "prompts"], tools: [],
+    commands: ["slate", "prompts", "exit"], tools: [],
   },
   "pi-subagents": {
     name: "@gagansd/pi-subagents", tests: "test",
