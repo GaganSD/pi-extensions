@@ -80,6 +80,7 @@ export default function subagents(pi: ExtensionAPI): void {
 
   function draw(): void {
     if (!host) return;
+    bindKeys(host.ctx);
     const live = host.manager.live();
     try { syncWidget(host.ctx, host.manager.list(), Boolean(health[HEALTH]), id => { void openThread(host!.ctx, id); }, host.widget); } catch { /* Terminal availability is not run evidence. */ }
     const ticking = live.some(run => !run.endedAt);

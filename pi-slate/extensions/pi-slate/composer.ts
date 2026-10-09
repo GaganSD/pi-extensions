@@ -4,7 +4,6 @@ import {
   truncateToWidth,
   visibleWidth,
   getKeybindings,
-  matchesKey,
   type EditorTheme,
   type TUI,
   type TuiMouseEvent,
@@ -363,7 +362,7 @@ export class ComposerEditor extends CustomEditor {
   }
 
   override handleInput(data: string): void {
-    const canLeave = matchesKey(data, "down") && getKeybindings().matches(data, "tui.editor.cursorDown")
+    const canLeave = getKeybindings().matches(data, "tui.editor.cursorDown")
       && this.focused && !this.selectionActive && !this.isShowingAutocomplete();
     const before = canLeave ? this.getCursor() : undefined;
     const text = canLeave ? this.getText() : undefined;

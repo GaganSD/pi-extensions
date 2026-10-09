@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth, type TUI, type Focusable, type Component } from "@earendil-works/pi-tui";
-import { InspectView, type InspectActions } from "../src/inspect.ts";
+import { InspectView, attach, type InspectActions } from "../src/inspect.ts";
 import { HumanState } from "../src/presentation.ts";
 import { SubagentWidget } from "../src/ui.ts";
 import { readConversation } from "../src/conversation.ts";
@@ -65,8 +65,17 @@ test("Down focuses and selects without activating; Enter and Space activate exac
   assert.equal(opened.length, 0); assert.equal(state.selected, "b");
   widget.handleInput("\r"); assert.equal(opened.at(-1), "b");
   widget.focusRoster("a"); widget.handleInput(" "); assert.equal(opened.at(-1), "a");
+  widget.focusRoster("b"); widget.handleInput("\x1b[32u"); assert.equal(opened.at(-1), "b", "Kitty space must activate");
   widget.handleInput("z"); assert.equal(returned.at(-1), "z"); assert.equal(state.selected, undefined);
-  widget.focusRoster(); widget.handleInput("\x1b[A"); assert.equal(returned.at(-1), undefined);
+  widget.focusRoster("a"); widget.handleInput("\x1b[A"); assert.equal(returned.at(-1), undefined);
+});
+
+test("unfocused roster paints every live run instead of clipping to a focus window", () => {
+  const runs = Array.from({ length: 12 }, (_, i) => record(`run-${i}`));
+  const widget = new SubagentWidget(terminal(), theme, () => {});
+  widget.update(runs, false);
+  const labels = widget.render(80).filter(line => line.includes("Worker"));
+  assert.equal(labels.length, 12);
 });
 
 test("Recent is separately focusable and opening reviewed workers still routes exact IDs", () => {
@@ -172,6 +181,15 @@ test("conversation reads are asynchronous bounded pages, recover torn tails, and
   await writeFile(file, line("oversized " + "x".repeat(100000)) + "\n" + line("\x1b]52;c;attack\x07\u202e safe") + "\n");
   const bounded = await readConversation(file); assert.equal(bounded.messages.length, 1); assert.equal(bounded.omitted, true);
   assert(!bounded.messages[0]!.text.includes("\x1b") && !bounded.messages[0]!.text.includes("\u202e"));
+  await writeFile(file, line("only " + "y".repeat(100000)) + "\n");
+  const giant = await readConversation(file);
+  assert.equal(giant.messages.length, 0);
+  assert.equal(giant.omitted, true);
+  assert.notEqual(giant.before, (await stat(file)).size, "an empty page must not re-offer the same end offset");
+  if (giant.before !== undefined) {
+    const older = await readConversation(file, giant.before);
+    assert.notEqual(older.before, giant.before);
+  }
 });
 
 test("Older pages and unsent drafts survive reopening; live status never silently advances a history page", async t => {
@@ -188,6 +206,54 @@ test("Older pages and unsent drafts survive reopening; live status never silentl
   h.update({ ...run, elapsedMs: 200 });
   await until(() => reopened.render(80).join("\n").includes("message 171"));
   assert.equal(state.draft(run).text, "retain this draft"); assert(!reopened.render(80).join("\n").includes("message 299"));
+});
+
+test("a throwing workspace host does not hang attach and uses the overlay", async () => {
+  const h = harness();
+  let overlay = 0;
+  const tui = terminal();
+  const ctx = {
+    ui: {
+      setWidget() { throw new Error("widget factory unavailable"); },
+      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
+        overlay++;
+        factory(tui, theme, undefined, () => {}).dispose();
+      },
+    },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+  await Promise.race([
+    attach(ctx, record().id, h.actions, new HumanState(), {
+      version: 1, focusEditor() {}, bindDown() { return () => {}; }, mount() { return () => {}; },
+    }),
+    new Promise((_resolve, reject) => setTimeout(() => reject(new Error("attach hung after host widget failure")), 500)),
+  ]);
+  assert.equal(overlay, 1);
+});
+
+test("a host that offers mount but cannot lend a slot falls back to the opaque overlay", async () => {
+  const h = harness();
+  let overlay = 0, mounted = 0;
+  const tui = terminal();
+  const ctx = {
+    ui: {
+      setWidget(_key: string, factory?: (tui: TUI, theme: Theme) => { dispose(): void }) {
+        factory?.(tui, theme)?.dispose();
+      },
+      async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
+        overlay++;
+        factory(tui, theme, undefined, () => {}).dispose();
+      },
+    },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+  await attach(ctx, record().id, h.actions, new HumanState(), {
+    version: 1,
+    focusEditor() {},
+    bindDown() { return () => {}; },
+    mount() { mounted++; return undefined; },
+  });
+  assert.equal(mounted, 1);
+  assert.equal(overlay, 1);
+  assert.equal(h.listeners, 0);
 });
 
 test("unknown custom editors restore their original focused component without an editor replacement", () => {

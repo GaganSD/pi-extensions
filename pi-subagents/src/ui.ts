@@ -127,7 +127,7 @@ export class SubagentWidget implements Component, Focusable {
       this.selectedId = entries[Math.max(0, Math.min(entries.length - 1, next))];
       this.state.selected = this.selectedId; this.tui.requestRender(); return;
     }
-    if (matchesKey(data, "enter") || data === " ") {
+    if (matchesKey(data, "enter") || matchesKey(data, "space")) {
       if (this.selectedId === "recent") { this.recentOpen = !this.recentOpen; this.tui.requestRender(); }
       else if (this.selectedId) this.onOpen(this.selectedId);
       return;
@@ -136,9 +136,11 @@ export class SubagentWidget implements Component, Focusable {
   }
   render(width: number): string[] {
     const inner = Math.max(1, width), entries = this.entries();
-    const index = entries.indexOf(this.selectedId ?? "");
-    const start = this.focused ? Math.max(0, index - 6) : 0;
-    const shown = entries.slice(start, start + 8);
+    // Live/unread/selected rows stay painted; only a focused long list windows.
+    const index = Math.max(0, entries.indexOf(this.selectedId ?? ""));
+    const windowed = this.focused && entries.length > 8;
+    const start = windowed ? Math.max(0, Math.min(index - 6, entries.length - 8)) : 0;
+    const shown = windowed ? entries.slice(start, start + 8) : entries;
     this.mouseRows = shown;
     const lines = [this.theme.fg(this.blocked ? "error" : "dim", truncateToWidth(this.blocked ? "Sub-agents · cleanup unknown — launches blocked" : "Sub-agents · ↓ select · enter/space open", inner))];
     for (const id of shown) {

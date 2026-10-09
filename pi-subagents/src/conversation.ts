@@ -41,6 +41,10 @@ export async function readConversation(path: string, before?: number): Promise<C
       } catch { invalid = true; /* Torn/invalid entries never become terminal controls. */ }
       from = next + 1;
     }
+    if (!messages.length) {
+      // Never advertise the window end as an older page; that loops the same empty slice.
+      return { messages: [], ...(start > 0 ? { before: start } : {}), omitted: start > 0 || invalid || from < data.length };
+    }
     const retained = messages.slice(-128);
     const previous = retained.length < messages.length ? retained[0]!.offset : cursor;
     return { messages: retained, ...(previous ? { before: previous } : {}), omitted: start > 0 || retained.length < messages.length || invalid || from < data.length };

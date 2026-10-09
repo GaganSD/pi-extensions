@@ -43,23 +43,8 @@ export interface InspectActions {
 
 export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), navigation?: NavigationHost, onView?: (close: () => void) => void): Promise<void> {
   actions.status(id);
-  if (navigation?.mount) {
-    let mounted = false;
-    await new Promise<void>((resolve, reject) => {
-      // Obtain the host's active TUI without occupying/changing the main editor.
-      ctx.ui.setWidget("minimal-subagents:thread-host", (tui, theme) => {
-        let release: (() => void) | undefined;
-        const view = new InspectView(tui, theme, id, actions, () => { release?.(); if (mounted) resolve(); }, state);
-        onView?.(() => view.dispose());
-        try { release = navigation.mount!(view); } catch (error) { view.dispose(); reject(error); }
-        if (!release) { view.dispose(); reject(new Error("Conversation workspace unavailable; keep the existing layout untouched")); }
-        else mounted = true;
-        return { render: () => [], invalidate() {}, dispose() { if (mounted) view.dispose(); } };
-      }, { placement: "belowEditor" });
-    }).finally(() => ctx.ui.setWidget("minimal-subagents:thread-host", undefined));
-    return;
-  }
-  // Plain Pi fallback: opaque entire viewport. Never pretend it preserves a sidebar.
+  if (navigation?.mount && await mountThread(ctx, id, actions, state, navigation, onView)) return;
+  // No owned slot, or the host withdrew it: opaque entire viewport. Never pretend it preserves a sidebar.
   await ctx.ui.custom((tui, theme, _keys, done) => {
     const view = new InspectView(tui, theme, id, actions, done, state);
     onView?.(() => view.dispose());
@@ -67,6 +52,39 @@ export async function attach(ctx: ExtensionContext, id: string, actions: Inspect
   }, {
     overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 },
   });
+}
+
+async function mountThread(ctx: ExtensionContext, id: string, actions: InspectActions, state: HumanState, navigation: NavigationHost, onView?: (close: () => void) => void): Promise<boolean> {
+  let mounted = false;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      const empty = { render: () => [] as string[], invalidate() {}, dispose() {} };
+      try {
+        // Obtain the host's active TUI without occupying/changing the main editor.
+        ctx.ui.setWidget("minimal-subagents:thread-host", (tui, theme) => {
+          let release: (() => void) | undefined;
+          const view = new InspectView(tui, theme, id, actions, () => {
+            release?.();
+            if (mounted && !settled) { settled = true; resolve(); }
+          }, state);
+          onView?.(() => view.dispose());
+          try { release = navigation.mount!(view); } catch (error) { view.dispose(); fail(error); return empty; }
+          if (!release) { view.dispose(); fail(new Error("Conversation workspace unavailable")); return empty; }
+          mounted = true;
+          return { render: () => [], invalidate() {}, dispose() { if (mounted) view.dispose(); } };
+        }, { placement: "belowEditor" });
+      } catch (error) { fail(error); return; }
+      if (!mounted) fail(new Error("Conversation workspace unavailable"));
+    });
+    return true;
+  } catch { return false; }
+  finally { try { ctx.ui.setWidget("minimal-subagents:thread-host", undefined); } catch { /* Host UI may already be gone. */ } }
 }
 
 export class InspectView implements Component, Focusable {
@@ -152,7 +170,7 @@ export class InspectView implements Component, Focusable {
     }
     if (this.zone === "actions") {
       if (matchesKey(data, "left") || matchesKey(data, "right")) this.action = Math.max(0, Math.min(this.buttons.length - 1, this.action + (matchesKey(data, "right") ? 1 : -1)));
-      else if (matchesKey(data, "enter") || data === " ") this.activate(this.action);
+      else if (matchesKey(data, "enter") || matchesKey(data, "space")) this.activate(this.action);
       this.tui.requestRender(); return;
     }
     if (this.zone === "transcript") {
