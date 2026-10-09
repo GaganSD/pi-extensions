@@ -31,7 +31,7 @@ import {
   sameFiles,
   type FileChange,
 } from "./files-modified.ts";
-import { installSidebarSplit } from "./sidebar-split.ts";
+import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { TurnLogView } from "./turn-log.ts";
 import { formatTurnImpact, type TurnImpactSnapshot } from "./turn-impact.ts";
@@ -68,7 +68,7 @@ export type SidebarActions = {
 export class Sidebar implements Component {
   private tui?: TUI;
   private theme?: Theme;
-  private splitDispose?: () => void;
+  private splitDispose?: SidebarSplitLease;
   private guideHandle?: OverlayHandle;
   private guideOptions?: OverlayOptions;
   private resizing = false;
@@ -112,6 +112,13 @@ export class Sidebar implements Component {
     this.contentCached = undefined;
     this.dockCached = undefined;
     // Incompatible hosts remain untouched: no fullscreen preference or overlay fallback.
+  }
+
+  ownsFocus(component: Component): boolean { return component === this || this.splitDispose?.ownsFocus(component) === true; }
+
+  /** Scoped cooperative conversation surface; sidebar and underlying chat remain intact. */
+  replaceChat(view: Component): (() => void) | undefined {
+    return this.splitDispose?.replaceChat(view);
   }
 
   get preferredWidth(): number | undefined {

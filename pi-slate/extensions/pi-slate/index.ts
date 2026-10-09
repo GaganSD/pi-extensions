@@ -3,7 +3,6 @@ import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   copyToClipboard,
-  CustomEditor,
   getAgentDir,
   VERSION,
   type ExtensionAPI,
@@ -18,6 +17,7 @@ import {
 import { chromePaint, ComposerEditor, composerPaddingX } from "./composer.ts";
 import { copyWithFeedback } from "./copy-feedback.ts";
 import { ComposerSelectionController } from "./composer-selection.ts";
+import { installConversationBridge } from "./conversation-bridge.ts";
 import { installImagePlaceholders } from "./image-placeholders.ts";
 import { installExitCommand } from "./exit.ts";
 import { installPromptPicker } from "./prompts.ts";
@@ -212,12 +212,13 @@ export default function piSlate(pi: ExtensionAPI): void {
   };
   const turnImpact = new TurnImpactTracker();
   let currentContext: ExtensionContext | undefined;
-  let activeEditor: CustomEditor | undefined;
+  let activeEditor: ComposerEditor | undefined;
   let gitBranch: string | null = null;
   let activeTui: TUI | undefined;
   let editorFactory: Parameters<ExtensionContext["ui"]["setEditorComponent"]>[0];
   const editorActive = (): boolean => owns("editor") && currentContext?.mode === "tui"
     && (typeof currentContext.ui.getEditorComponent !== "function" || currentContext.ui.getEditorComponent() === editorFactory);
+  let conversations: ReturnType<typeof installConversationBridge> | undefined;
   let messageWindow: MessageWindow | undefined;
   const tokenRate = new TokenRateTracker();
   const thinkingFold = new ThinkingFoldTracker({ onChange: () => syncThinkingStatus() });
@@ -288,6 +289,15 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     currentContext = ctx;
+    conversations?.dispose();
+    conversations = ctx.mode === "tui" && owns("editor") ? installConversationBridge(pi, {
+      context: () => currentContext,
+      editor: () => editorActive() ? activeEditor : undefined,
+      tui: () => activeTui,
+      canMount: () => owns("sidebar") && sidebar.splitActive && typeof (activeTui as TUI & { getFocusedComponent?: unknown })?.getFocusedComponent === "function",
+      workspaceFocus: component => sidebar.ownsFocus(component),
+      replaceChat: view => sidebar.replaceChat(view),
+    }) : undefined;
     thinkingFold.stop();
     workingWord = undefined;
     if (loaded.error) ctx.ui.notify(loaded.error, "warning");
@@ -398,6 +408,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());
     if (owns("editor")) {
       editorFactory = (tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
+        conversations?.close();
+        activeTui = tui;
         images?.detachEditor();
         selection.dispose();
         const minimalEditorTheme: EditorTheme = {
@@ -564,6 +576,8 @@ export default function piSlate(pi: ExtensionAPI): void {
     diffs.clear();
     messageWindow?.dispose();
     messageWindow = undefined;
+    conversations?.dispose();
+    conversations = undefined;
     activeTui = undefined;
     sidebar.dispose();
     requestRender(true);

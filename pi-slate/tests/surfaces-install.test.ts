@@ -51,7 +51,10 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     getCommands: () => [],
     getAllTools: () => tools.map((tool) => ({ ...tool, sourceInfo: { path: conflict ? "/foreign/cards.ts" : new URL("../extensions/pi-slate/index.ts", import.meta.url).pathname } })),
     exec: async () => { calls.push("branch-git"); return { code: 0, stdout: "test-branch\n", stderr: "", killed: false }; },
-    events: { on: () => { calls.push("async-subscribe"); return () => calls.push("async-dispose"); } },
+    events: { on: (name: string) => {
+      const prefix = name === "subagent:ui-host-request" ? "navigation" : "async";
+      calls.push(`${prefix}-subscribe`); return () => calls.push(`${prefix}-dispose`);
+    } },
   } as unknown as ExtensionAPI;
   const tui = compatible ? new TuiAltScreen(new NullTerminal()) : {
     requestRender() {}, terminal: { columns: 140, rows: 24 }, showOverlay() { assert.fail("no overlay fallback"); },
@@ -107,6 +110,7 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
     assert.equal(f.calls.includes("widget"), has(surfaces, "sidebar") || has(surfaces, "transcript"));
     assert.equal(f.calls.includes("files-start"), has(surfaces, "sidebar"));
     assert.equal(f.calls.includes("async-subscribe"), has(surfaces, "sidebar"));
+    assert.equal(f.calls.includes("navigation-subscribe"), has(surfaces, "editor"));
     assert.equal(f.calls.includes("branch-git"), has(surfaces, "editor"));
     assert.deepEqual(f.tools.map((tool) => tool.name).sort(), has(surfaces, "tool-cards") ? ["edit", "read", "write"] : []);
     assert.equal(f.commands.has("exit"), true);

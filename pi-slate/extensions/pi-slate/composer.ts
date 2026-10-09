@@ -3,6 +3,8 @@ import { CustomEditor, type KeybindingsManager, type Theme } from "@earendil-wor
 import {
   truncateToWidth,
   visibleWidth,
+  getKeybindings,
+  matchesKey,
   type EditorTheme,
   type TUI,
   type TuiMouseEvent,
@@ -336,6 +338,8 @@ export function scrollComposerByLines(editor: object, delta: number): boolean {
 
 export class ComposerEditor extends CustomEditor {
   selectionActive = false;
+  /** Cooperative navigation: invoked only after normal editor navigation reaches its boundary. */
+  onDownBoundary?: () => void;
   private readonly source: () => ComposerSource;
   private statusIndicator: WorkingStatusIndicatorParameter;
 
@@ -356,6 +360,18 @@ export class ComposerEditor extends CustomEditor {
       get: () => paint,
       set: () => undefined,
     });
+  }
+
+  override handleInput(data: string): void {
+    const canLeave = matchesKey(data, "down") && getKeybindings().matches(data, "tui.editor.cursorDown")
+      && this.focused && !this.selectionActive && !this.isShowingAutocomplete();
+    const before = canLeave ? this.getCursor() : undefined;
+    const text = canLeave ? this.getText() : undefined;
+    super.handleInput(data); // Wrapped lines, history and autocomplete get first refusal.
+    if (before && !this.isShowingAutocomplete() && this.focused) {
+      const after = this.getCursor();
+      if (after.line === before.line && after.col === before.col && this.getText() === text) this.onDownBoundary?.();
+    }
   }
 
   override setWorkingStatusIndicator(indicator: WorkingStatusIndicatorParameter): void {
