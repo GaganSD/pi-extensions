@@ -61,8 +61,10 @@ Run/session UUIDs and PID are not primary navigation labels.
   (`tui.editor.cursorDown`, Down by default). Native movement, history,
   autocomplete and selection run first. If Down still moves your caret or clears
   a selection, press it again after that movement finishes.
-- **Up/Down** selects; **Enter/Space** opens. **Esc**, or Up from the first row,
-  returns to the original editor. Typing returns there with that input intact.
+- **Up/Down** selects, including the configured `tui.editor.cursorDown` handoff
+  key and `tui.select.*` bindings; **PageUp/PageDown** jump a window. **Enter/Space**
+  opens. **Esc**, or Up from the first row, returns to the original editor.
+  Typing returns there with that input intact.
 - Click selects; double-click opens. `/subagents` remains the portable entry point.
 - In a thread, Space/arrows edit normally. **Tab/Shift+Tab** moves among message,
   conversation and actions; **PageUp/PageDown** scrolls. **Esc/Back** returns.

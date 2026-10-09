@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, matchesKey, truncateToWidth, visibleWidth, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, getKeybindings, matchesKey, truncateToWidth, visibleWidth, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { isLive, type RunRecord } from "./types.ts";
 import { HumanState, safeText, stateLabel, taskTitle } from "./presentation.ts";
 export const plain = safeText;
@@ -45,6 +45,17 @@ export function nextLive(runs: RunRecord[], id: string): string | undefined {
   const live = runs.filter(run => isLive(run.state));
   const index = live.findIndex(run => run.id === id);
   return index < 0 ? live[0]?.id : live[index + 1]?.id;
+}
+function keyMatches(data: string, binding: "tui.editor.cursorDown" | "tui.editor.cursorUp" | "tui.select.down" | "tui.select.up" | "tui.select.pageDown" | "tui.select.pageUp" | "tui.select.confirm" | "tui.select.cancel"): boolean {
+  try { return getKeybindings().matches(data, binding); } catch { return false; }
+}
+function rosterAction(data: string): "up" | "down" | "pageUp" | "pageDown" | "activate" | "cancel" | undefined {
+  if (matchesKey(data, "escape") || keyMatches(data, "tui.select.cancel")) return "cancel";
+  if (matchesKey(data, "enter") || matchesKey(data, "space") || keyMatches(data, "tui.select.confirm")) return "activate";
+  if (matchesKey(data, "pageDown") || keyMatches(data, "tui.select.pageDown")) return "pageDown";
+  if (matchesKey(data, "pageUp") || keyMatches(data, "tui.select.pageUp")) return "pageUp";
+  if (matchesKey(data, "down") || keyMatches(data, "tui.select.down") || keyMatches(data, "tui.editor.cursorDown")) return "down";
+  if (matchesKey(data, "up") || keyMatches(data, "tui.select.up") || keyMatches(data, "tui.editor.cursorUp")) return "up";
 }
 export interface NavigationHost {
   version: 1;
@@ -109,7 +120,7 @@ export class SubagentWidget implements Component, Focusable {
     this.selectedId = id ?? this.selectedId ?? entries[0];
     if (!this.selectedId || !entries.includes(this.selectedId)) this.selectedId = entries[0];
     if (!this.selectedId) { this.leave(); return; }
-    if (!this.canFocus) return;
+    if (!this.canFocus && !this.restoreEditor) return;
     this.focused = true; this.tui.setFocus(this); this.tui.requestRender();
   }
   restoreOrigin(data?: string): void { if (this.origin) this.focusMain(this.origin, data); }
@@ -121,13 +132,14 @@ export class SubagentWidget implements Component, Focusable {
   invalidate(): void {}
   handleInput(data: string): void {
     const entries = this.entries(), index = entries.indexOf(this.selectedId ?? "");
-    if (matchesKey(data, "escape") || (matchesKey(data, "up") && index <= 0)) { this.leave(); return; }
-    if (matchesKey(data, "up") || matchesKey(data, "down")) {
-      const next = index + (matchesKey(data, "down") ? 1 : -1);
-      this.selectedId = entries[Math.max(0, Math.min(entries.length - 1, next))];
+    const action = rosterAction(data);
+    if (action === "cancel" || ((action === "up" || action === "pageUp") && index <= 0)) { this.leave(); return; }
+    if (action === "up" || action === "down" || action === "pageUp" || action === "pageDown") {
+      const delta = (action === "down" || action === "pageDown" ? 1 : -1) * (action === "pageUp" || action === "pageDown" ? 8 : 1);
+      this.selectedId = entries[Math.max(0, Math.min(entries.length - 1, (index < 0 ? 0 : index) + delta))];
       this.state.selected = this.selectedId; this.tui.requestRender(); return;
     }
-    if (matchesKey(data, "enter") || matchesKey(data, "space")) {
+    if (action === "activate") {
       if (this.selectedId === "recent") { this.recentOpen = !this.recentOpen; this.tui.requestRender(); }
       else if (this.selectedId) this.onOpen(this.selectedId);
       return;

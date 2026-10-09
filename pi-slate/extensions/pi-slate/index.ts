@@ -408,7 +408,9 @@ export default function piSlate(pi: ExtensionAPI): void {
     if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());
     if (owns("editor")) {
       editorFactory = (tui: TUI, editorTheme: EditorTheme, keybindings: KeybindingsManager) => {
-        conversations?.close();
+        const tuiChanged = Boolean(activeTui && activeTui !== tui);
+        if (tuiChanged) conversations?.close();
+        const previousDown = tuiChanged ? undefined : activeEditor?.onDownBoundary;
         activeTui = tui;
         images?.detachEditor();
         selection.dispose();
@@ -440,6 +442,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             embedWorkingStatus: true,
           },
         );
+        if (previousDown) activeEditor.onDownBoundary = previousDown;
         selection.attach(activeEditor, {
           copy: (text) => copyWithFeedback(tui, ctx.ui.notify, text),
           requestRender: () => tui.requestRender(),

@@ -4,7 +4,8 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, TuiAltScreen, type TUI, type Terminal, type Focusable, type Component } from "@earendil-works/pi-tui";
+import { getKeybindings, setKeybindings, visibleWidth, TuiAltScreen, type TUI, type Terminal, type Focusable, type Component } from "@earendil-works/pi-tui";
+import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { InspectView, attach, type InspectActions } from "../src/inspect.ts";
 import { HumanState } from "../src/presentation.ts";
 import { SubagentWidget } from "../src/ui.ts";
@@ -405,4 +406,33 @@ test("restoring an existing latest-page reading position never adds the whole fr
   assert.equal(state.draft(run).scroll, 20);
   for (let i = 0; i < 100; i++) view.handleInput("\x1b[5~");
   assert(state.draft(run).scroll < 100, "scrolling clamps at the actual top");
+});
+
+test("configured cursorDown pages the roster instead of bouncing back to the editor", t => {
+  const previous = getKeybindings();
+  setKeybindings(new KeybindingsManager({ "tui.editor.cursorDown": "ctrl+n" }));
+  t.after(() => setKeybindings(previous));
+  const returned: Array<string | undefined> = [];
+  const runs = Array.from({ length: 12 }, (_, i) => record(`id-${i}`));
+  const widget = new SubagentWidget(terminal(), theme, () => {}, new HumanState(), data => returned.push(data));
+  widget.update(runs, false);
+  widget.focusRoster(runs[0]!.id);
+  widget.handleInput("\x0e");
+  assert.equal(widget.state.selected, runs[1]!.id);
+  assert.equal(returned.length, 0, "the handoff key must keep navigating the roster");
+  widget.handleInput("\x1b[6~");
+  assert.equal(widget.state.selected, runs[9]!.id);
+});
+
+test("thread header shows live tool activity; truncated action clicks hit the painted button", () => {
+  const busy = { ...record(), currentTool: "bash" };
+  const h = harness(busy);
+  let closed = 0;
+  const view = new InspectView(terminal(), theme, busy.id, h.actions, () => closed++);
+  assert.match(view.render(80).join("\n"), /bash/);
+  const lines = view.render(22);
+  const actionsRow = lines.findIndex(line => line.includes("[Back]"));
+  view.handleMouse({ type: "click", button: "left", x: 50, y: actionsRow, screenX: 50, screenY: actionsRow, width: 22, height: 24, shift: false, alt: false, ctrl: false, clickCount: 1 });
+  assert.equal(closed, 0, "a click past the truncated actions row must not activate a clipped button");
+  view.dispose();
 });

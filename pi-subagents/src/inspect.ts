@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
 import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
 import { HumanState, stateLabel } from "./presentation.ts";
@@ -135,6 +135,9 @@ export class InspectView implements Component, Focusable {
   private contentRevision = 0;
   private bodyCache?: { key: string; width: number; lines: string[] };
   private lastActionsRow = 0;
+  private buttonHits: Array<{ index: number; x0: number; x1: number }> = [];
+  private inputOrigin = 0;
+  private readonly tick: ReturnType<typeof setInterval>;
   private readonly tui: TUI;
   private readonly theme: Theme;
   private readonly id: string;
@@ -162,11 +165,17 @@ export class InspectView implements Component, Focusable {
       tui.requestRender();
     };
     this.unsubscribe = actions.subscribe(() => this.refresh());
+    this.tick = setInterval(() => {
+      if (this.closed) return;
+      const live = this.safeStatus();
+      if (live && isLive(live.state) && !live.endedAt) this.tui.requestRender();
+    }, 1000);
+    this.tick.unref?.();
     this.refresh();
   }
   dispose(): void {
     if (this.closed) return;
-    this.closed = true; this.unsubscribe();
+    this.closed = true; clearInterval(this.tick); this.unsubscribe();
     this.state.open = undefined;
     this.done();
   }
@@ -206,8 +215,9 @@ export class InspectView implements Component, Focusable {
     this.lastWidth = Math.max(1, width);
     const inner = this.lastWidth, height = Math.max(1, this.tui.terminal.rows), record = this.safeStatus();
     if (!this.closed && this.focused && record && this.isPresented()) this.state.markRead(record);
+    const activity = record?.currentTool ? ` · ${plain(record.currentTool)}` : "";
     const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
-      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))} · ${record.thinking} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
+      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
     this.input.focused = this.focused && this.zone === "message" && !this.details;
     const editor = this.fitEditor(inner, Math.max(1, Math.min(5, height - 5)));
     const footer = [this.theme.fg("dim", truncateToWidth(this.note, inner)),
@@ -223,8 +233,23 @@ export class InspectView implements Component, Focusable {
     const body = content.slice(from, from + this.bodyHeight);
     while (body.length < this.bodyHeight) body.push("");
     if (this.zone === "transcript" && this.focused && body.length) body[0] = CURSOR_MARKER + body[0];
-    this.lastActionsRow = height - keptFooter.length + Math.max(0, keptFooter.indexOf(footer[1]!));
-    this.lastInputStart = height - editor.length;
+    const chrome = this.details ? footer.length : footer.length - editor.length;
+    const footerFrom = footer.length - keptFooter.length;
+    const buttonsVisible = 1 >= footerFrom && 1 < footerFrom + keptFooter.length;
+    this.lastActionsRow = buttonsVisible ? height - keptFooter.length + (1 - footerFrom) : -1;
+    this.buttonHits = [];
+    if (buttonsVisible) {
+      let column = 0;
+      for (let i = 0; i < this.buttons.length; i++) {
+        const token = `${this.zone === "actions" && this.action === i ? "›" : ""}[${this.buttons[i]}]`;
+        const span = visibleWidth(token) + (i < this.buttons.length - 1 ? 1 : 0);
+        if (column >= inner) break;
+        this.buttonHits.push({ index: i, x0: column, x1: Math.min(inner, column + span) });
+        column += span;
+      }
+    }
+    this.inputOrigin = this.details ? 0 : Math.max(0, footerFrom - chrome);
+    this.lastInputStart = height - (this.details ? 0 : Math.max(0, keptFooter.length - Math.max(0, chrome - footerFrom)));
     // Every viewport row is painted: no parent transcript can show through.
     return [...keptHeader, ...body, ...keptFooter].slice(-height).map(line => truncateToWidth(line, inner));
   }
@@ -232,14 +257,10 @@ export class InspectView implements Component, Focusable {
     if (event.type === "wheel") { this.scroll(-(event.wheelDelta ?? 0)); return { handled: true, focus: true }; }
     if (event.type !== "click" || event.button !== "left") return;
     if (event.y >= this.lastInputStart && !this.details) {
-      this.zone = "message"; this.input.handleMouse({ ...event, y: event.y - this.lastInputStart + this.inputCrop });
+      this.zone = "message"; this.input.handleMouse({ ...event, y: event.y - this.lastInputStart + this.inputCrop + this.inputOrigin });
     } else if (event.y === this.lastActionsRow) {
-      let column = 0;
-      for (let i = 0; i < this.buttons.length; i++) {
-        const length = this.buttons[i]!.length + 3 + (this.zone === "actions" && this.action === i ? 1 : 0);
-        if (event.x >= column && event.x < column + length) { this.zone = "actions"; this.action = i; this.activate(i); break; }
-        column += length;
-      }
+      const hit = this.buttonHits.find(item => event.x >= item.x0 && event.x < item.x1);
+      if (hit) { this.zone = "actions"; this.action = hit.index; this.activate(hit.index); }
     } else this.zone = "transcript";
     this.tui.requestRender(); return { handled: true, focus: true };
   }

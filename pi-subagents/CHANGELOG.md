@@ -17,6 +17,9 @@
   transcript pages, support encoded Space/configured navigation keys, and rebind
   remounted editors. Preserve unread state and release failed workspace loans;
   disclose fallback and let the overlay host restore its original focus.
+- Keep configured Down/select keys on the roster after handoff, page saturated
+  lists, tick live elapsed, show the current tool, and hit-test only painted
+  action buttons on narrow terminals.
 
 - List the selected model's supported thinking levels in preflight errors, so
   mixed-model batches can be corrected without guessing or automatic fallback.
