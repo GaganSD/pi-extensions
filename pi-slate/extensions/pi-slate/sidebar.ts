@@ -1,22 +1,21 @@
-import { homedir } from "node:os";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
-import { clampSidebarColumns, compactPath, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN, workspaceColumnWidth } from "./layout.ts";
+import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
 import { installSidebarSplit } from "./sidebar-split.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
-import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarCommand, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
+import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
 import type { BackgroundTask } from "./background-tasks.ts";
-import { sessionSidebarSlots, sidebarDuration, sidebarListOffset } from "./sidebar-layout.ts";
+import { sessionSidebarSlots, sidebarCost, sidebarDuration, sidebarListOffset } from "./sidebar-layout.ts";
 
 export const DOUBLE_CLICK_MS = 400;
-type ListName = "mcp" | "skills" | "commands" | "tasks";
+type ListName = "mcp" | "skills" | "tasks";
 type Row = { text: string; action?: () => void; list?: ListName; item?: number };
 type Hit = { y: number; x0: number; x1: number; action: () => void };
 export type SidebarActions = {
   copy(text: string): void;
   openFile(filePath: string): void;
-  insertCommand?(command: string): void;
+  commands?(): void;
   inspect?(title: string, text: string): void;
   persistWidth?(percent: number | undefined): void;
   persistFold?(section: keyof SidebarFolds, expanded: boolean): SidebarFolds | undefined;
@@ -47,7 +46,7 @@ export class Sidebar implements Component {
   private resources: SidebarResources = EMPTY_RESOURCES;
   private tasks: BackgroundTask[] = [];
   private folds: SidebarFolds = { ...DEFAULT_SIDEBAR_FOLDS };
-  private offsets: Record<ListName, number> = { mcp: 0, skills: 0, commands: 0, tasks: 0 };
+  private offsets: Record<ListName, number> = { mcp: 0, skills: 0, tasks: 0 };
   private middleOffset = 0;
   private middleRows = 0;
   private middleStart = 0;
@@ -84,6 +83,7 @@ export class Sidebar implements Component {
     this.splitActive = Boolean(this.splitDispose);
     this.invalidate();
   }
+  isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
   get preferredWidth(): number | undefined { return this._preferredWidth; }
   setPreferredWidth(width: number | undefined): void {
     const next = width === undefined ? undefined : parseSidebarPercent(width);
@@ -112,7 +112,7 @@ export class Sidebar implements Component {
   /** A new session cannot inherit scroll positions, selected images, or old hit targets. */
   reset(): void {
     this.session = EMPTY_SESSION; this.resources = EMPTY_RESOURCES; this.tasks = [];
-    this.offsets = { mcp: 0, skills: 0, commands: 0, tasks: 0 }; this.middleOffset = 0;
+    this.offsets = { mcp: 0, skills: 0, tasks: 0 }; this.middleOffset = 0;
     this.selectedImage = undefined; this.peekImage = undefined; this.pinned = false; this.clearedImageId = undefined;
     this.hits = []; this.listRows = []; this.lastClick = undefined; this.changed();
   }
@@ -141,6 +141,8 @@ export class Sidebar implements Component {
   isImagePinned(): boolean { return this.pinned; }
   sessionDetails(): string {
     const s = this.session;
+    const uncached = s.usage.input === null || s.usage.cacheRead === null || s.usage.cacheWrite === null ? null : Math.max(0, s.usage.input - s.usage.cacheRead - s.usage.cacheWrite);
+    const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
     return [`${sidebarText(s.name)} · ${s.id || "—"}`, `PID: ${s.pid}`, `Model: ${s.model} · ${s.thinking}`,
       `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
       `Wall time (this runtime): ${sidebarDuration(s.startedAt > 0 ? this.now() - s.startedAt : null)}`,
@@ -148,7 +150,8 @@ export class Sidebar implements Component {
       `Active-branch usage:`, `Input (uncached + cache read + cache write): ${formatCompactTokenCount(s.usage.input)}`,
       `Output: ${formatCompactTokenCount(s.usage.output)} · Total: ${formatCompactTokenCount(s.usage.total)}`,
       `Cache read: ${formatCompactTokenCount(s.usage.cacheRead)} · Cache write: ${formatCompactTokenCount(s.usage.cacheWrite)}`,
-      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, s.cwd].join("\n");
+      `Uncached input: ${formatCompactTokenCount(uncached)} · Cache-hit share: ${hit}`,
+      `Cost: ${s.usage.cost === null ? "—" : `$${s.usage.cost.toFixed(2)}`}`, `Estimated rate: ${s.rate === null ? "—" : `~${Math.round(s.rate)} tokens/sec`}`, s.cwd].join("\n");
   }
   tick(): void { if (!this.hidden && this.splitActive) this.tui?.requestRender(); }
   invalidate(): void {
@@ -215,7 +218,7 @@ export class Sidebar implements Component {
     for (const row of this.taskRows(inner, slots.tasks)) add(row);
     this.imageStart = lines.length; this.imageHeight = slots.image;
     lines.push(...this.imageLines(width, slots.image, lines.length));
-    if (slots.footer) add({ text: this.paint("dim", this.pair(sidebarText(compactPath(this.session.cwd, homedir())), "/slate session", inner)) });
+    if (slots.footer) add({ text: this.paint("dim", "/slate session · details"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) });
     while (lines.length < height) lines.push(this.decorateLine("", width));
     this.cached = { key, lines: lines.slice(0, height) };
     return this.cached.lines;
@@ -224,59 +227,48 @@ export class Sidebar implements Component {
   private headerRows(width: number): Row[] {
     const s = this.session;
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
-    const barWidth = Math.max(0, width - 6);
-    const filled = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * barWidth / 100);
+    const filled = percent === null ? 0 : Math.round(Math.max(0, Math.min(100, percent)) * width / 100);
     const tone = percent !== null && percent >= 80 ? "warning" : "success";
-    const pid = `PID ${s.pid}`;
-    const id = sidebarText(s.id).slice(0, Math.min(12, Math.max(0, width - visibleWidth(pid) - 1)));
+    const identity = `${sidebarText(s.id).slice(0, 8) || "—"} · pid ${s.pid}`;
+    const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`;
+    const context = this.pair("Context", percent === null ? "—%" : `${Math.round(percent)}%`, width);
     return [
-      { text: this.heading(this.pair("Session", s.working ? "working" : "idle", width)) },
-      { text: this.paint("text", sidebarText(s.name) || "Unnamed session") },
-      { text: this.paint("muted", this.pair(pid, id || "—", width)), action: () => { if (s.id) this.actions?.copy(s.id); } },
-      { text: this.paint("muted", this.pair(`model: ${sidebarText(s.model)}`, sidebarText(s.thinking), width)) },
-      { text: `${this.paint(tone, "█".repeat(filled))}${this.paint("dim", "─".repeat(barWidth - filled))} ${this.paint(tone, percent === null ? "—%" : `${Math.round(percent)}%`)}` },
-      { text: this.paint("dim", `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)} context`) },
+      { text: this.paint("muted", "SESSION"), action: () => this.actions?.inspect?.("Session", this.sessionDetails()) },
+      { text: this.heading(sidebarText(s.name) || "Untitled session") },
+      { text: this.paint("muted", visibleWidth(identity) > width ? this.pair(sidebarText(s.id).slice(0, 8), `pid ${s.pid}`, width) : identity), action: () => { if (s.id) this.actions?.copy(s.id); } },
+      { text: "" },
+      { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) },
+      { text: "" },
+      { text: this.paint("muted", context) },
+      { text: this.paint(tone, "█".repeat(filled)) + this.paint("dim", "─".repeat(width - filled)) },
+      { text: this.paint("muted", occupancy) },
+      { text: "" },
+      ...[["Input", formatCompactTokenCount(s.usage.input)], ["Output", formatCompactTokenCount(s.usage.output)], ["Cost", sidebarCost(s.usage.cost)]].map(([label, value]) => ({
+        text: this.pair(this.paint("muted", label!), this.paint("text", value!), width),
+        action: () => this.actions?.inspect?.("Branch usage", this.sessionDetails()),
+      })),
+      { text: "" },
+      { text: this.paint("dim", "─".repeat(width)) },
     ];
   }
   private middle(width: number): Row[] {
-    const rows: Row[] = this.stats(width).map(text => ({ text }));
     const enabled = this.resources.mcp.filter(x => x.enabled === true).length;
-    rows.push({ text: this.paint(this.resources.mcpError ? "warning" : "mdHeading", this.pair(`${this.folds.mcp ? "▾" : "▸"} MCP servers`, this.resources.mcpError ? "config error" : `${enabled} on / ${this.resources.mcp.length}`, width)), action: () => this.toggleSection("mcp") });
+    const unknown = this.resources.mcp.some(x => x.enabled === null);
+    const loaded = this.resources.skills.filter(x => x.loaded).length;
+    const resourceHeading = (label: string, count: string): string =>
+      this.heading(label) + this.paint("muted", ` · ${count}`);
+    const rows: Row[] = [{ text: "" }, {
+      text: resourceHeading(`${this.folds.mcp ? "⌄" : "›"} MCP`, this.resources.mcpError ? "config error" : `${unknown ? "—" : enabled} enabled`),
+      action: () => this.toggleSection("mcp"),
+    }];
     if (this.folds.mcp) {
       if (this.resources.mcpError) rows.push({ text: this.paint("warning", this.resources.mcpError) });
       rows.push(...this.resourceRows("mcp", width));
     }
-    const loaded = this.resources.skills.filter(x => x.loaded).length;
-    rows.push({ text: this.heading(this.pair(`${this.folds.skills ? "▾" : "▸"} Skills`, `${loaded} loaded / ${this.resources.skills.length}`, width)), action: () => this.toggleSection("skills") });
+    rows.push({ text: "" }, { text: resourceHeading(`${this.folds.skills ? "⌄" : "›"} Skills`, `${loaded} loaded`), action: () => this.toggleSection("skills") });
     if (this.folds.skills) rows.push(...this.resourceRows("skills", width));
-    rows.push({ text: this.heading(this.pair("Commands", String(this.resources.commands.length), width)) });
-    rows.push(...this.resourceRows("commands", width));
+    rows.push({ text: "" }, { text: resourceHeading("› Commands", String(this.resources.commands.length)), action: () => this.actions?.commands?.() });
     return rows;
-  }
-  private stats(width: number): string[] {
-    const s = this.session; const u = s.usage;
-    const cost = u.cost === null ? "—" : `$${u.cost.toFixed(2)}`;
-    const rate = s.rate === null || !Number.isFinite(s.rate) ? "—" : `~${Math.round(s.rate)}${width < 24 ? "/s" : " tok/s"}`;
-    const elapsed = s.startedAt > 0 ? sidebarDuration(this.now() - s.startedAt) : "—";
-    const token = formatCompactTokenCount;
-    const cachePercent = u.input !== null && u.cacheRead !== null && u.input > 0 ? `${Math.round(u.cacheRead / u.input * 100)}%` : "—";
-    const uncached = u.input === null || u.cacheRead === null || u.cacheWrite === null ? null : Math.max(0, u.input - u.cacheRead - u.cacheWrite);
-    const cache = this.paint("dim", `cache ${cachePercent} · uncached ${token(uncached)}`);
-    if (width < 36) return [
-      this.heading("Stats / Tokens · branch"),
-      this.paint("muted", this.pair(`time ${elapsed}`, `last ${sidebarDuration(s.lastTurnMs)}`, width)),
-      this.paint("muted", this.pair(`turns ${s.turns}`, cost, width)),
-      this.paint("text", this.pair(`in ${token(u.input)}`, `out ${token(u.output)}`, width)),
-      this.paint("muted", width < 24 ? `cache ${this.pair(`r${token(u.cacheRead)}`, `w${token(u.cacheWrite)}`, width - 6)}` : this.pair(`cache r${token(u.cacheRead)} w${token(u.cacheWrite)}`, cachePercent, width)),
-      this.paint("dim", this.pair(`Σ ${token(u.total)}`, rate, width)),
-    ];
-    const leftWidth = Math.floor((width - 2) / 2);
-    const pairs: Array<[string, string]> = [["Stats", "Tokens · branch"], [`time ${elapsed}`, `in ${token(u.input)}`], [`last ${sidebarDuration(s.lastTurnMs)}`, `out ${token(u.output)}`], [`rate ${rate}`, `total ${token(u.total)}`], [`turns ${s.turns} · ${cost}`, `cache read ${token(u.cacheRead)}`], [`messages ${s.messages}`, `cache write ${token(u.cacheWrite)}`]];
-    return pairs.map(([left, right], i) => {
-      const a = truncateToWidth(left, leftWidth, "…");
-      const line = `${a}${" ".repeat(Math.max(0, leftWidth - visibleWidth(a)))}  ${right}`;
-      return i === 0 ? this.heading(line) : this.paint("muted", line);
-    }).concat(cache);
   }
   private resourceRows(list: Exclude<ListName, "tasks">, width: number): Row[] {
     const items = this.resources[list];
@@ -295,62 +287,64 @@ export class Sidebar implements Component {
         const skill = this.resources.skills[i]!;
         rows.push({ text: this.paint(skill.loaded ? "muted" : "dim", this.pair(`${skill.loaded ? "●" : "○"} ${sidebarText(skill.name)}`, skill.loaded ? "loaded" : "available", width)), list, item: i,
           action: () => this.actions?.inspect?.(skill.name, `${skill.loaded ? "Instructions observed loaded on this branch" : "Available; instructions not observed loaded"}\nSource: ${skill.source}\n${skill.path}`) });
-      } else {
-        const command = this.resources.commands[i]!;
-        rows.push({ text: this.paint("muted", this.pair(`/${sidebarText(command.name)}`, command.source, width)), list, item: i,
-          action: () => this.insertCommand(command) });
       }
     }
     if (items.length > visible) rows.push({ text: this.paint("dim", `${start + 1}–${Math.min(items.length, start + visible)} / ${items.length} · scroll ↕`), list });
     return rows;
   }
-  private insertCommand(command: SidebarCommand): void { this.actions?.insertCommand?.(`/${command.name} `); }
   private taskRows(width: number, height: number): Row[] {
-    if (height <= 0) return [];
-    const rows: Row[] = [{ text: this.heading(this.pair("Background tasks", String(this.tasks.length), width)), action: () => this.actions?.inspect?.("Background tasks", this.tasks.length ? this.tasks.map(t => this.taskDetails(t)).join("\n\n") : "No agent-started tasks observed.\nDetached jobs appear when their owner reports them.") }];
-    const visible = height - 1;
+    if (height <= 0 || !this.tasks.length) return [];
+    const live = this.tasks.filter(t => t.state !== "failed" && t.state !== "cleanup_unknown").length;
+    const rows: Row[] = height >= 4 ? [{ text: "" }] : [];
+    rows.push({ text: this.pair(this.heading("Tasks"), this.paint("muted", live ? `${live} live` : `${this.tasks.length} recorded`), width),
+      action: () => this.actions?.inspect?.("Background tasks", this.tasks.map(t => this.taskDetails(t)).join("\n\n")) });
+    const visible = Math.max(1, Math.ceil((height - rows.length) / 2));
     this.offsets.tasks = sidebarListOffset(this.offsets.tasks, this.tasks.length, visible);
     for (const task of this.tasks.slice(this.offsets.tasks, this.offsets.tasks + visible)) {
       const error = task.state === "failed" || task.state === "cleanup_unknown";
       const icon = error ? "!" : task.state === "waiting" ? "?" : "●";
-      rows.push({ text: this.paint(error ? "error" : task.state === "waiting" ? "warning" : "muted", this.pair(`${icon} ${sidebarText(task.label)}`, `${task.state} ${sidebarDuration(this.now() - task.startedAt)}`, width)), list: "tasks",
-        action: () => this.actions?.inspect?.(task.label, this.taskDetails(task)) });
+      const action = () => this.actions?.inspect?.(task.label, this.taskDetails(task));
+      if (rows.length < height) rows.push({ text: this.paint(error ? "error" : task.state === "waiting" ? "warning" : "muted",
+        this.pair(`${icon} ${sidebarText(task.label)}`, task.state, width)), list: "tasks", action });
+      if (rows.length < height) rows.push({ text: this.paint("dim", `${task.kind} · ${sidebarDuration(this.now() - task.startedAt)}${task.pid ? ` · pid ${task.pid}` : ""}`), list: "tasks", action });
     }
-    while (rows.length < height) rows.push({ text: this.paint("dim", "") });
+    while (rows.length < height) rows.push({ text: "" });
     return rows;
   }
   private taskDetails(task: BackgroundTask): string {
     return `${task.kind} · ${task.state}\nSource: ${task.source}\nID: ${task.id}\n${task.pid ? `PID: ${task.pid}\n` : ""}Elapsed: ${sidebarDuration(this.now() - task.startedAt)}\n${task.detail ?? ""}`;
   }
   private imageLines(width: number, height: number, start: number): string[] {
-    if (height <= 0) return [];
     const view = this.imageView();
+    if (height <= 0 || !view) return [];
     const inner = Math.max(0, width - 2);
-    if (!view) return Array.from({ length: height }, (_, i) => this.decorateLine(i === 0 ? this.heading("Image · no selection") : "", width));
+    const title = height <= 2 ? `Preview · ${sidebarText(view.title ?? view.filePath)}` : "Preview";
+    const lines = [this.decorateLine(this.pair(this.heading(title), this.paint("muted", this.pinned ? "pinned" : "caret"), inner), width)];
+    if (height === 1) return lines;
     const controls: Array<{ label: string; action: () => void }> = [
       { label: this.pinned ? "[unpin]" : "[pin]", action: () => this.pinImage() },
       { label: "[open]", action: () => { if (view.filePath) this.actions?.openFile(view.filePath); } },
       { label: "[copy]", action: () => { if (view.filePath) this.actions?.copy(view.filePath); } },
       { label: "[clear]", action: () => this.clearImage() },
     ];
-    if (inner < 34) controls.splice(2, 1);
-    while (controls.map(x => x.label).join(" ").length + 6 > inner && controls.length > 1) controls.splice(1, 1);
-    const actions = controls.map(x => x.label).join(" ");
-    const text = this.pair(this.pinned ? "Image*" : "Image", actions, inner);
-    let x = 2 + visibleWidth(text) - visibleWidth(actions);
-    if (inner >= actions.length) for (const control of controls) {
-      this.hits.push({ y: start, x0: x, x1: x + control.label.length, action: control.action }); x += control.label.length + 1;
-    }
-    const lines = [this.decorateLine(this.heading(text), width)];
-    const bodyHeight = Math.max(0, height - 2);
+    while (visibleWidth(controls.map(x => x.label).join(" ")) > inner && controls.length > 1) controls.splice(1, 1);
+    const caption = height > 2 ? 1 : 0;
+    const bodyHeight = Math.max(0, height - 2 - caption);
     if (bodyHeight && inner) lines.push(...view.render(inner, bodyHeight).slice(0, bodyHeight).map(line => this.decorateLine(line, width)));
-    while (lines.length < height - 1) lines.push(this.decorateLine("", width));
-    if (height > 1) lines.push(this.decorateLine(this.paint("dim", sidebarText(view.title ?? view.filePath)), width));
+    while (lines.length < height - 1 - caption) lines.push(this.decorateLine("", width));
+    if (caption) lines.push(this.decorateLine(this.paint("dim", sidebarText(view.title ?? view.filePath)), width));
+    const actions = controls.map(x => x.label).join(" ");
+    let x = 2;
+    if (inner >= visibleWidth(actions)) for (const control of controls) {
+      this.hits.push({ y: start + height - 1, x0: x, x1: x + visibleWidth(control.label), action: control.action });
+      x += visibleWidth(control.label) + 1;
+    }
+    lines.push(this.decorateLine(this.paint("muted", actions), width));
     return lines.slice(0, height);
   }
   private scrollList(list: ListName, delta: number): boolean {
     const count = list === "tasks" ? this.tasks.length : this.resources[list].length;
-    const visible = list === "tasks" ? Math.max(1, this.listRows.filter(x => x.list === "tasks").length) : list === "mcp" ? 5 : 3;
+    const visible = list === "tasks" ? Math.max(1, Math.ceil(this.listRows.filter(x => x.list === "tasks").length / 2)) : list === "mcp" ? 5 : 3;
     const next = sidebarListOffset(this.offsets[list] + delta, count, visible);
     if (next === this.offsets[list]) return false;
     this.offsets[list] = next; this.changed(); return true;
@@ -360,7 +354,7 @@ export class Sidebar implements Component {
     const l = truncateToWidth(left, Math.max(0, width - visibleWidth(r) - 1), "…");
     return `${l}${" ".repeat(Math.max(0, width - visibleWidth(l) - visibleWidth(r)))}${r}`;
   }
-  private heading(text: string): string { return this.paint("mdHeading", text); }
+  private heading(text: string): string { const painted = this.paint("text", text); return this.theme?.bold?.(painted) ?? painted; }
   private paint(tone: "text" | "muted" | "dim" | "success" | "warning" | "error" | "mdHeading", text: string): string { return this.theme?.fg(tone, text) ?? text; }
   private isDoubleClick(event: TuiMouseEvent, target: string): boolean {
     if (event.clickCount !== undefined) return event.clickCount === 2;
@@ -392,7 +386,7 @@ export class Sidebar implements Component {
   }
 
   private displayedWidth(totalWidth = this.tui?.terminal.columns ?? 0): number {
-    return workspaceColumnWidth(totalWidth, this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
+    return dashboardColumnWidth(totalWidth, this.tui?.terminal.rows ?? 0, this.hidden ? SIDEBAR_HIDDEN : this._preferredWidth);
   }
 
   private beginResize(screenX: number): void {
@@ -471,7 +465,8 @@ export class Sidebar implements Component {
     if (width === 1) return border;
     if (line.includes("\x1b_G") || line.includes("\x1b]1337;File=")) return `${border} ${line}`;
     const body = truncateToWidth(line, Math.max(0, width - 2), "…");
-    return `${border} ${body}${" ".repeat(Math.max(0, width - 2 - visibleWidth(body)))}`;
+    const lineText = `${border} ${body}${" ".repeat(Math.max(0, width - 2 - visibleWidth(body)))}`;
+    return this.theme?.bg?.("customMessageBg", lineText) ?? lineText;
   }
 }
 

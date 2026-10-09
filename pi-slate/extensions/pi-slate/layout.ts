@@ -120,8 +120,11 @@ export function formatCompactTokenCount(tokens: number | null | undefined): stri
     const k = n / 1000;
     return `${k >= 100 ? Math.round(k) : Math.round(k * 10) / 10}k`;
   }
-  const m = n / 1_000_000;
-  return `${m >= 100 ? Math.round(m) : Math.round(m * 10) / 10}M`;
+  if (n >= 1e15) return n.toExponential(1);
+  const unit = n >= 1e12 ? 1e12 : n >= 1e9 ? 1e9 : 1e6;
+  const value = n / unit;
+  const suffix = unit === 1e12 ? "T" : unit === 1e9 ? "B" : "M";
+  return `${value >= 100 ? Math.round(value) : Math.round(value * 10) / 10}${suffix}`;
 }
 
 /** Pi-style context label: `2%/250k tokens · ↑↓42`. */
@@ -294,7 +297,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | message-length [default|all|<count>] | theme [default|tokyo-night|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -333,6 +336,7 @@ const SLATE_COMPLETIONS = [
   "message-length default",
   "message-length all",
   "theme",
+  "theme tokyo-night",
   ...THEME_STYLES.map((style) => `theme ${style}`),
   "style",
   ...THEME_STYLES.map((style) => `style ${style}`),
@@ -354,6 +358,7 @@ export type SlateArgs =
   | { ok: true; kind: "message-length-menu" }
   | { ok: true; kind: "message-length"; value?: number | "all" }
   | { ok: true; kind: "theme-menu" }
+  | { ok: true; kind: "named-theme"; name: "tokyo-night" }
   | { ok: true; kind: "theme"; flavor?: Flavor; style?: Style }
   | { ok: true; kind: "style"; value?: Style }
   | { ok: true; kind: "bug-menu" }
@@ -382,6 +387,7 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (head === "theme") {
     if (words.length > 3) return { ok: false };
     if (!tail) return { ok: true, kind: "theme-menu" };
+    if ((tail === "tokyo-night" || tail === "tokyonight" || tail === "default") && !extra) return { ok: true, kind: "named-theme", name: "tokyo-night" };
     const flavor = parseFlavor(tail);
     if (flavor) {
       if (!extra) return { ok: true, kind: "theme", flavor };
@@ -464,6 +470,11 @@ export function workspaceColumnWidth(totalWidth: number, preferredPercent?: numb
   if (preferredPercent === SIDEBAR_PERCENT_NARROW) return clampSidebarColumns(totalWidth, SIDEBAR_MIN_WIDTH);
   const ratio = preferredPercent === undefined ? SIDEBAR_DEFAULT_RATIO : preferredPercent / 100;
   return clampSidebarColumns(totalWidth, Math.floor(totalWidth * ratio));
+}
+
+/** Quiet workbench: short/narrow viewports keep the composer, not a cramped rail. */
+export function dashboardColumnWidth(totalWidth: number, rows: number, preferred?: number): number {
+  return totalWidth < 100 || rows < 30 ? 0 : workspaceColumnWidth(totalWidth, preferred);
 }
 
 export function percentFromColumns(totalWidth: number, columns: number): number {

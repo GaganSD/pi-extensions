@@ -39,12 +39,14 @@ function task(i: number): BackgroundTask {
   return { id: `task-${i}`, source: "sample", label: `job-${i}`, kind: "subagent", state: i === 1 ? "waiting" : "running", startedAt: 1000, detail: "No control action is performed" };
 }
 
-test("session rail replaces Summary, Last Turn, Preview and Context dock", () => {
+test("quiet session rail merges usage into context and hides empty shelves", () => {
   const { sidebar } = fixture();
   const lines = plain(sidebar.render(80));
-  for (const label of ["Session", "Sidebar redesign", "PID 8421", "model: sonnet-4.6", "16%", "31.6k / 200k context", "Stats", "cache read 48k", "MCP servers", "Skills", "Commands", "Background tasks", "Image"]) assert(lines.some(line => line.includes(label)), label);
-  for (const label of ["Summary", "Last Turn", "Preview", "Context", "Files Changed"]) assert(!lines.some(line => line.startsWith(label)), label);
-  assert(lines.some(line => line.includes("1 loaded / 6")), "catalog is not mislabeled as loaded");
+  for (const label of ["SESSION", "Sidebar redesign", "pid 8421", "sonnet-4.6", "16%", "31.6k / 200k", "Input", "Output", "Cost", "MCP · 6 enabled", "Skills · 1 loaded", "Commands · 6"])
+    assert(lines.some(line => line.includes(label)), label);
+  for (const label of ["Stats", "Tokens · branch", "cache read", "Tasks", "Preview", "no selection", "/run-0"])
+    assert(!lines.some(line => line.includes(label)), label);
+  assert.match(sidebar.sessionDetails(), /Cache read: 48k/);
 });
 
 test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny terminals", () => {
@@ -65,15 +67,14 @@ test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny t
   }
 });
 
-test("default-width stats retain both token directions, cache categories, cost and speed", () => {
+test("usage is a single stable label/value lane; full accounting stays in details", () => {
   const { sidebar } = fixture();
-  const text = plain(sidebar.render(28)).join("\n");
-  for (const value of ["in 61.4k", "out 876", "$0.12", "r48k", "w6.1k", "82 tok/s"]) assert(text.includes(value), value);
-});
-
-test("minimum visible width retains the host PID and token/cache values", () => {
-  const { sidebar } = fixture(); const text = plain(sidebar.render(18)).join("\n");
-  for (const value of ["PID 8421", "in 61.4k", "out 876", "r48k", "w6.1k"]) assert(text.includes(value), value);
+  for (const width of [18, 28, 40, 80]) {
+    const text = plain(sidebar.render(width)).join("\n");
+    for (const value of ["pid 8421", "Input", "61.4k", "Output", "876", "$0.12"]) assert(text.includes(value), value);
+  }
+  assert.match(sidebar.sessionDetails(), /Cache read: 48k · Cache write: 6.1k/);
+  assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
 });
 
 test("a 24-row terminal still renders an image body; a very short one prioritizes tasks", () => {
@@ -81,23 +82,23 @@ test("a 24-row terminal still renders an image body; a very short one prioritize
   assert(plain(sidebar.render(40)).some(line => line.includes("IMAGE")), "normal-height thumbnails must not disappear");
   terminal.rows = 14;
   const text = plain(sidebar.render(40)).join("\n");
-  assert(text.includes("Background tasks")); assert(!text.includes("IMAGE"));
+  assert(text.includes("Tasks")); assert(!text.includes("IMAGE"));
 });
 
 test("foldable MCP and Skills sections persist independently and keep counts visible", () => {
   const { sidebar } = fixture(); const saved: unknown[] = [];
   sidebar.setActions({ copy() {}, openFile() {}, persistFold: (section, expanded) => { const folds = { ...sidebar.getFolds(), [section]: expanded }; saved.push(folds); return folds; } });
   assert(!plain(sidebar.render(40)).some(line => line.includes("server-0")));
-  const mcp = row(sidebar, "MCP servers"); sidebar.handleMouse(mouse(mcp));
+  const mcp = row(sidebar, "MCP"); sidebar.handleMouse(mouse(mcp));
   assert.equal(sidebar.getFolds().mcp, true);
   assert.equal(sidebar.getFolds().skills, false);
   assert(plain(sidebar.render(40)).some(line => line.includes("server-0")));
   sidebar.handleMouse(mouse(row(sidebar, "Skills")));
   assert.equal(sidebar.getFolds().skills, true);
   assert.deepEqual(saved, [{ mcp: true, skills: false }, { mcp: true, skills: true }]);
-  sidebar.handleMouse(mouse(row(sidebar, "MCP servers")));
+  sidebar.handleMouse(mouse(row(sidebar, "MCP")));
   assert(!plain(sidebar.render(40)).some(line => line.includes("server-0")));
-  assert(plain(sidebar.render(40)).some(line => line.includes("6 on / 7")));
+  assert(plain(sidebar.render(40)).some(line => line.includes("6 enabled")));
 });
 
 test("a failed preference save cannot change the visible fold state", () => {
@@ -120,28 +121,26 @@ test("MCP is limited to five rows; list wheel scroll does not move the session h
   assert(after.some(line => line.includes("skill-0")), "other list unchanged");
 });
 
-test("skills and command lists scroll independently and clamp when resources shrink", () => {
+test("skill lists scroll and clamp; commands stay behind the catalog action", () => {
   const { sidebar } = fixture(); sidebar.setFolds({ mcp: false, skills: true });
   sidebar.handleMouse(mouse(row(sidebar, "skill-0"), { type: "wheel", wheelDelta: -2 }));
   assert(plain(sidebar.render(40)).some(line => line.includes("skill-4")));
-  assert(plain(sidebar.render(40)).some(line => line.includes("/run-0")));
-  sidebar.handleMouse(mouse(row(sidebar, "/run-0"), { type: "wheel", wheelDelta: -2 }));
-  assert(plain(sidebar.render(40)).some(line => line.includes("/run-4")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("/run-0")));
   sidebar.setResources({ ...resources, skills: resources.skills.slice(0, 1), commands: resources.commands.slice(0, 1) });
   assert(plain(sidebar.render(40)).some(line => line.includes("skill-0")));
-  assert(plain(sidebar.render(40)).some(line => line.includes("/run-0")));
+  assert(plain(sidebar.render(40)).some(line => line.includes("Commands · 1")));
 });
 
-test("command click inserts text, task click inspects separately, and neither executes tools", () => {
-  const { sidebar } = fixture(); const inserted: string[] = []; const inspected: string[] = []; const opened: string[] = [];
-  sidebar.setActions({ copy() {}, openFile: x => opened.push(x), insertCommand: x => inserted.push(x), inspect: title => inspected.push(title) });
-  sidebar.setView(image()); sidebar.setTasks([task(0)]);
-  sidebar.handleMouse(mouse(row(sidebar, "/run-0")));
-  assert.deepEqual(inserted, ["/run-0 "]);
+test("command catalog and read-only task actions preserve the pinned image", () => {
+  const { sidebar } = fixture(); let catalogs = 0; const inspected: string[] = [], opened: string[] = [];
+  sidebar.setActions({ copy() {}, openFile: x => opened.push(x), commands: () => { catalogs++; }, inspect: title => inspected.push(title) });
+  sidebar.setView(image()); sidebar.pinImage(); sidebar.setTasks([task(0)]);
+  sidebar.handleMouse(mouse(row(sidebar, "Commands")));
+  assert.equal(catalogs, 1);
   sidebar.handleMouse(mouse(row(sidebar, "job-0")));
   assert.deepEqual(inspected, ["job-0"]);
   assert.equal(sidebar.currentViewId(), "image:a");
-  assert.deepEqual(opened, []);
+  assert.equal(sidebar.isImagePinned(), true); assert.deepEqual(opened, []);
 });
 
 test("image pin prevents caret replacement; clear only removes selection until caret leaves", () => {
@@ -177,14 +176,14 @@ test("short terminals collapse the image body, keep tasks visible, and scroll mi
   const { sidebar } = fixture(18); sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2)]);
   sidebar.setFolds({ mcp: true, skills: true });
   const lines = plain(sidebar.render(40));
-  assert(lines.some(line => line.includes("a.png")));
+  assert.equal(sidebar.imagePath(), "/tmp/a.png");
   assert(!lines.some(line => line.includes("IMAGE")));
-  assert(lines.some(line => line.includes("Background tasks")));
+  assert(lines.some(line => line.includes("Tasks")));
   sidebar.handleMouse(mouse(6, { type: "wheel", wheelDelta: -40 }));
   const scrolled = plain(sidebar.render(40));
   assert(scrolled.some(line => line.includes("Commands")));
   assert.equal(scrolled[0], lines[0]);
-  assert(scrolled.some(line => line.includes("a.png")));
+  assert.equal(sidebar.imagePath(), "/tmp/a.png");
 });
 
 test("task shelf scrolls and is not changed by composer height", () => {
@@ -197,9 +196,9 @@ test("task shelf scrolls and is not changed by composer height", () => {
 test("clock and theme changes invalidate cached output; pure repeated render is reused", () => {
   const { sidebar, advance } = fixture();
   const first = sidebar.render(80); assert.equal(sidebar.render(80), first);
-  assert(plain(first).some(line => line.includes("time 3s")));
-  advance(2000); const next = sidebar.render(80);
-  assert(plain(next).some(line => line.includes("time 5s")));
+  assert.match(sidebar.sessionDetails(), /Wall time \(this runtime\): 3s/);
+  advance(2000); assert.notEqual(sidebar.render(80), first);
+  assert.match(sidebar.sessionDetails(), /Wall time \(this runtime\): 5s/);
   let current = theme(31); sidebar.setThemeProvider(() => current);
   assert(sidebar.render(80).some(line => line.includes("\x1b[31m")));
   current = theme(34); sidebar.invalidate();
@@ -212,7 +211,7 @@ test("unknown values and invalid MCP config remain explicit even when folded", (
   sidebar.setResources({ ...resources, mcpError: "MCP config unreadable" });
   const lines = plain(sidebar.render(80));
   assert(lines.some(line => line.includes("—%")));
-  assert(lines.some(line => line.includes("cache read —")));
+  assert.match(sidebar.sessionDetails(), /Cache read: —/);
   assert(lines.some(line => line.includes("config error")));
   assert(!lines.some(line => line.includes("$0.00")));
 });

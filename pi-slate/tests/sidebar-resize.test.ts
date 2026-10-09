@@ -45,7 +45,7 @@ function attachSidebar(columns = 140) {
     [Symbol.for("@earendil-works/pi-tui/viewport")]: true,
     layoutRoot: new Text("chat", 0, 0) as Component | undefined,
     setLayoutRoot(this: { layoutRoot?: Component }, component: Component | undefined) { this.layoutRoot = component; },
-    terminal: { rows: 24, columns },
+    terminal: { rows: 40, columns },
     requestRender() {},
     showOverlay(_component: unknown, options: OverlayOptions) {
       overlays.push(options);
@@ -169,7 +169,7 @@ test("clicking the gutter never opens a session or task detail", () => {
 
 class MouseTerminal implements Terminal {
   columns = 140;
-  rows = 24;
+  rows = 40;
   kittyProtocolActive = false;
   private input?: (data: string) => void;
   start(input: (data: string) => void): void {

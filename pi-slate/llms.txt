@@ -6,7 +6,7 @@ Select independent surfaces from the closed set: header, footer, editor, sidebar
 
 `/slate surfaces` reports saved and active sets. `/slate surfaces set editor`, `/slate surfaces set header tool-cards`, `/slate surfaces full`, and `/slate surfaces none` save an explicit version-1 array and require `/reload`; appearance remains live. To use only cards, run `/slate surfaces set tool-cards` then `/reload`. Focus/width never enable a disabled sidebar.
 
-Theme and fullscreen remain user preferences, never automatic load actions. `/slate theme` is explicit. `composerMetadata` replaces the in-memory footer setting; old `footer` files and `/slate footer` remain compatible (both keys are written). The footer surface hides Pi's footer using a zero-row component; composer git branch comes from an editor-only service.
+Theme and fullscreen remain user preferences, never automatic load actions. Tokyo Night is the default explicit theme choice (`/slate theme default` or `/slate theme tokyo-night`); installation preserves an existing selection. Explicit `/slate theme mocha default` and `/slate style default` retain Catppuccin compatibility. `composerMetadata` replaces the in-memory footer setting; old `footer` files and `/slate footer` remain compatible (both keys are written). The footer surface hides Pi's footer using a zero-row component; composer git branch comes from an editor-only service.
 
 Image handling patches only Slate's editor instance, never Editor.prototype or foreign editors. `/prompts` registers only with editor; `/exit` always. Tool-cards preserves native execution outside TUI and native model-facing results; grouped reads and highlighted diffs are rendering only. No stock-notice deletion.
 
@@ -16,6 +16,8 @@ Observed TUI thinking adds elapsed seconds and available token rate to the compo
 
 Highlighted diffs use responsive split edits, unified writes, and character-level emphasis. They follow `/slate theme`. Native model-facing results are preserved; bounded write patches are stored in TUI result details for session restore.
 
+Quiet Workbench: one selected-header identity line, no repeated model/identity on the composer while the rail is visible. Input/Output/Cost share one numeric lane beneath context; runtime/cache/rate accounting lives in details. Concise independently folded MCP/Skills counts describe enabled configuration and observed instruction loading, not connectivity/retention. Commands open a bounded insertion-only catalog. Empty task/image shelves disappear. Below 100 columns or 30 rows the rail hides without changing preferences; condensed context/cost returns to the composer, and /slate session stays reachable. Pin/inspection and session/root ownership protections remain intact.
+
 ## Documentation
 
 - [README](README.md): install, features, commands (`/exit` aliases `/quit`), themes, composer keys
@@ -24,5 +26,6 @@ Highlighted diffs use responsive split edits, unified writes, and character-leve
 - [Diff](extensions/pi-slate/diff.ts): edit/write rendering
 - [Read groups](extensions/pi-slate/read-group.ts): consecutive-read compaction
 - [Thinking status](extensions/pi-slate/thinking-fold.ts): live composer timing, native transcript fallback
+- [Tokyo Night theme](themes/tokyo-night.json): default explicit theme choice
 - [Black Metal theme](themes/black-metal.json): optional theme, not an install default
 - [Package manifest](package.json): `npm:pi-slate`

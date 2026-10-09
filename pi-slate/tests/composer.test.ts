@@ -306,7 +306,7 @@ test("composer pins a right rail even when the source line is full width", () =>
   assert.equal(visibleWidth(lines[1] ?? ""), width);
 });
 
-test("typed composer drops the prompt and hint", () => {
+test("typed composer retains the quiet prompt without adding a hint row", () => {
   const width = 20;
   const lines = frameComposerLines(
     ["╭" + "─".repeat(width - 2) + "╮", "    hello           ", "╰" + "─".repeat(width - 2) + "╯"],
@@ -315,7 +315,7 @@ test("typed composer drops the prompt and hint", () => {
   assert.equal(lines.length, 3);
   const body = stripVTControlCharacters(lines[1] ?? "");
   assert.equal(body.startsWith("│"), true);
-  assert.doesNotMatch(body, /›/);
+  assert.match(body, /› hello/);
   assert.doesNotMatch(lines.join("\n"), /send/);
 });
 

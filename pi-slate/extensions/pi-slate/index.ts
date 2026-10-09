@@ -32,6 +32,7 @@ import { commandResources, parseSidebarFolds, sidebarMessageCounts, sidebarText,
 import { inspectSidebarText } from "./sidebar-inspector.ts";
 import { pickSidebarItem } from "./sidebar-picker.ts";
 import { loadSidebarMcpHost } from "./sidebar-mcp.ts";
+import { sidebarCost } from "./sidebar-layout.ts";
 import { resolveContextTokens } from "./context-usage.ts";
 import { estimateAssistantTokens, TokenRateTracker } from "./token-rate.ts";
 import { createWordPicker } from "./working-words.ts";
@@ -40,6 +41,7 @@ import {
   countSkillCommands,
   formatFocusedContextResources,
   formatFocusedContextTokens,
+  formatPercent,
   modelStatusLabel,
   parseMessageLength,
   parseMessageLengthArg,
@@ -79,7 +81,7 @@ import {
   type Flavor,
   type Style,
 } from "./catppuccin.ts";
-import { persistTheme } from "./install-defaults.ts";
+import { persistTheme, SLATE_THEME } from "./install-defaults.ts";
 
 type SlateConfig = SurfaceConfig & {
   density: "comfortable" | "compact";
@@ -223,6 +225,7 @@ export default function piSlate(pi: ExtensionAPI): void {
   let contextEdge = {
     tokens: formatFocusedContextTokens(null, null, null),
     resources: formatFocusedContextResources(null, 0, 0),
+    summary: "ctx — · —",
   };
   let requestRender = (_force = false) => {};
 
@@ -272,6 +275,7 @@ export default function piSlate(pi: ExtensionAPI): void {
     contextEdge = {
       tokens: formatFocusedContextTokens(percent, tokenRate.rate(), contextWindow),
       resources: formatFocusedContextResources(spend, skillCount, mcpCount),
+      summary: `ctx ${estimated && percent !== null ? "~" : ""}${formatPercent(percent)} · ${sidebarCost(spend)}`,
     };
   };
   const refreshResources = (ctx: ExtensionContext): void => {
@@ -301,6 +305,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
   const install = (ctx: ExtensionContext): void => {
     sessionEpoch += 1; sidebarYielded = false;
+    const mountedEpoch = sessionEpoch;
     currentContext = ctx;
     thinkingFold.stop();
     tokenRate.dispose();
@@ -357,7 +362,10 @@ export default function piSlate(pi: ExtensionAPI): void {
           catch { ctx.ui.notify("Could not save sidebar sections", "error"); return undefined; }
         },
         inspect: (title, text) => inspect(ctx, title, text),
-        insertCommand: (command) => ctx.ui.pasteToEditor(command),
+        commands: () => {
+          if (mountedEpoch !== sessionEpoch) return;
+          void sessionMenu(currentContext ?? ctx, "commands").catch(() => { ctx.ui.notify("Command catalog unavailable", "warning"); });
+        },
         persistWidth: (percent) => {
           try {
             const next = withSidebarPercent(config, percent);
@@ -417,7 +425,8 @@ export default function piSlate(pi: ExtensionAPI): void {
       updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
-        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, VERSION, () => config.modelDisplay);
+        return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => gitBranch,
+          () => branchFacts?.counts.messages === 0 && branchFacts.usage.total === 0 && (typeof currentContext?.isIdle !== "function" || currentContext.isIdle()));
       });
     }
     if (owns("footer")) ctx.ui.setFooter(() => new SlateFooter());
@@ -433,7 +442,11 @@ export default function piSlate(pi: ExtensionAPI): void {
           project: basename(current.cwd) || current.cwd, branch: gitBranch,
           model: current.model, modelDisplay: config.modelDisplay, thinking: current.thinkingLevel,
           footer: config.composerMetadata, showPid: config.showPid === true, theme: current.ui.theme,
-          ...(config.focused !== false ? { context: contextEdge } : {}),
+          paddingX: composerPaddingX(config.density),
+          working: typeof current.isIdle === "function" && !current.isIdle(),
+          workspaceHeader: owns("header"),
+          dashboardVisible: sidebar.isVisible(tui.terminal.columns, tui.terminal.rows),
+          ...(!sidebar.isVisible(tui.terminal.columns, tui.terminal.rows) ? { context: contextEdge } : {}),
         });
         let cachedMetadata = metadata(ctx);
         activeEditor = new ComposerEditor(
@@ -680,10 +693,12 @@ export default function piSlate(pi: ExtensionAPI): void {
   const pickTheme = async (ctx: ExtensionContext): Promise<void> => {
     const mocha = currentCatppuccin(ctx).style;
     const value = await ctx.ui.select("Theme", [
-      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], style === mocha)),
+      withCurrent("Tokyo Night (default)", ctx.ui.theme.name === SLATE_THEME),
+      ...STYLES.map((style) => withCurrent(STYLE_LABELS[style], ctx.ui.theme.name?.startsWith("catppuccin-") === true && style === mocha)),
     ]);
     if (!value) return;
     const key = withoutCurrent(value);
+    if (key === "Tokyo Night (default)") { applyNamedTheme(ctx, SLATE_THEME, "Theme set to Tokyo Night"); return; }
     const style = STYLES.find((item) => STYLE_LABELS[item] === key);
     if (style) applyCatppuccin(ctx, currentCatppuccin(ctx).flavor, style);
   };
@@ -971,6 +986,10 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (kind === "theme-menu") {
         await pickTheme(ctx);
         return;
+      }
+
+      if (parsed.kind === "named-theme") {
+        applyNamedTheme(ctx, parsed.name, "Theme set to Tokyo Night"); return;
       }
 
       if (parsed.kind === "theme") {

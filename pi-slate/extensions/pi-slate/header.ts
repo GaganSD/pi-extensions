@@ -1,83 +1,37 @@
-import { homedir } from "node:os";
+import { basename } from "node:path";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
-import {
-  compactPath,
-  modelLabel,
-  modelStatusLabel,
-  PI_LOGO,
-  PI_LOGO_ASCII,
-  paintLogo,
-  providerLabel,
-  type ModelDisplay,
-} from "./layout.ts";
 import { hairlineTextWidth, wrapHairlineText, symmetricHairline } from "./hairline.ts";
+import { sidebarText } from "./sidebar-data.ts";
 import { formatUpdateNotice, type UpdateNotice } from "./updates.ts";
 
-const MASTHEAD_GAP = "  ";
-
-export function renderMasthead(
-  logo: readonly string[],
-  lines: readonly [string, string, string],
-  width: number,
-  paintLogoLine: (text: string) => string,
-  paintMuted: (text: string) => string,
-  paintDim: (text: string) => string,
-): string[] {
-  const markWidth = visibleWidth(logo[0] ?? "");
-  const textWidth = Math.max(0, width - markWidth - visibleWidth(MASTHEAD_GAP));
-  const painted = [paintMuted(lines[0]), paintMuted(lines[1]), paintDim(lines[2])];
-  return logo.map((mark, index) => {
-    const logoLine = paintLogoLine(mark);
-    const label = painted[index];
-    if (!label || textWidth <= 0) return logoLine;
-    return `${logoLine}${MASTHEAD_GAP}${truncateToWidth(label, textWidth, "…")}`;
-  });
-}
-
 export function renderUpdateHairlines(
-  notice: string,
-  width: number,
-  paintDash: (text: string) => string,
-  paintText: (text: string) => string,
+  notice: string, width: number, paintDash: (text: string) => string, paintText: (text: string) => string,
 ): string[] {
-  return wrapHairlineText(notice, hairlineTextWidth(width)).map((line) => (
-    symmetricHairline(paintText(line), width, paintDash)
-  ));
+  return wrapHairlineText(notice, hairlineTextWidth(width)).map(line => symmetricHairline(paintText(line), width, paintDash));
 }
 
+/** One identity line. Model, thinking and accounting belong in the rail or compact composer. */
 export function renderSlateHeader(input: {
-  width: number;
-  version: string;
-  model: string;
-  path: string;
-  notice?: string;
-  ascii?: boolean;
-  truecolor?: boolean;
-  theme: Theme;
+  width: number; path: string; branch?: string | null; notice?: string; ready?: boolean; theme: Theme;
 }): string[] {
-  if (input.width < 20) return [];
-  const logo = input.ascii ? PI_LOGO_ASCII : PI_LOGO;
-  const paint = (token: "muted" | "dim" | "border" | "accent", text: string) => input.theme.fg(token, text);
-  const rows = renderMasthead(
-    logo,
-    [`Pi Agent v${input.version}`, input.model, input.path],
-    input.width,
-    (text) => paintLogo(text, input.truecolor !== false),
-    (text) => paint("muted", text),
-    (text) => paint("dim", text),
-  );
-  if (!input.notice) return rows;
-  return [
-    ...rows,
-    "",
-    ...renderUpdateHairlines(
-      input.notice,
-      input.width,
-      (text) => paint("border", text),
-      (text) => paint("accent", text),
-    ),
-  ];
+  const width = Math.max(0, input.width);
+  if (!width) return [];
+  const project = sidebarText(basename(input.path) || input.path);
+  const identity = `slate / ${project}`;
+  const branch = sidebarText(input.branch);
+  const available = Math.max(0, width - visibleWidth(identity) - 3);
+  const right = available >= 8 && branch ? truncateToWidth(branch, available, "…") : "";
+  const left = truncateToWidth(identity, right ? width - visibleWidth(right) - 3 : width, "…");
+  const line = input.theme.fg("accent", left) + (right
+    ? " ".repeat(Math.max(3, width - visibleWidth(left) - visibleWidth(right))) + input.theme.fg("muted", right) : "");
+  const rows = [line, input.theme.fg("border", "─".repeat(width))];
+  if (input.notice) rows.push(...renderUpdateHairlines(input.notice, width,
+    text => input.theme.fg("border", text), text => input.theme.fg("accent", text)));
+  if (input.ready) rows.push("",
+    truncateToWidth(input.theme.bold("Ready when you are."), width, "…"),
+    truncateToWidth(input.theme.fg("muted", "Ask a question, explore the code, or start with /."), width, "…"));
+  return rows;
 }
 
 export class SlateHeader implements Component {
@@ -85,47 +39,19 @@ export class SlateHeader implements Component {
   private readonly getContext: () => ExtensionContext | undefined;
   private readonly columnWidth: (width: number) => number;
   private readonly getNotice: () => UpdateNotice;
-  private readonly version: string;
-  private readonly getModelDisplay: () => ModelDisplay | undefined;
-
-  constructor(
-    theme: Theme,
-    getContext: () => ExtensionContext | undefined,
-    columnWidth: (width: number) => number,
-    getNotice: () => UpdateNotice,
-    version: string,
-    getModelDisplay: () => ModelDisplay | undefined = () => undefined,
-  ) {
-    this.theme = theme;
-    this.getContext = getContext;
-    this.columnWidth = columnWidth;
-    this.getNotice = getNotice;
-    this.version = version;
-    this.getModelDisplay = getModelDisplay;
+  private readonly getBranch: () => string | null;
+  private readonly getReady: () => boolean;
+  constructor(theme: Theme, getContext: () => ExtensionContext | undefined,
+    columnWidth: (width: number) => number, getNotice: () => UpdateNotice, getBranch: () => string | null = () => null, getReady: () => boolean = () => false) {
+    this.theme = theme; this.getContext = getContext; this.columnWidth = columnWidth;
+    this.getNotice = getNotice; this.getBranch = getBranch; this.getReady = getReady;
   }
-
   invalidate(): void {}
-
   render(width: number): string[] {
     const ctx = this.getContext();
     if (!ctx) return [];
     const notice = formatUpdateNotice(this.getNotice());
-    const effort = ctx.thinkingLevel ? ` · ${ctx.thinkingLevel}` : "";
-    const display = this.getModelDisplay();
-    const provider = providerLabel(ctx.model?.provider, display);
-    const modelText =
-      display?.providerSuffix && provider
-        ? modelStatusLabel(ctx.model, display)
-        : `${provider ? `${provider}/` : ""}${modelLabel(ctx.model, display)}`;
-    return renderSlateHeader({
-      width: this.columnWidth(width),
-      version: this.version,
-      model: `${modelText}${effort}`,
-      path: compactPath(ctx.cwd, homedir()),
-      ...(notice ? { notice } : {}),
-      ascii: process.env.TERM === "dumb" || process.env.PI_SLATE_ASCII === "1",
-      truecolor: this.theme.getColorMode() === "truecolor",
-      theme: this.theme,
-    });
+    return renderSlateHeader({ width: this.columnWidth(width), path: ctx.cwd,
+      branch: this.getBranch(), ready: this.getReady(), ...(notice ? { notice } : {}), theme: ctx.ui.theme ?? this.theme });
   }
 }

@@ -41,7 +41,7 @@ Surface changes are saved and require `/reload`; they never hot-swap host chrome
 
 | Surface | Owns |
 | --- | --- |
-| `header` | Masthead and update hairline, not title or sidebar bootstrap |
+| `header` | Compact workspace identity and update hairline, not title or sidebar bootstrap |
 | `footer` | Zero-row footer (hides Pi's native footer), not composer metadata |
 | `editor` | Composer, keys, paste/images, local working/thinking status; branch facts are independent of footer |
 | `sidebar` | Session dashboard, foldable resources, tasks and images; no second editor |
@@ -62,16 +62,18 @@ The current host cannot inspect header/footer slot ownership. Shutdown disposes 
 
 Slate renders cleanly into your terminal and stays customizable without adding new model-facing tools, prompts, or model calls.
 
-### Focused-first Workspace
+### Quiet Workbench
 
-With the editor selected, focused mode is the default. It hides the selected sidebar, gives chat the full window, and keeps the prompt compact.
+The selected header renders one workspace identity line, not a logo/version/model masthead. Model, thinking, context and branch usage live in the rail, rather than being repeated on the composer. A genuinely empty conversation shows a short ready cue; it disappears when the conversation starts. Native transcript, thinking, keyboard, paste and selection behavior stay intact.
 
-- `/slate focused [on|off]` sets the saved focused-mode state.
-- `/slate pid [on|off]` toggles the agent PID label on the prompt's top edge; it stays off by default.
-- Choosing a sidebar width returns to standard sidebar mode only when the sidebar is selected.
-- Working status stays on the left of the prompt's top edge.
-- When skills or MCPs are present, spend and nonzero counts stay on the right of the prompt's top edge.
-- The context footer shows usage percentage, context-window size, and estimated streamed tokens per second: `5%/1M tokens · ↑↓845`.
+For the full workbench, select `/slate surfaces full`, turn `/slate focused off`, then `/reload`. Select `/slate theme default` for Tokyo Night. Other surface combinations and existing preferences remain supported.
+
+- `/slate focused [on|off]` controls the saved focused state; fresh settings still start focused.
+- `/slate pid [on|off]` controls the optional prompt-edge PID label, off by default.
+- Working/thinking status stays on the prompt edge; the editor keeps its draft and Slate density across host setup.
+- Below **100 columns** or **30 rows**, the rail hides without changing your focus/width preferences. Context and cost return to the composer, with model/thinking when space permits. `/slate session` still reaches details, catalogs, tasks and image controls.
+- Runtime, message counts, cache breakdown and estimated token rate remain in the inspector, not an always-visible bookkeeping block.
+- Choosing a sidebar width restores standard mode only when the sidebar surface is selected.
 
 ![Slate focused mode with the sidebar hidden](https://raw.githubusercontent.com/GaganSD/pi-extensions/main/pi-slate/assets/slate-focused.png)
 
@@ -112,16 +114,17 @@ Slate uses Kitty Graphics Protocol to display rich media inside your terminal.
 The dashboard replaces the old Summary, Activity Preview, and Context dock. It keeps session facts visible without sending them to a model:
 
 - Session name, copyable session ID, host PID, model/thinking level and context meter.
-- Runtime wall time, last-turn duration, turns/messages, estimated token rate and cost.
-- Active-branch input/output totals, cache reads/writes and cache-hit share. Input includes uncached input plus both cache categories; reasoning is not counted again. Context occupancy is separate from cumulative usage. Unavailable metrics show `—`; estimated context is marked `~`.
-- Independently foldable **MCP servers** and **Skills**, initially collapsed. Click their headings to expand; preferences persist in `sidebarSections` (`true` means expanded). MCP shows up to five rows; skills and extension/prompt commands show three. Wheel-scroll each list, or scroll the middle region when terminal height is limited.
+- **Input, Output and Cost** form one stable right-aligned lane beneath context. Growing totals are abbreviated, rather than squeezing neighboring numbers. Click a usage row or `/slate session` for full accounting.
+- Runtime wall time, last-turn duration, turns/messages and estimated token rate are in session details.
+- Active-branch input/output totals, cache reads/writes and cache-hit share are retained in details. Input includes uncached input plus both cache categories; reasoning is not counted again. Context occupancy is separate from cumulative usage. Unavailable metrics show `—`; estimated context is marked `~`.
+- Independently foldable **MCP servers** and **Skills**, initially collapsed. Click their headings to expand; preferences persist in `sidebarSections` (`true` means expanded). Fold headings are concise: **MCP · 2 enabled**, **Skills · 5 loaded**, using dim counts at the normal terminal font size. MCP shows up to five rows; skills show three. **Commands** opens a bounded catalog instead of permanently listing commands. Wheel-scroll resource lists or the middle region when necessary.
 - MCP states describe **configuration, not live connectivity**. Global `mcp.json` overrides extension registrations; trusted project `.pi/mcp.json` overrides global entries. Untrusted project files are not read. Use Pi's `enabled: false` flag to disable a server; legacy `disabled` keys are ignored by the native host. Validation follows the running host's native schema and exact-name file precedence; project partial overrides require a matching global server on hosts that support them. Rejected entries cannot replace a valid server. If the host adapter is unavailable, states show `—`. Credentials and transport arguments are never displayed.
 - Skills distinguish **available** from **observed loaded on the active branch**. Successful `SKILL.md` reads and explicit skill invocations are evidence; discovery alone is not. Branch changes may remove that evidence; an observed read does not guarantee the full instructions remain in context after compaction.
-- Background tasks stay above a separate image shelf. In-flight agent shell/terminal calls are observable; detached jobs appear only when their owning extension reports them. Native `pi-subagents` publishes display-only snapshots. Task details are read-only: no process scanning, guessed PIDs or run-control authority.
+- Nonempty background tasks stay above a separate image shelf; empty task/image shelves disappear. In-flight agent shell/terminal calls are observable; detached jobs appear only when their owning extension reports them. Native `pi-subagents` publishes display-only snapshots. Task details are read-only: no process scanning, guessed PIDs or run-control authority.
 
 Click a task/resource to inspect it in a separate scrolling dialog. Clicking a command inserts it at the composer cursor; it never executes. `/slate session` provides keyboard access to details, folds, commands, tasks and image controls. In short terminals, the image body shrinks before the task shelf; its controls remain accessible through that command.
 
-Focused mode hides the dashboard and retains compact prompt-edge metadata. Legacy screenshots elsewhere in this README predate the dashboard.
+Focused and compact modes hide the dashboard and retain condensed composer metadata. Legacy screenshots elsewhere in this README predate the Quiet Workbench.
 
 ### Background-task integration
 
@@ -144,9 +147,9 @@ With `header` selected, Pi and package updates appear as a centered hairline. St
 
 ### Themes
 
-The prompt and session dashboard share the selected theme. The Pi logo stays white in every theme.
+The composer, transcript and session dashboard share the selected theme. **Tokyo Night** is Slate's default theme choice: subdued navy panels, blue accents, pale text and quiet tool backgrounds, using the [Tokyo Night palette](https://github.com/folke/tokyonight.nvim).
 
-Your current theme remains unchanged on install. Black Metal is available, alongside Catppuccin Mocha styles: Default, Quiet, Mauve, Sapphire, Peach, Teal.
+Your current theme remains unchanged on install. `/slate theme default` or `/slate theme tokyo-night` selects and saves Tokyo Night explicitly. Black Metal remains available in Pi's theme settings, alongside Catppuccin Mocha styles. `/slate theme mocha default` selects the Catppuccin Default style; `/slate style default` remains its compatible alias.
 
 `/slate` → Theme picks one. Or set it directly:
 
@@ -193,7 +196,7 @@ These work when `editor` is selected. No terminal configuration.
 | Message length | `/slate message-length [default\|all\|<count>]` | How many chat messages stay on screen. `default` is 100. |
 | Density | `/slate density [comfortable\|compact]` | Comfortable shows a › prompt in the composer; compact is tighter. |
 | Composer metadata | `/slate footer [standard\|minimal]` | Legacy command alias: standard shows model and thinking on the composer; minimal hides them. Not footer-slot ownership. |
-| Theme | `/slate theme [default\|quiet\|mauve\|sapphire\|peach\|teal]` | Catppuccin Mocha style. `/slate style` does the same. |
+| Theme | `/slate theme [default\|tokyo-night\|quiet\|mauve\|sapphire\|peach\|teal]` | Default is Tokyo Night. Other styles select Catppuccin; `/slate style` retains Catppuccin aliases. |
 | Bugs | `/slate bug [file\|open]` | Copy a bug report, or open the npm package page. |
 
 ## Model Display

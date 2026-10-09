@@ -13,7 +13,7 @@ import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent
 import { KeybindingsManager } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 
 class NullTerminal implements Terminal {
-  columns = 140; rows = 24; kittyProtocolActive = false;
+  columns = 140; rows = 40; kittyProtocolActive = false;
   start() {} stop() {} async drainInput() {} write() {} moveBy() {} hideCursor() {} showCursor() {}
   clearLine() {} clearFromCursor() {} clearScreen() {} setTitle() {} setProgress() {}
 }
@@ -250,6 +250,37 @@ test("real host below-editor widget renderer adds no rows for the TUI handle", (
 
 const unstyled = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 
+test("Tokyo Night is an explicit default choice and preserves unrelated native settings", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"] }));
+  const settingsPath = join(dirname(f.path), "settings.json");
+  await writeFile(settingsPath, JSON.stringify({ theme: "existing-theme", quietStartup: true, packages: ["keep-this-package"] }));
+  const themes: string[] = [];
+  t.mock.method(f.ctx.ui, "setTheme", (name: string) => { themes.push(name); return { success: true }; });
+  await f.commands.get("slate")!.handler("theme default", f.ctx);
+  assert.deepEqual(themes, ["tokyo-night"]);
+  const saved = JSON.parse(await readFile(settingsPath, "utf8"));
+  assert.equal(saved.theme, "tokyo-night"); assert.equal(saved.quietStartup, true);
+  assert.deepEqual(saved.packages, ["keep-this-package"]);
+});
+
+test("rail command heading opens the catalog and inserts without disturbing a pinned preview", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
+  f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });
+  await f.emit("agent_settled");
+  const sidebar = railOf(f);
+  sidebar.setView({ id: "image:pinned", title: "pinned.png", invalidate() {}, render: () => ["preview"] });
+  sidebar.pinImage();
+  f.choices.push("/hello · extension");
+  const rows = sidebar.render(40).map(unstyled), y = rows.findIndex(row => row.includes("› Commands"));
+  assert(y >= 0);
+  sidebar.handleMouse({ type: "click", button: "left", x: 3, y, width: 40, height: 40,
+    screenX: 103, screenY: y, shift: false, alt: false, ctrl: false });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.draft(), "existing draft/hello ");
+  assert.equal(sidebar.currentViewId(), "image:pinned"); assert.equal(sidebar.isImagePinned(), true);
+  assert(!f.calls.includes("branch-git"), "catalog must not execute commands");
+});
+
 test("dashboard uses live branch facts and session-scoped tasks; commands preserve existing drafts", async t => {
   const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false, sidebarPercent: 30 }));
   const tui = f.tui; assert(tui instanceof TuiAltScreen);
@@ -258,25 +289,25 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   f.manager.appendMessage({ role: "user", content: "hi", timestamp: 0 });
   f.manager.appendMessage({ role: "assistant", api: "anthropic-messages", provider: "anthropic", model: "fixture", timestamp: 1, stopReason: "stop", content: [{ type: "text", text: "done" }], usage: { input: 100, output: 20, cacheRead: 300, cacheWrite: 50, totalTokens: 470, cost: { input: .1, output: .2, cacheRead: .03, cacheWrite: .02, total: .35 } } });
   await f.emit("session_info_changed");
-  assert.match(rail(), /Dashboard test/); assert.match(rail(), /PID/); assert.match(rail(), /in 450/); assert.match(rail(), /\$0.35/);
+  assert.match(rail(), /Dashboard test/); assert.match(rail(), /pid/); assert.match(rail(), /Input\s+450/); assert.match(rail(), /\$0.35/);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
   await f.emit("message_end", { message: { role: "toolResult", toolName: "codemode", toolCallId: "outer", content: [], isError: false, nestedCalls: { calls: [{ id: "nested-read", name: "read", arguments: { path: "/skills/review/SKILL.md" }, status: "ok" }], complete: true } } });
-  assert.match(rail(), /1 loaded \/ 1/, "nested successful reads update the live rail, not only restoration");
+  assert.match(rail(), /Skills · 1 loaded/, "nested successful reads update the live rail, not only restoration");
   const payload = { version: 1, source: "fixture", sessionId: f.manager.getSessionId(), tasks: [{ id: "native-1", label: "review", kind: "subagent", state: "waiting", startedAt: Date.now() }] };
-  f.eventBus.emit("pi:background-tasks", payload); assert.match(rail(), /Background tasks\s+1/);
+  f.eventBus.emit("pi:background-tasks", payload); assert.match(rail(), /Tasks\s+1 live/);
   await f.emit("tool_execution_start", { toolCallId: "shell", toolName: "bash", args: { command: "npm run dev" } });
-  assert.match(rail(), /Background tasks\s+2/);
+  assert.match(rail(), /Tasks\s+2 live/);
   await f.emit("tool_execution_end", { toolCallId: "shell", toolName: "bash", args: {}, content: [], isError: false });
-  assert.match(rail(), /Background tasks\s+1/);
+  assert.match(rail(), /Tasks\s+1 live/);
   f.choices.push("1. review · waiting"); await f.commands.get("slate")!.handler("session tasks", f.ctx);
   assert.match(f.inspected.join("\n"), /native-1/);
   f.extraCommands.push({ name: "hello", source: "extension", sourceInfo: { path: "hello.ts", scope: "user" } });
   f.choices.push("/hello · extension"); await f.commands.get("slate")!.handler("session commands", f.ctx);
   assert.equal(f.draft(), "existing draft/hello "); assert.equal(f.calls.filter(x => x === "paste-command").length, 1);
   const next = { ...f.ctx, sessionManager: SessionManager.inMemory(f.ctx.cwd) };
-  await f.emit("session_start", {}, next); assert.match(rail(), /Background tasks\s+0/);
-  f.eventBus.emit("pi:background-tasks", payload); assert.match(rail(), /Background tasks\s+0/, "late old-owner snapshot stays invisible");
+  await f.emit("session_start", {}, next); assert.doesNotMatch(rail(), /Tasks\s+\d/);
+  f.eventBus.emit("pi:background-tasks", payload); assert.doesNotMatch(rail(), /Tasks\s+\d/, "late old-owner snapshot stays invisible");
   await f.emit("session_shutdown", {}, next); assert.equal(f.bus.get("pi:background-tasks")!.size, 0);
 });
 
@@ -343,7 +374,7 @@ test("pending Expand and Pin menu choices remain idempotent after mouse actions"
   let answer!: (value: string) => void;
   f.ctx.ui.select = async () => new Promise(resolve => { answer = resolve; });
   const foldMenu = f.commands.get("slate")!.handler("session mcp", f.ctx);
-  click("MCP servers"); assert.equal(sidebar.getFolds().mcp, true);
+  click("MCP"); assert.equal(sidebar.getFolds().mcp, true);
   answer("Expand sidebar section"); await foldMenu; assert.equal(sidebar.getFolds().mcp, true);
   sidebar.setView({ id: "image:fixture", filePath: f.imagePath, title: "Image", invalidate() {}, render: () => ["image"] });
   const imageMenu = f.commands.get("slate")!.handler("session image", f.ctx);

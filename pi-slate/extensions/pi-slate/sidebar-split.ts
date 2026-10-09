@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-tui";
 import {
   SIDEBAR_MIN_WIDTH,
-  workspaceColumnWidth,
+  dashboardColumnWidth,
 } from "./layout.ts";
 
 const SIDEBAR_SPLIT = Symbol.for("pi-slate.sidebar-split");
@@ -82,7 +82,7 @@ class SidebarSplit extends HStack {
     };
   }
 
-  constructor(chat: Component, pane: Component, preferredWidth?: () => number | undefined) {
+  constructor(chat: Component, pane: Component, preferredWidth?: () => number | undefined, rows?: () => number) {
     super([
       // Skip full-width intrinsic measurement: switching widths thrashes leaf render caches.
       { component: chat, basis: 0, grow: 1, shrink: 1, minSize: 1 },
@@ -93,7 +93,7 @@ class SidebarSplit extends HStack {
         minSize: SIDEBAR_MIN_WIDTH,
         basis: SIDEBAR_MIN_WIDTH,
         visible: (viewport) => {
-          const width = workspaceColumnWidth(viewport.width, preferredWidth?.());
+          const width = dashboardColumnWidth(viewport.width, rows?.() ?? viewport.height, preferredWidth?.());
           const entry = this.entries[1];
           if (entry && entry.basis !== width) entry.basis = Math.max(SIDEBAR_MIN_WIDTH, width);
           return width > 0;
@@ -127,7 +127,7 @@ export function installSidebarSplit(
     tui,
     (component) => {
       const chat = splitChat(component);
-      return chat ? new SidebarSplit(chat, pane, preferredWidth) : component;
+      return chat ? new SidebarSplit(chat, pane, preferredWidth, () => tui.terminal.rows) : component;
     },
     splitChat,
     onYield,
