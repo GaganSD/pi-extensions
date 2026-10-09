@@ -118,7 +118,7 @@ export class Sidebar implements Component {
   }
   /** Caret peeks update the image shelf, but cannot replace an explicitly pinned selection. */
   setView(view: WorkspaceView | undefined): void {
-    if (!view) { this.peekImage = undefined; this.clearedImageId = undefined; return; }
+    if (!view) { this.peekImage = undefined; this.clearedImageId = undefined; if (!this.pinned) this.selectedImage = undefined; this.changed(); return; }
     if (!view.id.startsWith("image:") || view.id === this.clearedImageId) return;
     this.peekImage = view;
     if (!this.pinned) this.selectedImage = view;
