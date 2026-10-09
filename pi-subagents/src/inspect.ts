@@ -47,16 +47,14 @@ export async function attach(ctx: ExtensionContext, id: string, actions: Inspect
   if (navigation?.mount) {
     const result = await mountThread(ctx, id, actions, state, navigation, onView);
     if (result === "mounted") return;
-    if (result === "failed") {
-      notice = "Workspace mount failed · full-viewport overlay (sidebar not preserved)";
-      try { ctx.ui.notify(notice, "warning"); } catch { /* UI never determines execution success. */ }
-    }
+    notice = `${result === "failed" ? "Workspace mount failed" : "Workspace unavailable"} · full-viewport overlay (sidebar not preserved)`;
+    try { ctx.ui.notify(notice, "warning"); } catch { /* UI never determines execution success. */ }
   }
   // Unavailable slot or failed offered mount: opaque entire viewport. Never pretend it preserves a sidebar.
   await ctx.ui.custom((tui, theme, _keys, done) => {
     const view = new InspectView(tui, theme, id, actions, done, state, notice);
     onView?.(() => view.dispose());
-    try { tui.setFocus(view); } catch { /* Overlay still paints without host focus. */ }
+    // The overlay host owns focus acquisition and its original restore target.
     return view;
   }, {
     overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 },

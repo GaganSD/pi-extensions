@@ -4,7 +4,7 @@ import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { visibleWidth, type TUI, type Focusable, type Component } from "@earendil-works/pi-tui";
+import { visibleWidth, TuiAltScreen, type TUI, type Terminal, type Focusable, type Component } from "@earendil-works/pi-tui";
 import { InspectView, attach, type InspectActions } from "../src/inspect.ts";
 import { HumanState } from "../src/presentation.ts";
 import { SubagentWidget } from "../src/ui.ts";
@@ -43,6 +43,25 @@ function harness(initial = record()) {
 function type(view: InspectView, text: string) { for (const character of text) view.handleInput(character === "\n" ? "\x1b[13;2u" : character); }
 function action(view: InspectView, index: number) { view.handleInput("\t"); view.handleInput("\t"); for (let i = 0; i < index; i++) view.handleInput("\x1b[C"); view.handleInput("\r"); }
 const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+test("overlay creation leaves focus to the host and restores an unknown custom editor", async () => {
+  const tty = { columns: 80, rows: 24, write() {}, start() {}, stop() {}, hideCursor() {}, showCursor() {} } as unknown as Terminal;
+  const tui = new TuiAltScreen(tty);
+  const editor = { focused: false, render: () => ["custom editor"], invalidate() {} };
+  tui.setLayoutRoot(editor); tui.setFocus(editor);
+  const h = harness();
+  const ctx = { ui: { async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
+    // Same ordering as Pi showExtensionCustom: factory first, then showOverlay.
+    const view = factory(tui, theme, undefined, () => tui.hideOverlay());
+    assert.equal(editor.focused, true, "factory must not replace the overlay restore target");
+    tui.showOverlay(view, { width: "100%", maxHeight: "100%" });
+    assert.equal(view.focused, true);
+    view.handleInput("\x1b");
+    assert.equal(editor.focused, true, "SDK must restore the original custom editor");
+  } } } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+  await attach(ctx, record().id, h.actions);
+  assert.equal(h.listeners, 0);
+});
 
 test("stable human identities retain unread, selected and open completions; reviewed completions enter Recent", () => {
   const state = new HumanState(), a = record("a"), b = record("b");
@@ -259,6 +278,7 @@ test("a throwing workspace host does not hang attach and uses the overlay", asyn
 test("a host that offers mount but cannot lend a slot falls back to the opaque overlay", async () => {
   const h = harness();
   let overlay = 0, mounted = 0;
+  const notices: string[] = [];
   const tui = terminal();
   const ctx = {
     ui: {
@@ -267,8 +287,11 @@ test("a host that offers mount but cannot lend a slot falls back to the opaque o
       },
       async custom(factory: (tui: TUI, theme: Theme, keys: unknown, done: () => void) => InspectView) {
         overlay++;
-        factory(tui, theme, undefined, () => {}).dispose();
+        const view = factory(tui, theme, undefined, () => {});
+        assert.match(view.render(80).join("\n"), /sidebar not preserved/);
+        view.dispose();
       },
+      notify(message: string) { notices.push(message); },
     },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
   await attach(ctx, record().id, h.actions, new HumanState(), {
@@ -279,6 +302,7 @@ test("a host that offers mount but cannot lend a slot falls back to the opaque o
   });
   assert.equal(mounted, 1);
   assert.equal(overlay, 1);
+  assert.match(notices.join("\n"), /Workspace unavailable.*sidebar not preserved/);
   assert.equal(h.listeners, 0);
 });
 

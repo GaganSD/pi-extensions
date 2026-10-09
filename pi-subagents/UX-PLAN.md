@@ -29,9 +29,10 @@ never finds/replaces private host containers. Slate keeps its sidebar and the
 original main editor/chat objects intact, including cursor, undo/paste state and
 scroll position. On close, restore those same objects, not just their text.
 
-Down is processed by the actual editor first. Handoff is allowed only for an
-unmodified Down, focused editor, no autocomplete/selection, and no change in
-public cursor/text after normal navigation. This lets wrapped lines/history win
+The configured `tui.editor.cursorDown` action (Down by default) is processed by
+the actual editor first. Handoff requires a focused editor, no active or
+just-consumed selection/autocomplete, and no change in public cursor/text after
+normal navigation. This lets wrapped lines/history win
 without reimplementing their private state. Validate this with real editor tests
 before accepting the bridge. Plain Pi can install its own CustomEditor only when
 no other extension owns the editor; /subagents remains the portable entry point.
@@ -80,6 +81,12 @@ independently of an in-flight send.
   stopping while sending; stale async reads; close/reload/session teardown.
 - Completion/read state and bounded Recent; exact machine contracts unchanged.
 - Pi 1.0 baseline and installed Pi 1.1, with and without Slate.
+
+Idle rosters paint a bounded window with every live worker pinned and explicit
+unread/hidden counts; focused navigation reaches all retained entries without
+renumbering or switching the selected ID on completion. Failed/unpainted threads
+do not mark results read. Failed or withdrawn offered mounts disclose the opaque
+fallback, and overlay focus acquisition/restoration remains the host\'s job.
 
 All rendering uses cached data: no filesystem reads or model calls in paint.
 Keep I/O, messages and retained UI state bounded. No Pi source fork, new runner,

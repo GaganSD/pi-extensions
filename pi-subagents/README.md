@@ -57,9 +57,10 @@ Rows use stable names such as `Worker 1 · Implement the parser · Running`.
 Ordinals distinguish duplicate roles and never renumber when a sibling finishes.
 Run/session UUIDs and PID are not primary navigation labels.
 
-- **Down at the editor boundary** focuses the roster, without opening anything.
-  Normal wrapped-line movement, history and autocomplete run first. If Down still
-  moves your caret to the line end, press it again after that movement finishes.
+- **Down at the editor boundary** focuses the roster, without opening anything
+  (`tui.editor.cursorDown`, Down by default). Native movement, history,
+  autocomplete and selection run first. If Down still moves your caret or clears
+  a selection, press it again after that movement finishes.
 - **Up/Down** selects; **Enter/Space** opens. **Esc**, or Up from the first row,
   returns to the original editor. Typing returns there with that input intact.
 - Click selects; double-click opens. `/subagents` remains the portable entry point.
@@ -77,15 +78,18 @@ reclaim the workspace without losing focus, and the worker draft is retained.
 
 Without an owned workspace bridge (plain Pi, regular mode or older hosts), an
 opaque full-viewport conversation is the disclosed fallback; it does not claim
-sidebar preservation. Other custom editors are not replaced or assigned global
+sidebar preservation. If an offered workspace becomes unavailable or fails to
+mount, a warning and thread note disclose the fallback. Other custom editors are not replaced or assigned global
 Down interception. The original main editor/chat objects survive switching,
 including native undo/paste/cursor state and background parent output.
 
 Per-run drafts and reading positions survive switching. Send failures keep the
 text; success clears only the submitted revision. A draft bound to an old question
 cannot silently answer a replacement question. Completions never jump focus:
-unread/selected results remain visible; viewed results collapse into bounded
-**Recent** after you leave their selection. Finished means a saved report, not
+unread/selected results stay in the roster; viewed results collapse into bounded
+**Recent** after you leave their selection. Large rosters keep every live worker
+in the idle window, show unread/hidden counts, and page through all entries with
+focused Up/Down navigation. Only a focused, displayed thread marks results read. Finished means a saved report, not
 verified work.
 
 ### Telemetry and evidence

@@ -157,7 +157,7 @@ export class SubagentWidget implements Component, Focusable {
     const hidden = Math.max(0, entries.length - shown.length);
     const summary = `${liveIds.length} live · ${unreadCount} unread`;
     const heading = this.blocked ? `Sub-agents · cleanup unknown — launches blocked · ${summary}`
-      : hidden ? `Sub-agents · ${summary} · ${hidden} hidden · ↓ page`
+      : hidden ? `Sub-agents · ${summary} · ${hidden} hidden · ↓ select`
       : `Sub-agents · ${summary} · ↓ select · enter/space open`;
     const lines = [this.theme.fg(this.blocked ? "error" : "dim", truncateToWidth(heading, inner))];
     for (const id of shown) {
