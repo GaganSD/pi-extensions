@@ -59,11 +59,25 @@ type SplitMousePane = Component & {
   handleSplitMouse?(event: TuiMouseEvent): TuiMouseEventResult | undefined;
 };
 
-class SidebarSplit extends HStack {
+export class SidebarSplit extends HStack {
   private readonly pane: SplitMousePane;
+  private readonly originalChat: Component;
+  private chatLease = 0;
 
-  chat(): Component {
-    return this.entries[0]?.component ?? this.children[0]!;
+  chat(): Component { return this.originalChat; }
+
+  /** Lend only our owned main slot. Keep the original chat/editor objects alive. */
+  replaceChat(view: Component): () => void {
+    const entry = this.entries[0]!;
+    if (entry.component !== this.originalChat) throw new Error("Slate conversation slot is already in use");
+    const lease = ++this.chatLease;
+    entry.component = view;
+    this.children[0] = view;
+    return () => {
+      if (this.chatLease !== lease || entry.component !== view) return;
+      entry.component = this.originalChat;
+      this.children[0] = this.originalChat;
+    };
   }
 
   override handleMouse(event: TuiMouseEvent) {
@@ -101,6 +115,7 @@ class SidebarSplit extends HStack {
       },
     ]);
     this.pane = pane;
+    this.originalChat = chat;
     Object.assign(this, { [SIDEBAR_SPLIT]: true });
   }
 }
@@ -115,21 +130,33 @@ export function splitChat(component: Component | undefined): Component | undefin
   return component.chat();
 }
 
+export type SidebarSplitLease = (() => void) & { replaceChat(view: Component): (() => void) | undefined; ownsFocus(component: Component): boolean };
+
 export function installSidebarSplit(
   tui: TUI,
   pane: Component,
   preferredWidth?: () => number | undefined,
   onYield?: () => void,
-): (() => void) | undefined {
+): SidebarSplitLease | undefined {
   if (!isViewportTUI(tui) || !(tui as TUI & { layoutRoot?: Component }).layoutRoot) return undefined;
 
-  return bindSplitHost(
+  let split: SidebarSplit | undefined;
+  const dispose = bindSplitHost(
     tui,
     (component) => {
       const chat = splitChat(component);
-      return chat ? new SidebarSplit(chat, pane, preferredWidth, () => tui.terminal.rows) : component;
+      if (chat) split = new SidebarSplit(chat, pane, preferredWidth, () => tui.terminal.rows);
+      return split ?? component;
     },
     splitChat,
     onYield,
   );
+  return Object.assign(dispose, {
+    ownsFocus(component: Component) { return component === split && (tui as TUI & { layoutRoot?: Component }).layoutRoot === split; },
+    replaceChat(view: Component) {
+      // A later layout owner wins; never resurrect a stale slot.
+      if (!split || (tui as TUI & { layoutRoot?: Component }).layoutRoot !== split) return undefined;
+      return split.replaceChat(view);
+    },
+  });
 }

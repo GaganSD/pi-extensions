@@ -126,6 +126,20 @@ Click a task/resource to inspect it in a separate scrolling dialog. `/slate sess
 
 Focused and compact modes hide the dashboard and retain condensed composer metadata. Legacy screenshots elsewhere in this README predate the Quiet Workbench.
 
+### Cooperative Sub-agent Conversations
+
+With `editor` selected, Slate can report a genuine lower navigation boundary to
+pi-subagents: normal wrapping, history, autocomplete and selection retain first
+refusal. A selected, owned fullscreen `sidebar` workspace on compatible Pi 1.1+
+hosts can lend its chat slot to a worker conversation without replacing the
+sidebar or original main editor/chat objects. Parent output continues while hidden;
+return restores the same objects. Parent dialogs reclaim the workspace and focus.
+
+This is a versioned UI-only capability handshake, not new model tools or execution
+authority. Unselected surfaces are never enabled. Without an owned compatible slot,
+pi-subagents uses its documented opaque conversation fallback; Slate does not
+force fullscreen or repair another layout owner's root.
+
 ### Background-task integration
 
 An owning extension can report detached terminals or jobs through Pi's event bus:

@@ -103,8 +103,9 @@ test("elapsed time is natural and down cycles live threads then agent", () => {
   }));
   assert.equal(nextLive(live, live[0]!.id), live[1]!.id);
   assert.equal(nextLive(live, live[1]!.id), undefined);
-  assert.match(rows(live)[0]!, /^↓ {2}2$/);
-  assert.equal(rows([live[0]!])[0], "↓  worker · PID-? starting · ?%/?");
+  assert.equal(rows(live)[0], "Sub-agents");
+  assert.match(rows(live)[1]!, /Worker 1.*Running/);
+  assert.match(rows(live)[2]!, /Worker 2.*Running/);
 });
 
 test("human command parse and unique prefix attach", () => {
@@ -144,13 +145,14 @@ test("transcript extract skips session headers and keeps user/sub-agent/tool lin
   assert.deepEqual(await readTranscript(undefined), ["(no transcript yet)"]);
 });
 
-test("widget lists every live run and clears when the batch has settled", () => {
+test("widget lists live runs and drops settled completions", () => {
   const stub = (id: string, state: "running" | "completed"): import("../src/types.ts").RunRecord => ({
     id, owner: "p", agent: "worker", mode: "edit", task: id, cwd: "/" + id, workspace: "/" + id,
     model: "fixture/test", thinking: "off", state, startedAt: "t", elapsedMs: 1, metadataPath: "/" + id,
   });
   const live = [stub("aaaaaaaa-1", "running"), stub("bbbbbbbb-2", "running"), stub("cccccccc-3", "running")];
   assert.equal(rows(live).length, 4);
-  assert.equal(rows(live.map(run => ({ ...run, state: "completed" }))).length, 0);
-  assert.equal(rows([live[0]!, { ...live[1]!, state: "completed" }, { ...live[2]!, state: "completed" }]).length, 1);
+  const completed = rows(live.map(run => ({ ...run, state: "completed" })));
+  assert.deepEqual(completed, []);
+  assert.equal(rows([live[0]!, { ...live[1]!, state: "completed" }, { ...live[2]!, state: "completed" }]).length, 2);
 });

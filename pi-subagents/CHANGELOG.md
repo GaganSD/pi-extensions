@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### Added
+
+- Optional `pi:background-tasks` display snapshots for session dashboards such as Slate. Live and uncertain-cleanup runs take priority; completed and cancelled runs leave the shelf.
+
+### Fixed
+
+- Settled sub-agents leave the below-editor roster as soon as they finish, fail, or cancel. Live runs and uncertain cleanup stay. `/subagents` still opens saved reports.
+
+## 0.0.4
+
+Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.
+
+- Accept Pi 1.x hosts, including 1.1, in peers and the runtime guard. List supported thinking levels when a batch is rejected; no silent model or thinking fallback.
+- Add a focusable roster, dedicated wrapped conversations, unread completions, and bounded Recent. Down hands off only after normal editor navigation; Enter/Space opens.
+- Let Slate lend its owned fullscreen chat slot while keeping the sidebar and original editor/chat objects. Disclose an opaque full-viewport fallback when that workspace is unavailable.
+- Preserve drafts, exact-question targeting, parent native undo, and confirmed Stop during sends. Failed mounts release the loan; overlay focus restore stays with the host.
+- Keep configured Down/select keys on the roster after handoff, page saturated lists, tick live elapsed, show the current tool, and hit-test only painted action buttons.
+
+- Replace UUID/PID-heavy inspection with human worker names, focusable inline
+  selection and dedicated wrapped conversations. Down hands off only after
+  normal editor navigation; Enter/Space activates, Esc returns.
+- Cooperate with Slate's owned chat slot on compatible fullscreen Pi 1.1+
+  hosts, retaining sidebar and original editor/chat objects. Use a disclosed
+  opaque full-viewport fallback elsewhere; never patch another custom editor.
+- Keep unread/selected completions visible and reviewed ones in Recent. Preserve
+  per-run drafts/history pages, clear only successful submitted revisions, bind
+  exact questions and keep confirmed Stop available while sending.
+- Add bounded async conversation pages and human tool/notice renderers without
+  changing execution authority, exact machine JSON or saved evidence contracts.
+- Bound saturated rosters while keeping live workers visible, advance empty
+  transcript pages, support encoded Space/configured navigation keys, and rebind
+  remounted editors. Preserve unread state and release failed workspace loans;
+  disclose fallback and let the overlay host restore its original focus.
+- Keep configured Down/select keys on the roster after handoff, page saturated
+  lists, tick live elapsed, show the current tool, and hit-test only painted
+  action buttons on narrow terminals.
+
+- List the selected model's supported thinking levels in preflight errors, so
+  mixed-model batches can be corrected without guessing or automatic fallback.
+
+- Accept stable Pi 1.x, including 1.1.x, in both npm peer dependencies and the
+  shared `/subagents`/`subagent` runtime guard. Minor and patch updates no longer
+  cause install conflicts or an `Unsupported Pi host` error. Keep the Node-only,
+  interactive-host boundary and reject prereleases and new major versions.
+- Add host-version, command, and packed-peer regression coverage; retain the
+  Pi 1.0.0 development baseline for backward compatibility.
+
 ## 0.0.3
 
 Fix provider-neutral tool-schema compatibility and add live native session telemetry.

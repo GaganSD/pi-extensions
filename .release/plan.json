@@ -1,13 +1,20 @@
 {
   "schema": 1,
-  "sourceSha": "97cfddfe1bb681f551428d2a6d784bd910e813fe",
-  "notes": "Fix provider-neutral tool-schema compatibility and add live native session telemetry.\n\n- Give the `subagent` input schema an explicit object root while retaining its six closed action branches and runtime validation. Resolves the reproduced OpenCode Go/DeepSeek request failure without model-specific exceptions or a Pi-core change.\n- Adopt agent/sub-agent terminology. **Migration:** `contact_supervisor` is renamed to `contact_agent`, and `waiting_for_parent` to `waiting_for_agent`; no legacy aliases are retained. Existing run artifacts remain evidence, not resumable sessions.\n- Show role, shared owning-process PID, unique native session ID, and current context occupancy in live widget rows. Context estimates remain separate from cumulative billed usage, with exact run UUIDs retained for controls and full identity/usage available in inspection and evidence.\n- Cache estimates at finalized native lifecycle boundaries, never on rendering, timer ticks, or individual streaming deltas. Unknown startup/compaction/failed estimates stay unknown; estimator and observer exceptions cannot fail a run.\n- Cover prefix collisions, narrow terminals, control-character sanitization, zero/overflow/invalid estimates, cancellation, disposal, and recovery with regression tests.\n",
+  "sourceSha": "d657431da600f4a2a619cf249fb620e334ca85d3",
+  "notes": "Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.\n\n- Accept Pi 1.x hosts, including 1.1, in peers and the runtime guard. List supported thinking levels when a batch is rejected; no silent model or thinking fallback.\n- Add a focusable roster, dedicated wrapped conversations, unread completions, and bounded Recent. Down hands off only after normal editor navigation; Enter/Space opens.\n- Let Slate lend its owned fullscreen chat slot while keeping the sidebar and original editor/chat objects. Disclose an opaque full-viewport fallback when that workspace is unavailable.\n- Preserve drafts, exact-question targeting, parent native undo, and confirmed Stop during sends. Failed mounts release the loan; overlay focus restore stays with the host.\n- Keep configured Down/select keys on the roster after handoff, page saturated lists, tick live elapsed, show the current tool, and hit-test only painted action buttons.",
   "packages": [
+    {
+      "path": "pi-slate",
+      "name": "pi-slate",
+      "from": "0.1.11",
+      "to": "0.1.12",
+      "bump": "patch"
+    },
     {
       "path": "pi-subagents",
       "name": "@gagansd/pi-subagents",
-      "from": "0.0.2",
-      "to": "0.0.3",
+      "from": "0.0.3",
+      "to": "0.0.4",
       "bump": "patch"
     }
   ]

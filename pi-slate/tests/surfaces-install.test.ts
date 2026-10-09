@@ -58,10 +58,12 @@ async function fixture(t: TestContext, text: string | undefined, mode = "tui", c
     getAllTools: () => tools.map((tool) => ({ ...tool, sourceInfo: { path: conflict ? "/foreign/cards.ts" : new URL("../extensions/pi-slate/index.ts", import.meta.url).pathname } })),
     exec: async () => { calls.push("branch-git"); return { code: 0, stdout: "test-branch\n", stderr: "", killed: false }; },
     events: {
-      on(name: string, handler: (value: unknown) => void) {
-        calls.push("async-subscribe");
+      on(name: string, handler?: (value: unknown) => void) {
+        const prefix = name === "subagent:ui-host-request" ? "navigation" : "async";
+        calls.push(`${prefix}-subscribe`);
+        if (!handler) return () => calls.push(`${prefix}-dispose`);
         const listeners = bus.get(name) ?? new Set(); listeners.add(handler); bus.set(name, listeners);
-        return () => { calls.push("async-dispose"); listeners.delete(handler); };
+        return () => { calls.push(`${prefix}-dispose`); listeners.delete(handler); };
       },
       emit(name: string, value: unknown) { for (const listener of bus.get(name) ?? []) listener(value); },
     },
@@ -141,6 +143,7 @@ for (const surfaces of [[], ["editor"], [...FRESH_SURFACES], [...SURFACES], ["he
     assert.equal(f.calls.includes("widget"), has(surfaces, "sidebar") || has(surfaces, "transcript"));
     assert.equal(f.calls.includes("files-start"), false, "retired file dashboard has no git-status watcher");
     assert.equal(f.calls.includes("async-subscribe"), has(surfaces, "sidebar"));
+    assert.equal(f.calls.includes("navigation-subscribe"), has(surfaces, "editor"));
     assert.equal(f.calls.includes("branch-git"), has(surfaces, "editor"));
     assert.deepEqual(f.tools.map((tool) => tool.name).sort(), has(surfaces, "tool-cards") ? ["edit", "read", "write"] : []);
     assert.equal(f.commands.has("exit"), true);

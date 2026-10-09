@@ -29,7 +29,9 @@ same five dynamic workflow tasks using different subagents packages. See the
 pi install npm:@gagansd/pi-subagents
 ```
 
-Then `/reload`. Built for Pi **1.0.x**.
+Then `/reload`. Supports stable Pi **1.x** (`>=1.0.0 <2.0.0`), including **1.1.x**,
+using the local npm installation on Node in interactive mode. Prereleases, Bun,
+and print/RPC/standalone hosts are not supported.
 
 ## Features
 
@@ -37,30 +39,59 @@ Then `/reload`. Built for Pi **1.0.x**.
 - Fresh native Pi sessions, session-bound, no nested delegation
 - `subagent` tool: run (1–4 tasks), list, status, steer, stop, reply
 - `/subagents` to attach, steer, reply, or stop
-- Live widget for running sub-agents
+- Focusable worker roster and dedicated conversations; settled runs leave the roster
 - Supports Markdown agent profiles
 - Local reports and transcripts
 
-### Live telemetry
+### Model and thinking selection
 
-Running rows show `worker · PID-12345 01a11744… · 12%/272K`.
-Sub-agents are **in-process native Pi SDK sessions**: every row shares the owning
-agent's real OS PID, not a separate worker process. The shortened ID is the native
-session ID (prefixes expand to distinguish live sessions), **not** the run UUID.
-The displayed native-session prefix cannot be supplied to `/subagents`: the
-command requires a run UUID or its prefix. Use the `/subagents` picker, a click,
-or Down, or copy the run UUID from the inspector, which also shows the full
-native session ID. Full IDs and the latest observed context estimate remain in
-`run.json`, including failed/cancelled runs.
+Model and thinking resolve from the task, then the profile, then the owning agent.
+Models can support different thinking levels. If a selected level is unsupported,
+the batch is rejected before any sub-agent launches and the error lists the valid
+levels. Set `tasks[].thinking` or the profile's `thinking` explicitly; the package
+never silently falls back to a different model or thinking level.
 
-The percentage is Pi's **estimated current context occupancy** divided by the
-selected model's context window, not cumulative billed tokens. Limits use decimal
-K/M. Estimates refresh at finalized message/lifecycle/compaction boundaries, not
-on each streamed token or widget paint. Unknown startup/usage displays, for example,
-`PID-12345 starting · ?%/272K` or `?%/?`; after compaction occupancy may stay unknown
-until the next response. Real zero and values over 100% are preserved. Narrow
-terminals shorten roles/IDs and drop decoration before context fields. Ask/error/
-stop indicators remain useful; elapsed time is in the inspector.
+### Human navigation
+
+Rows use stable names such as `Worker 1 · Implement the parser · Running`.
+Ordinals distinguish duplicate roles and never renumber when a sibling finishes.
+Run/session UUIDs and PID are not primary navigation labels.
+
+- **Down at the editor boundary** focuses the roster, without opening anything
+  (`tui.editor.cursorDown`, Down by default). Native movement, history,
+  autocomplete and selection run first. If Down still moves your caret or clears
+  a selection, press it again after that movement finishes.
+- **Up/Down** selects, including the configured `tui.editor.cursorDown` handoff
+  key and `tui.select.*` bindings; **PageUp/PageDown** jump a window. **Enter/Space**
+  opens. **Esc**, or Up from the first row, returns to the original editor.
+  Typing returns there with that input intact.
+- Click selects; double-click opens. `/subagents` remains the portable entry point.
+- In a thread, Space/arrows edit normally. **Tab/Shift+Tab** moves among message,
+  conversation and actions; **PageUp/PageDown** scrolls. **Esc/Back** returns.
+- **Details** exposes technical evidence; **Tools** expands tool output;
+  **Older/Latest** pages conversation history. **Stop** requires confirmation and
+  stays available independently of an in-flight send.
+
+The thread paints the whole conversation workspace, not a translucent diagnostic
+popup. With cooperative Slate and a compatible fullscreen Pi 1.1+ host, it borrows
+Slate's chat slot while retaining its sidebar. The sidebar still describes the
+parent workspace; worker-specific usage/workspace is in Details. Parent dialogs
+reclaim the workspace without losing focus, and the worker draft is retained.
+
+Without an owned workspace bridge (plain Pi, regular mode or older hosts), an
+opaque full-viewport conversation is the disclosed fallback; it does not claim
+sidebar preservation. If an offered workspace becomes unavailable or fails to
+mount, a warning and thread note disclose the fallback. Other custom editors are not replaced or assigned global
+Down interception. The original main editor/chat objects survive switching,
+including native undo/paste/cursor state and background parent output.
+
+Per-run drafts and reading positions survive switching. Send failures keep the
+text; success clears only the submitted revision. A draft bound to an old question
+cannot silently answer a replacement question. Completions never jump focus:
+settled runs leave the roster as soon as they finish, fail, or cancel. Live
+workers stay in the idle window and page with focused Up/Down navigation.
+`/subagents` still opens saved reports. Finished means a saved report, not
+verified work.
 
 ### Session dashboards
 
@@ -73,4 +104,19 @@ state and shared host PID, not native session objects, private questions or run
 control. Use `/subagents` for authoritative inspection and control. Listener
 failures cannot change run outcomes; reload/shutdown clears the source.
 
-**Note:** I've stressed tested the library to work well locally. TODO: Improve UI & Developer Experience. Support Cloud Sub-agents. Message me if you feedback, TIA!
+### Telemetry and evidence
+
+**Details** shows exact run/session IDs, shared process PID, cwd, model/thinking,
+context estimate, usage and artifact paths. `/subagents <run-id-or-prefix>` still
+routes by the manager's run UUID, never a native session ID. Exact machine-facing
+JSON and saved `run.json`/reports/transcripts are unchanged.
+
+Sub-agents are **in-process native Pi SDK sessions**, not separate worker
+processes. Context occupancy is Pi's estimated current usage divided by the
+selected context window, not cumulative billed tokens. Unknown remains unknown;
+real zero and values above 100% are preserved. Estimates refresh at finalized
+lifecycle/compaction boundaries, never on streamed tokens or paint.
+
+Conversation pages are asynchronous bounded reads of finalized messages. Long
+entries/older content disclose omission; original transcript/report paths remain
+available in Details. Rendering does no filesystem reads or model calls.

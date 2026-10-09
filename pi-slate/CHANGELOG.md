@@ -10,6 +10,34 @@
 - Short/narrow fullscreen layouts hide the rail below 30 rows or 100 columns, preserve preferences and previews, and return condensed context/cost metadata to the composer.
 - Native MCP configuration parity verified for Pi 1.1.0; unsupported host versions still report unknown state.
 
+### Changed
+
+- Composer shows project/branch and model on the frame. Density still restores after the host copies native padding. Native cursor, draft, paste, selection and working/thinking behavior are preserved.
+
+### Fixed
+
+- Unpinned image previews now hide when the caret leaves the image token; previously the shelf stayed painted until `[clear]`.
+- Image preview chrome is just Preview plus `[open]` `[copy]`; the caret/pin chips, filename caption, and `[clear]` control are gone.
+- With `header` selected, `/new` no longer duplicates `✓ New session started` in the chat transcript; the chip lives only in the header. Stock update cards and ordinary chat remain untouched.
+
+## 0.1.12
+
+Support stable Pi 1.x and replace diagnostic subagent navigation with human conversations.
+
+- Accept Pi 1.x hosts, including 1.1, in peers and the runtime guard. List supported thinking levels when a batch is rejected; no silent model or thinking fallback.
+- Add a focusable roster, dedicated wrapped conversations, unread completions, and bounded Recent. Down hands off only after normal editor navigation; Enter/Space opens.
+- Let Slate lend its owned fullscreen chat slot while keeping the sidebar and original editor/chat objects. Disclose an opaque full-viewport fallback when that workspace is unavailable.
+- Preserve drafts, exact-question targeting, parent native undo, and confirmed Stop during sends. Failed mounts release the loan; overlay focus restore stays with the host.
+- Keep configured Down/select keys on the roster after handoff, page saturated lists, tick live elapsed, show the current tool, and hit-test only painted action buttons.
+
+### Added
+
+- Versioned UI-only conversation bridge for pi-subagents: editor-owned Down
+  boundary handoff and scoped lending of Slate's fullscreen chat slot. Preserve
+  sidebar and original editor/chat objects, yield to parent dialogs, and release
+  leases without taking unselected surfaces or model authority. Same-TUI editor
+  remounts keep the Down handler and an open conversation loan.
+
 - Independent surfaces: `header`, `footer`, `editor`, `sidebar`, `tool-cards`, `transcript`. `/slate surfaces` shows the set; `set <names...>`, `full`, and `none` save it for `/reload`.
 - Fresh settings select editor, sidebar, and tool-cards; focused mode keeps the selected sidebar hidden. Valid legacy settings without surfaces retain all six and preserve appearance preferences. Invalid settings activate nothing, warn, and preserve the file.
 - `/exit` quits Pi, same as `/quit`
@@ -17,18 +45,11 @@
 
 ### Changed
 
-- Composer shows project/branch and model on the frame. Density still restores after the host copies native padding. Native cursor, draft, paste, selection and working/thinking behavior are preserved.
 - Unselected surfaces leave host setters, patches, watchers, and cleanup untouched. Theme/fullscreen are explicit preferences, not automatic install defaults.
 - Composer metadata is named `composerMetadata` in settings; the legacy `footer` key is still read and written, and `/slate footer` remains an alias. Footer-slot ownership only hides Pi's footer with the existing zero-row component.
 - Image rewrites patch only Slate's composer instance; foreign editors and `Editor.prototype` remain untouched. `/prompts` and thinking timing are editor-scoped; `/exit` is always registered.
 - Sidebar and transcript attach independently through a zero-row below-editor widget. No overlay fallback or fullscreen forcing. Sidebar yields to a replacement layout root. Stock notices are no longer deleted.
 - Last-writer-wins chrome and first-registration-wins tools are respected without conflict repair. Tool-card registration losses are reported.
-
-### Fixed
-
-- Unpinned image previews now hide when the caret leaves the image token; previously the shelf stayed painted until `[clear]`.
-- Image preview chrome is just Preview plus `[open]` `[copy]`; the caret/pin chips, filename caption, and `[clear]` control are gone.
-- With `header` selected, `/new` no longer duplicates `✓ New session started` in the chat transcript; the chip lives only in the header. Stock update cards and ordinary chat remain untouched.
 
 ### Limitations
 

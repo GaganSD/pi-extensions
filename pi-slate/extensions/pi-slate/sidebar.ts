@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type OverlayHandle, type OverlayOptions, type TUI, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { clampSidebarColumns, dashboardColumnWidth, formatCompactTokenCount, isSidebarResizeHandle, parseSidebarPercent, sidebarHandleColumn, sidebarPercentFromColumns, SIDEBAR_HIDDEN } from "./layout.ts";
-import { installSidebarSplit } from "./sidebar-split.ts";
+import { installSidebarSplit, type SidebarSplitLease } from "./sidebar-split.ts";
 import type { WorkspaceView } from "./workspace.ts";
 import { chromePaint } from "./composer.ts";
 import { DEFAULT_SIDEBAR_FOLDS, sidebarText, type SidebarFolds, type SidebarResources, type SidebarSession } from "./sidebar-data.ts";
@@ -33,7 +33,7 @@ export class Sidebar implements Component {
   private tui?: TUI;
   private theme?: Theme;
   private themeProvider?: () => Theme | undefined;
-  private splitDispose?: () => void;
+  private splitDispose?: SidebarSplitLease;
   private guideHandle?: OverlayHandle;
   private guideOptions?: OverlayOptions;
   private resizing = false;
@@ -84,6 +84,11 @@ export class Sidebar implements Component {
     this.invalidate();
   }
   isVisible(columns: number, rows: number): boolean { return this.splitActive && !this.hidden && dashboardColumnWidth(columns, rows, this._preferredWidth) > 0; }
+  ownsFocus(component: Component): boolean { return component === this || this.splitDispose?.ownsFocus(component) === true; }
+  /** Scoped cooperative conversation surface; sidebar and underlying chat remain intact. */
+  replaceChat(view: Component): (() => void) | undefined {
+    return this.splitDispose?.replaceChat(view);
+  }
   get preferredWidth(): number | undefined { return this._preferredWidth; }
   setPreferredWidth(width: number | undefined): void {
     const next = width === undefined ? undefined : parseSidebarPercent(width);

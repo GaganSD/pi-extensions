@@ -18,7 +18,9 @@ exit, reload, or session replacement. Old artifacts are evidence, not permission
 to resume work. There is no detached runner, durable queue, recursive delegation,
 workflow language, mission ledger, scheduler, or external agent adapter.
 
-The supported host is local npm Pi 1.0.x in interactive mode. Sub-agents receive
+The supported host is stable local npm Pi 1.x (>=1.0.0, <2.0.0) on Node in
+interactive mode. Minor and patch upgrades remain supported; prereleases and
+new major versions require compatibility review. Sub-agents receive
 only package-owned tools and Pi builtins; no ambient extensions, MCP servers,
 skill catalog, or copied agent conversation. Required capabilities or policies
 that this boundary cannot provide must block the task rather than be dropped.
@@ -42,6 +44,15 @@ A completed run means a sub-agent settled and its report was saved, not that the
 is correct. Preserve transcripts, errors, and reported usage. Do not promote a
 sub-agent's claims into verified evidence. The agent runs checks, commissions review
 when requested, and decides whether the task is accepted.
+
+## Human conversations, not a diagnostic dashboard
+
+Make switching among the agent and its sub-agents feel like editor navigation.
+Focus and activation are separate. Use human names in normal surfaces; retain
+exact IDs for routing and on-demand evidence. Preserve drafts, native parent
+editor state and readable conversations. Cooperative layout owners lend their
+own slots; unavailable host capabilities require a disclosed fallback, not
+private container discovery or damage to another extension's UI.
 
 ## Compose before inventing
 

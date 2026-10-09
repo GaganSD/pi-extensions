@@ -1,35 +1,28 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Input, matchesKey, truncateToWidth, type Component, type Focusable, type TUI } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, Editor, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component, type Focusable, type TUI, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { errorText, isLive, type RunRecord } from "./types.ts";
-import { formatContext, formatElapsed, nextLive, plain } from "./ui.ts";
-import { readTranscript } from "./transcript.ts";
+import { formatContext, formatElapsed, plain, type NavigationHost } from "./ui.ts";
+import { HumanState, stateLabel } from "./presentation.ts";
+import { conversationText, readConversation, type ConversationMessage } from "./conversation.ts";
 
-export type HumanCommand =
-  | { action: "list" }
-  | { action: "attach"; id: string }
-  | { action: "stop"; id: string }
-  | { action: "steer"; id: string; message: string }
-  | { action: "reply"; id: string; message: string };
-
+export type HumanCommand = { action: "list" } | { action: "attach"; id: string } | { action: "stop"; id: string }
+  | { action: "steer"; id: string; message: string } | { action: "reply"; id: string; message: string };
 export function parseCommand(args: string): HumanCommand {
   const trimmed = args.trim();
   if (!trimmed) return { action: "list" };
-  const words = trimmed.split(/\s+/);
-  const head = words[0]!;
+  const words = trimmed.split(/\s+/), head = words[0]!;
   if (head === "stop") {
     if (words.length !== 2) throw new Error("Usage: /subagents stop <id>");
     return { action: "stop", id: words[1]! };
   }
   if (head === "steer" || head === "reply") {
-    const rest = trimmed.slice(head.length).trimStart();
-    const split = rest.search(/\s/);
+    const rest = trimmed.slice(head.length).trimStart(), split = rest.search(/\s/);
     if (split < 1 || !rest.slice(split).trim()) throw new Error(`Usage: /subagents ${head} <id> <text>`);
     return { action: head, id: rest.slice(0, split), message: rest.slice(split).trim() };
   }
   if (words.length === 1 && /^[a-f0-9-]{8,36}$/i.test(head)) return { action: "attach", id: head };
   throw new Error("Usage: /subagents [id | stop <id> | steer <id> <text> | reply <id> <text>]");
 }
-
 export function resolveRun(runs: RunRecord[], ref: string): RunRecord {
   const exact = runs.find(run => run.id === ref);
   if (exact) return exact;
@@ -38,7 +31,6 @@ export function resolveRun(runs: RunRecord[], ref: string): RunRecord {
   if (matches.length > 1) throw new Error("Ambiguous run prefix; use more of the id");
   throw new Error("Unknown run ID for this agent runtime");
 }
-
 export interface InspectActions {
   status(id: string): RunRecord;
   preview(id: string): string[];
@@ -49,159 +41,356 @@ export interface InspectActions {
   live(): RunRecord[];
 }
 
-export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions): Promise<void> {
+export async function attach(ctx: ExtensionContext, id: string, actions: InspectActions, state = new HumanState(), navigation?: NavigationHost, onView?: (close: () => void) => void): Promise<void> {
   actions.status(id);
-  await ctx.ui.custom((tui, theme, _keys, done) => new InspectView(tui, theme, id, actions, done), {
-    overlay: true,
-    overlayOptions: { anchor: "center", width: "92%", maxHeight: "80%", margin: 1 },
+  let notice: string | undefined;
+  if (navigation?.mount) {
+    const result = await mountThread(ctx, id, actions, state, navigation, onView);
+    if (result === "mounted") return;
+    notice = `${result === "failed" ? "Workspace mount failed" : "Workspace unavailable"} · full-viewport overlay (sidebar not preserved)`;
+    try { ctx.ui.notify(notice, "warning"); } catch { /* UI never determines execution success. */ }
+  }
+  // Unavailable slot or failed offered mount: opaque entire viewport. Never pretend it preserves a sidebar.
+  await ctx.ui.custom((tui, theme, _keys, done) => {
+    const view = new InspectView(tui, theme, id, actions, done, state, notice);
+    onView?.(() => view.dispose());
+    // The overlay host owns focus acquisition and its original restore target.
+    return view;
+  }, {
+    overlay: true, overlayOptions: { anchor: "top-left", width: "100%", maxHeight: "100%", margin: 0 },
   });
+}
+
+async function mountThread(ctx: ExtensionContext, id: string, actions: InspectActions, state: HumanState, navigation: NavigationHost, onView?: (close: () => void) => void): Promise<"mounted" | "unavailable" | "failed"> {
+  let view: InspectView | undefined;
+  let release: (() => void) | undefined;
+  let mounted = false;
+  let reason: "unavailable" | "failed" = "unavailable";
+  const drop = (): void => {
+    const loan = release; release = undefined;
+    try { loan?.(); } catch { /* Loan must not survive a failed attach. */ }
+    const created = view; view = undefined;
+    try { created?.dispose(); } catch { /* Listener must not survive a failed attach. */ }
+  };
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const fail = (error: unknown, kind: "unavailable" | "failed" = "failed") => {
+        if (settled) return;
+        settled = true;
+        reason = kind;
+        reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      const empty = { render: () => [] as string[], invalidate() {}, dispose() {} };
+      try {
+        // Obtain the host's active TUI without occupying/changing the main editor.
+        ctx.ui.setWidget("minimal-subagents:thread-host", (tui, theme) => {
+          view = new InspectView(tui, theme, id, actions, () => {
+            try { release?.(); } catch { /* Restore independently of view teardown. */ }
+            if (mounted && !settled) { settled = true; resolve(); }
+          }, state);
+          onView?.(() => view?.dispose());
+          try { release = navigation.mount!(view); }
+          catch (error) { drop(); fail(error, "failed"); return empty; }
+          if (!release) { drop(); fail(new Error("Conversation workspace unavailable"), "unavailable"); return empty; }
+          mounted = true;
+          return { render: () => [], invalidate() {}, dispose() { if (mounted) view?.dispose(); } };
+        }, { placement: "belowEditor" });
+      } catch (error) { fail(error, "failed"); return; }
+      if (!mounted) fail(new Error("Conversation workspace unavailable"), "unavailable");
+    });
+    return "mounted";
+  } catch {
+    drop();
+    return reason;
+  } finally { try { ctx.ui.setWidget("minimal-subagents:thread-host", undefined); } catch { /* Host UI may already be gone. */ } }
 }
 
 export class InspectView implements Component, Focusable {
   focused = true;
-  private readonly input = new Input({ prompt: "> ", placeholder: "message the sub-agent…" });
+  private readonly input: Editor;
+  private readonly unsubscribe: () => void;
+  private readonly draft;
+  private zone: "message" | "transcript" | "actions";
+  private action = 0;
+  private readonly buttons = ["Back", "Details", "Tools", "Older", "Latest", "Stop"];
+  private note = "Esc back · Tab focus · Enter send · Shift+Enter newline";
+  private closed = false;
+  private details = false;
+  private confirmStop = false;
+  private stopping = false;
+  private inflight = false;
+  private messages: ConversationMessage[] = [];
+  private preview: string[] = [];
+  private before?: number;
+  private omitted = false;
+  private history = false;
+  private reading = false;
+  private reread = false;
+  private lastWidth = 80;
+  private detailsScroll = 0;
+  private bodyHeight = 1;
+  private lastInputStart = 0;
+  private inputCrop = 0;
+  private contentRevision = 0;
+  private bodyCache?: { key: string; width: number; lines: string[] };
+  private lastActionsRow = 0;
+  private buttonHits: Array<{ index: number; x0: number; x1: number }> = [];
+  private inputOrigin = 0;
+  private readonly tick: ReturnType<typeof setInterval>;
   private readonly tui: TUI;
   private readonly theme: Theme;
-  private id: string;
+  private readonly id: string;
   private readonly actions: InspectActions;
   private readonly done: (value?: void) => void;
-  private readonly unsubscribe: () => void;
-  private note = "↓ next or agent · esc agent · enter send · ctrl-x stop";
-  private closed = false;
-  private transcript = ["(no transcript yet)"];
-  private loadedPath?: string;
-  private previewVersion = 0;
-  constructor(tui: TUI, theme: Theme, id: string, actions: InspectActions, done: (value?: void) => void) {
-    this.tui = tui;
-    this.theme = theme;
-    this.id = id;
-    this.actions = actions;
-    this.done = done;
-    this.input.onSubmit = value => { void this.send(value); };
-    this.input.onEscape = () => this.close();
+  private readonly state: HumanState;
+  constructor(tui: TUI, theme: Theme, id: string,
+    actions: InspectActions, done: (value?: void) => void, state = new HumanState(), notice?: string) {
+    this.tui = tui; this.theme = theme; this.id = id;
+    this.actions = actions; this.done = done; this.state = state;
+    if (notice) this.note = notice;
+    const record = actions.status(id);
+    this.state.open = id;
+    this.draft = state.draft(record);
+    this.history = this.draft.pageEnd !== undefined;
+    this.before = this.draft.pageEnd;
+    this.zone = isLive(record.state) ? "message" : "transcript";
+    const accent = (text: string) => theme.fg("accent", text), dim = (text: string) => theme.fg("dim", text);
+    this.input = new Editor(tui, { borderColor: dim, selectList: { selectedPrefix: accent, selectedText: accent, description: dim, scrollInfo: dim, noMatch: dim } }, { paddingX: 0 });
+    this.input.setText(this.draft.text);
+    this.input.onChange = () => {
+      const next = this.input.getExpandedText();
+      if (!this.draft.text || !next) this.draft.questionId = this.safeStatus()?.question?.id;
+      this.draft.text = next;
+      tui.requestRender();
+    };
     this.unsubscribe = actions.subscribe(() => this.refresh());
+    this.tick = setInterval(() => {
+      if (this.closed) return;
+      const live = this.safeStatus();
+      if (live && isLive(live.state) && !live.endedAt) this.tui.requestRender();
+    }, 1000);
+    this.tick.unref?.();
     this.refresh();
   }
   dispose(): void {
     if (this.closed) return;
-    this.closed = true;
-    this.unsubscribe();
-    this.done(); // Host teardown must settle the attach() promise, not just close().
-  }
-  handleInput(data: string): void {
-    if (this.closed) return;
-    if (matchesKey(data, "ctrl+x")) { void this.halt(); return; }
-    if (matchesKey(data, "ctrl+c")) { this.close(); return; }
-    if (matchesKey(data, "down") && !this.input.getValue().trim()) {
-      const next = nextLive(this.actions.live(), this.id);
-      if (!next) { this.close(); return; }
-      this.id = next;
-      this.loadedPath = undefined;
-      this.previewVersion++;
-      this.transcript = ["(no transcript yet)"];
-      this.refresh();
-      return;
-    }
-    this.input.focused = this.focused;
-    this.input.handleInput(data);
-    this.tui.requestRender();
+    this.closed = true; clearInterval(this.tick); this.unsubscribe();
+    this.state.open = undefined;
+    this.done();
   }
   invalidate(): void { this.input.invalidate(); }
-  render(width: number): string[] {
-    const th = this.theme;
-    const record = this.safeStatus();
-    const inner = Math.max(1, width);
-    const height = Math.max(1, Math.floor(this.tui.terminal.rows * 0.8));
-    const title = record
-      ? `${record.id} · ${record.agent} · ${record.state} · ${formatElapsed(record.elapsedMs)}`
-      : `${this.id.slice(0, 8)} · unavailable`;
-    const lines = [
-      th.fg("accent", truncateToWidth(` ${plain(title, 512)}`, inner)),
-      ...(record ? [th.fg("dim", truncateToWidth(` ${plain(`PID-${record.pid ?? "?"} · session ${record.sessionId ?? "starting"} · ${formatContext(record)}`, 512)}`, inner))] : []),
-      th.fg("dim", truncateToWidth(` ${plain(record?.cwd ?? "", 4096)}`, inner)),
-    ];
-    if (record?.question) {
-      lines.push(th.fg("warning", truncateToWidth(` ask  ${plain(record.question.message, 8192)}`, inner)));
+  handleInput(data: string): void {
+    if (this.closed) return;
+    if (this.confirmStop) {
+      if (matchesKey(data, "escape")) { this.confirmStop = false; this.note = "Stop cancelled"; }
+      else if (matchesKey(data, "enter")) { this.confirmStop = false; void this.halt(); }
+      this.tui.requestRender(); return;
     }
-    if (record?.error) lines.push(th.fg("error", truncateToWidth(` ${plain(record.error)}`, inner)));
-    lines.push(th.fg("dim", "─".repeat(Math.min(inner, 80))));
+    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.dispose(); return; }
+    if (matchesKey(data, "tab") || matchesKey(data, "shift+tab")) {
+      const zones = ["message", "transcript", "actions"] as const;
+      const next = zones.indexOf(this.zone) + (matchesKey(data, "shift+tab") ? -1 : 1);
+      this.zone = zones[(next + zones.length) % zones.length]!;
+      this.tui.requestRender(); return;
+    }
+    if (matchesKey(data, "pageUp") || matchesKey(data, "pageDown")) {
+      this.scroll(matchesKey(data, "pageUp") ? this.bodyHeight : -this.bodyHeight); return;
+    }
+    if (this.zone === "actions") {
+      if (matchesKey(data, "left") || matchesKey(data, "right")) this.action = Math.max(0, Math.min(this.buttons.length - 1, this.action + (matchesKey(data, "right") ? 1 : -1)));
+      else if (matchesKey(data, "enter") || matchesKey(data, "space")) this.activate(this.action);
+      this.tui.requestRender(); return;
+    }
+    if (this.zone === "transcript") {
+      if (matchesKey(data, "up") || matchesKey(data, "down")) this.scroll(matchesKey(data, "up") ? 1 : -1);
+      return;
+    }
+    if (matchesKey(data, "enter")) { void this.send(this.input.getExpandedText()); return; }
     this.input.focused = this.focused;
-    const footer = [th.fg("dim", "─".repeat(Math.min(inner, 80))), th.fg("dim", truncateToWidth(` ${this.note}`, inner)), ...this.input.render(inner)];
-    const header = lines.slice(0, Math.max(0, height - footer.length));
-    const available = Math.max(0, height - header.length - footer.length);
-    const body = available ? this.transcript.slice(-available).map(line => truncateToWidth(` ${plain(line, 512)}`, inner)) : [];
-    return [...header, ...body, ...footer].slice(-height).map(line => truncateToWidth(line, inner));
+    this.input.handleInput(data); // Space/arrows and Ctrl-X are ordinary editing, never switching/Stop.
+    this.tui.requestRender();
+  }
+  render(width: number): string[] {
+    this.lastWidth = Math.max(1, width);
+    const inner = this.lastWidth, height = Math.max(1, this.tui.terminal.rows), record = this.safeStatus();
+    if (!this.closed && this.focused && record && this.isPresented()) this.state.markRead(record);
+    const activity = record?.currentTool ? ` · ${plain(record.currentTool)}` : "";
+    const header = [this.theme.fg("accent", truncateToWidth(`Agent › ${record ? this.state.title(record) : "Unavailable worker"}`, inner)),
+      this.theme.fg("dim", truncateToWidth(record ? `${stateLabel(record)} · ${plain(record.model.split("/").slice(1).join("/"))}${activity} · ${record.thinking} · ${formatElapsed(record.elapsedMs)}` : "Run unavailable", inner))];
+    this.input.focused = this.focused && this.zone === "message" && !this.details;
+    const editor = this.fitEditor(inner, Math.max(1, Math.min(5, height - 5)));
+    const footer = [this.theme.fg("dim", truncateToWidth(this.note, inner)),
+      this.theme.fg("accent", truncateToWidth(this.buttons.map((label, i) => `${this.zone === "actions" && this.action === i ? CURSOR_MARKER + "›" : ""}[${label}]`).join(" "), inner)),
+      ...(this.details ? [] : [this.theme.fg("dim", truncateToWidth(record?.question ? "Reply to this question" : record && !isLive(record.state) ? "Settled · sending disabled · draft retained" : "Message the sub-agent", inner)), ...editor])];
+    const content = this.body(inner, record);
+    const keptFooter = footer.slice(-Math.max(1, height - 1));
+    const keptHeader = header.slice(0, Math.max(0, height - keptFooter.length - 1));
+    this.bodyHeight = Math.max(0, height - keptHeader.length - keptFooter.length);
+    const offset = this.details ? this.detailsScroll : this.draft.scroll;
+    const maxOffset = Math.max(0, content.length - this.bodyHeight), clamped = Math.min(offset, maxOffset);
+    const from = Math.max(0, content.length - this.bodyHeight - clamped);
+    const body = content.slice(from, from + this.bodyHeight);
+    while (body.length < this.bodyHeight) body.push("");
+    if (this.zone === "transcript" && this.focused && body.length) body[0] = CURSOR_MARKER + body[0];
+    const chrome = this.details ? footer.length : footer.length - editor.length;
+    const footerFrom = footer.length - keptFooter.length;
+    const buttonsVisible = 1 >= footerFrom && 1 < footerFrom + keptFooter.length;
+    this.lastActionsRow = buttonsVisible ? height - keptFooter.length + (1 - footerFrom) : -1;
+    this.buttonHits = [];
+    if (buttonsVisible) {
+      let column = 0;
+      for (let i = 0; i < this.buttons.length; i++) {
+        const token = `${this.zone === "actions" && this.action === i ? "›" : ""}[${this.buttons[i]}]`;
+        const span = visibleWidth(token) + (i < this.buttons.length - 1 ? 1 : 0);
+        if (column >= inner) break;
+        this.buttonHits.push({ index: i, x0: column, x1: Math.min(inner, column + span) });
+        column += span;
+      }
+    }
+    this.inputOrigin = this.details ? 0 : Math.max(0, footerFrom - chrome);
+    this.lastInputStart = height - (this.details ? 0 : Math.max(0, keptFooter.length - Math.max(0, chrome - footerFrom)));
+    // Every viewport row is painted: no parent transcript can show through.
+    return [...keptHeader, ...body, ...keptFooter].slice(-height).map(line => truncateToWidth(line, inner));
+  }
+  handleMouse(event: TuiMouseEvent) {
+    if (event.type === "wheel") { this.scroll(-(event.wheelDelta ?? 0)); return { handled: true, focus: true }; }
+    if (event.type !== "click" || event.button !== "left") return;
+    if (event.y >= this.lastInputStart && !this.details) {
+      this.zone = "message"; this.input.handleMouse({ ...event, y: event.y - this.lastInputStart + this.inputCrop + this.inputOrigin });
+    } else if (event.y === this.lastActionsRow) {
+      const hit = this.buttonHits.find(item => event.x >= item.x0 && event.x < item.x1);
+      if (hit) { this.zone = "actions"; this.action = hit.index; this.activate(hit.index); }
+    } else this.zone = "transcript";
+    this.tui.requestRender(); return { handled: true, focus: true };
+  }
+  private body(width: number, record?: RunRecord): string[] {
+    const key = `${this.contentRevision}:${this.details}:${this.draft.expanded}:${this.history}:${record?.question?.id}:${record?.error}`;
+    if (!this.details && this.bodyCache?.key === key && this.bodyCache.width === width) return this.bodyCache.lines;
+    if (this.details && record) return wrapTextWithAnsi(conversationText([
+      `Run ID: ${record.id}`, `Native session ID: ${record.sessionId ?? "starting"}`, `Shared process PID: ${record.pid ?? "unknown"}`,
+      `Workspace: ${record.cwd}`, `Model: ${record.model} · ${record.thinking}`, `Context estimate: ${formatContext(record)}`,
+      `Usage: ${JSON.stringify(record.usage ?? "unknown")}`, `Metadata: ${record.metadataPath}`, `Transcript: ${record.sessionPath ?? "not ready"}`,
+      `Report: ${record.reportPath ?? "not saved"}`, `Delivery warning: ${record.notificationError ?? "none"}`,
+    ].join("\n")), width);
+    const lines: string[] = [];
+    if (this.history) lines.push(this.theme.fg("dim", "Earlier conversation page · Latest returns to live messages"));
+    if (this.omitted) lines.push(this.theme.fg("dim", "Earlier/oversized/incomplete content omitted · Older loads a bounded page · Details has the original"));
+    if (this.messages.length) for (const message of this.messages) {
+      lines.push(this.theme.fg("accent", message.label));
+      const text = wrapTextWithAnsi(message.text, width);
+      lines.push(...(message.tool && !this.draft.expanded ? [...text.slice(0, 3), ...(text.length > 3 ? [this.theme.fg("dim", "… Tools expands output")] : [])] : text), "");
+    }
+    else if (this.history) lines.push("No finalized messages in this page · Details has the original");
+    else lines.push(...this.preview.flatMap(line => wrapTextWithAnsi(conversationText(line), width)));
+    if (record?.error) lines.push(...wrapTextWithAnsi(conversationText(record.error), width), "");
+    if (record?.question) lines.push(this.theme.fg("warning", "Question"), ...wrapTextWithAnsi(conversationText(record.question.message, 8192), width), "");
+    const body = lines.length ? lines : ["Waiting for finalized conversation messages…"];
+    this.bodyCache = { key, width, lines: body };
+    return body;
+  }
+  private fitEditor(width: number, limit: number): string[] {
+    const lines = this.input.render(width);
+    this.inputCrop = 0;
+    if (lines.length <= limit) return lines;
+    const cursor = lines.findIndex(line => line.includes(CURSOR_MARKER));
+    const from = Math.max(0, Math.min(lines.length - limit, cursor < 0 ? lines.length - limit : cursor - limit + 1));
+    this.inputCrop = from;
+    return lines.slice(from, from + limit);
+  }
+  private isPresented(): boolean {
+    const current = (this.tui as TUI & { getFocusedComponent?(): Component | null }).getFocusedComponent?.();
+    return current === undefined || current === this;
   }
   private refresh(): void {
     if (this.closed) return;
-    let preview: string[];
-    try { preview = this.actions.preview(this.id); } catch { preview = []; }
-    if (preview.length) {
-      this.transcript = preview;
-      this.previewVersion++;
-    } else {
-      const path = this.safeStatus()?.sessionPath;
-      if (path && path !== this.loadedPath) {
-        const version = this.previewVersion;
-        void readTranscript(path).then(lines => {
-          if (this.closed || this.loadedPath === path || this.previewVersion !== version) return;
-          this.loadedPath = path; // Commit only on success so a later tick can retry a failure.
-          this.transcript = lines;
-          this.tui.requestRender();
-        }).catch(error => {
-          if (this.closed || this.previewVersion !== version) return;
-          this.note = plain(errorText(error));
-          this.tui.requestRender();
-        });
-      }
+    const record = this.safeStatus();
+    try { this.preview = this.actions.preview(this.id); } catch { this.preview = []; }
+    this.contentRevision++;
+    if (!this.draft.text) this.draft.questionId = record?.question?.id;
+    if (record?.sessionPath && (!this.history || !this.messages.length)) {
+      if (this.reading) { if (!this.history) this.reread = true; }
+      else void this.read(record.sessionPath, this.history);
     }
     this.tui.requestRender();
   }
-  private safeStatus(): RunRecord | undefined {
-    try { return this.actions.status(this.id); }
-    catch { return undefined; }
+  private async read(path: string, older = false): Promise<void> {
+    if (this.reading || this.closed) return;
+    this.reading = true;
+    try {
+      const page = await readConversation(path, older ? this.before : undefined);
+      if (this.closed || this.history !== older) return;
+      const previousHeight = this.body(this.lastWidth, this.safeStatus()).length;
+      const hadMessages = this.messages.length > 0;
+      this.messages = page.messages;
+      this.before = page.before;
+      this.omitted = page.omitted;
+      this.contentRevision++;
+      if (this.draft.scroll > 0 && !older && hadMessages) this.draft.scroll += Math.max(0, this.body(this.lastWidth, this.safeStatus()).length - previousHeight);
+      this.tui.requestRender();
+    } catch (error) { if (!this.closed) { this.note = plain(errorText(error)); this.tui.requestRender(); } }
+    finally {
+      this.reading = false;
+      if (this.reread && !this.closed) { this.reread = false; void this.read(path, this.history); }
+    }
   }
-  private inflight = false;
+  private scroll(delta: number): void {
+    const max = Math.max(0, this.body(this.lastWidth, this.safeStatus()).length - this.bodyHeight);
+    if (this.details) this.detailsScroll = Math.max(0, Math.min(max, this.detailsScroll + delta));
+    else this.draft.scroll = Math.max(0, Math.min(max, this.draft.scroll + delta));
+    this.tui.requestRender();
+  }
+  private activate(index: number): void {
+    if (index === 0) this.dispose();
+    else if (index === 1) { this.details = !this.details; this.detailsScroll = 0; }
+    else if (index === 2) this.draft.expanded = !this.draft.expanded;
+    else if (index === 3) {
+      const path = this.safeStatus()?.sessionPath;
+      if (this.reading) this.note = "Loading conversation · try Older again when ready";
+      else if (this.before !== undefined && path) {
+        this.history = true; this.draft.pageEnd = this.before; this.draft.scroll = 0;
+        void this.read(path, true);
+      } else this.note = "No earlier page available";
+    } else if (index === 4) {
+      this.history = false; this.draft.pageEnd = undefined; this.draft.scroll = 0; this.before = undefined;
+      const path = this.safeStatus()?.sessionPath;
+      if (path) { if (this.reading) this.reread = true; else void this.read(path); }
+    } else if (index === 5) {
+      if (!this.safeStatus() || !isLive(this.safeStatus()!.state)) this.note = "Already settled";
+      else { this.confirmStop = true; this.note = "Stop this worker? Enter confirms · Esc cancels"; }
+    }
+    this.tui.requestRender();
+  }
+  private safeStatus(): RunRecord | undefined { try { return this.actions.status(this.id); } catch { return undefined; } }
   private async send(value: string): Promise<void> {
     const message = value.trim();
-    this.input.setValue("");
-    if (!message || this.closed || this.inflight) return;
-    const id = this.id; // Pin the target; down-arrow can switch runs at any await.
+    if (!message || this.closed) return;
+    if (this.inflight) { this.note = "Sending previous message · draft kept"; this.tui.requestRender(); return; }
+    const record = this.safeStatus();
+    if (!record || !isLive(record.state) || !["running", "waiting_for_agent"].includes(record.state)) {
+      this.note = "Cannot send in this state · draft kept"; this.tui.requestRender(); return;
+    }
+    if (this.draft.questionId !== record.question?.id) {
+      this.note = "Question changed or resolved · draft kept; clear it to target the current conversation";
+      this.tui.requestRender(); return;
+    }
     this.inflight = true;
     try {
-      const record = this.actions.status(id);
-      if (record.state === "waiting_for_agent" && record.question) {
-        await this.actions.reply(id, record.question.id, message);
-        if (this.closed || this.id !== id) return;
-        this.note = "replied";
-      } else if (record.state === "running") {
-        await this.actions.steer(id, message);
-        if (this.closed || this.id !== id) return;
-        this.note = "steered — delivery is not compliance";
-      } else if (this.id === id) {
-        this.note = isLive(record.state) ? `cannot message while ${record.state}` : "settled — inspect only";
+      if (record.question) await this.actions.reply(this.id, record.question.id, message);
+      else await this.actions.steer(this.id, message);
+      if (this.draft.text === value) {
+        this.draft.text = ""; this.draft.questionId = this.safeStatus()?.question?.id;
+        if (!this.closed) this.input.setText("");
       }
-    } catch (error) {
-      if (this.closed || this.id !== id) return;
-      this.note = plain(errorText(error));
-    } finally { this.inflight = false; }
-    if (!this.closed) this.tui.requestRender();
+      this.note = record.question ? "Reply delivered" : "Message queued · delivery is not compliance";
+    } catch (error) { this.note = `${plain(errorText(error))} · draft kept`; }
+    finally { this.inflight = false; if (!this.closed) this.tui.requestRender(); }
   }
   private async halt(): Promise<void> {
-    if (this.closed || this.inflight) return;
-    const id = this.id;
-    this.inflight = true;
-    try {
-      await this.actions.stop(id);
-      if (this.closed || this.id !== id) return;
-      this.note = "stop requested";
-    } catch (error) {
-      if (this.closed || this.id !== id) return;
-      this.note = plain(errorText(error));
-    } finally { this.inflight = false; }
-    if (!this.closed) this.tui.requestRender();
-  }
-  private close(): void {
-    this.dispose();
+    if (this.closed || this.stopping) return;
+    this.stopping = true;
+    try { await this.actions.stop(this.id); this.note = "Stop requested"; }
+    catch (error) { this.note = plain(errorText(error)); }
+    finally { this.stopping = false; if (!this.closed) this.tui.requestRender(); }
   }
 }
