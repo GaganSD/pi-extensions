@@ -72,7 +72,8 @@ import {
   openExternalArgs,
   SLATE_ISSUES_URL,
 } from "./bug.ts";
-import { syncMessageWindow, type MessageWindow } from "./message-window.ts";
+import { findChatContainer, layoutRootOf, syncMessageWindow, type MessageWindow } from "./message-window.ts";
+import { installNewSessionNoticeFilter } from "./stock-notices.ts";
 import {
   STYLE_LABELS,
   STYLES,
@@ -425,6 +426,13 @@ export default function piSlate(pi: ExtensionAPI): void {
       updates.start(ctx.cwd);
       ctx.ui.setHeader((tui, theme) => {
         requestRender = (force = false) => tui.requestRender(force);
+        // Header factory runs inside setHeader, before /new appends the stock chat copy.
+        const chat = findChatContainer(layoutRootOf(tui));
+        if (chat) installNewSessionNoticeFilter(chat);
+        else queueMicrotask(() => {
+          const late = findChatContainer(layoutRootOf(tui));
+          if (late) installNewSessionNoticeFilter(late);
+        });
         return new SlateHeader(theme, () => currentContext, columnWidth, () => updates.notice, () => ({
           version: VERSION,
           model: currentContext ? modelStatusLabel(currentContext.model, config.modelDisplay) : "",

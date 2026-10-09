@@ -27,6 +27,7 @@
 ### Fixed
 
 - Unpinned image previews now hide when the caret leaves the image token; previously the shelf stayed painted until `[clear]`.
+- With `header` selected, `/new` no longer duplicates `✓ New session started` in the chat transcript; the chip lives only in the header. Stock update cards and ordinary chat remain untouched.
 
 ### Limitations
 
