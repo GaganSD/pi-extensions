@@ -51,3 +51,18 @@ test("a live assistant row is not evicted by the next tool child", () => {
 test("default visible length stays synced at 100", () => {
   assert.equal(MESSAGE_LENGTH_DEFAULT, 100);
 });
+
+test("disposed wrappers retained by successors only delegate, without trimming", () => {
+  const chat = new Container(); const items = Array.from({ length: 6 }, (_, i) => new Text(`m${i}`, 0, 0));
+  items.slice(0, 3).forEach(item => chat.addChild(item));
+  const window = new MessageWindow(chat, 1);
+  const add = chat.addChild, remove = chat.removeChild, clear = chat.clear;
+  const successorAdd = (item: Text) => add(item);
+  chat.addChild = successorAdd; chat.removeChild = item => remove(item); chat.clear = () => clear();
+  window.dispose(); window.dispose(); window.setLimit(0);
+  assert.equal(chat.addChild, successorAdd);
+  items.slice(3).forEach(item => chat.addChild(item)); assert.deepEqual(chat.children, items);
+  chat.removeChild(items[1]!); assert.equal(chat.children.length, 5);
+  chat.clear(); assert.equal(chat.children.length, 0);
+  chat.addChild(items[0]!); assert.deepEqual(chat.children, [items[0]]);
+});

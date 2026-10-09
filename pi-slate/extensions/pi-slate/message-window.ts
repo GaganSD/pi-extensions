@@ -51,6 +51,7 @@ export class MessageWindow {
   private hidden: Component[] = [];
   private pinned?: Component;
   private limit: number;
+  private disposed = false;
 
   constructor(container: Container, limit: number) {
     this.container = container;
@@ -59,17 +60,20 @@ export class MessageWindow {
     this.removeChild = container.removeChild.bind(container);
     this.clear = container.clear.bind(container);
     this.installedAdd = (component) => {
+      if (this.disposed) { this.addChild(component); return; }
       this.pinned = this.container.children.at(-1);
       this.addChild(component);
       this.trim();
     };
     this.installedRemove = (component) => {
+      if (this.disposed) { this.removeChild(component); return; }
       const index = this.hidden.indexOf(component);
       if (index >= 0) this.hidden.splice(index, 1);
       if (this.pinned === component) this.pinned = undefined;
       this.removeChild(component);
     };
     this.installedClear = () => {
+      if (this.disposed) { this.clear(); return; }
       this.hidden = [];
       this.pinned = undefined;
       this.clear();
@@ -81,13 +85,15 @@ export class MessageWindow {
   }
 
   setLimit(limit: number): void {
-    if (this.limit === limit) return;
+    if (this.disposed || this.limit === limit) return;
     this.limit = limit;
     this.reveal();
     this.trim();
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.reveal();
     if (this.container.addChild === this.installedAdd) this.container.addChild = this.addChild;
     if (this.container.removeChild === this.installedRemove) this.container.removeChild = this.removeChild;
