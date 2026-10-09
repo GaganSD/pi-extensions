@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Accept stable Pi 1.x, including 1.1.x, in both npm peer dependencies and the
+  shared `/subagents`/`subagent` runtime guard. Minor and patch updates no longer
+  cause install conflicts or an `Unsupported Pi host` error. Keep the Node-only,
+  interactive-host boundary and reject prereleases and new major versions.
+- Add host-version, command, and packed-peer regression coverage; retain the
+  Pi 1.0.0 development baseline for backward compatibility.
+
 ## 0.0.3
 
 Fix provider-neutral tool-schema compatibility and add live native session telemetry.

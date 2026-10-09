@@ -17,6 +17,13 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { plain, syncWidget, type WidgetSlot } from "./src/ui.ts";
 import { canonicalDirectory, workspaceRoot } from "./src/workspace.ts";
 
+/** Match the stable Pi 1.x peer range; minor/patch upgrades are not host changes. */
+export function assertSupportedPiHost(version: string, bun = "Bun" in globalThis): void {
+  if (!/^1\.(0|[1-9]\d*)\.(0|[1-9]\d*)(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/.test(version) || bun) {
+    throw new Error(`Unsupported Pi host ${version}; use local npm Pi 1.x on Node (>=1.0.0, <2.0.0; no prereleases)`);
+  }
+}
+
 // Reload can replace module instances. Unknown cleanup must still block launches
 // in the same process; it must not disappear with the old extension runtime.
 const HEALTH = Symbol.for("@gagansd/pi-subagents/cleanup-unknown");
@@ -68,7 +75,7 @@ export default function subagents(pi: ExtensionAPI): void {
     // Never mint a replacement manager while the previous one is still stopping sub-agents.
     if (closing) await closing;
     if (ctx.mode !== "tui") throw new Error("Minimal subagents requires interactive npm Pi; print/RPC/standalone delegation is unsupported");
-    if (!/^1\.0\./.test(VERSION) || "Bun" in globalThis) throw new Error(`Unsupported Pi host ${VERSION}; use local npm Pi 1.0.x on Node`);
+    assertSupportedPiHost(VERSION);
     const owner = ctx.sessionManager.getSessionId();
     if (host && host.owner !== owner) throw new Error("Agent session changed without shutdown; refuse to transfer run ownership");
     if (host) { host.ctx = ctx; bindKeys(ctx); return host; }

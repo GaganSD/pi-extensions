@@ -18,6 +18,8 @@ const record = (id = "run-a"): RunRecord => ({
 });
 const theme = { fg: (_color: string, text: string) => text } as unknown as Theme;
 const tui = { requestRender() {} } as unknown as TUI;
+// Pi 1.1 adds aborted; a shared value also satisfies Pi 1.0's smaller event shape.
+const settledEvent = { type: "agent_settled" as const, aborted: false };
 
 test("context estimates preserve zero, unknown, invalid inputs, and overflow independently of billed usage", () => {
   const usage = (tokens: number | null, percent: number | null, contextWindow = 272000): ContextUsage => ({ tokens, percent, contextWindow });
@@ -79,7 +81,7 @@ test("native wrapper caches finalized estimates, ignores deltas, clears compacti
   widget.update([{ ...record(), ...snapshots.at(-1)! }], false);
   for (let i = 0; i < 100; i++) widget.render(40);
   assert.equal(scans, 3, "paint never queries the native session");
-  listener({ type: "agent_settled" });
+  listener(settledEvent);
   await subAgent.dispose();
   await Promise.resolve();
   assert.equal(scans, 3, "queued callbacks do not retain disposed session activity");
@@ -101,7 +103,7 @@ test("deferred estimator and initial/scheduled observer failures stay display-on
       subscribe: (fn: AgentSessionEventListener) => { listener = fn; return () => { unsubscribed++; }; },
       getContextUsage: () => { scans++; if (estimatorThrows) throw new Error("estimate failed"); return usage; },
       getSessionStats: () => { stats++; return { tokens: { input: 5, output: 3, cacheRead: 0, cacheWrite: 0 }, cost: 0 }; },
-      async prompt() { await finish.promise; listener({ type: "agent_settled" }); },
+      async prompt() { await finish.promise; listener(settledEvent); },
       getLastAssistantText: () => "Evidence report", abort: async () => {}, dispose() {},
     } as unknown as AgentSession;
     const manager = new RunManager({ owner: "owner", config: { ...DEFAULT_CONFIG }, store });

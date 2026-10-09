@@ -18,7 +18,9 @@ exit, reload, or session replacement. Old artifacts are evidence, not permission
 to resume work. There is no detached runner, durable queue, recursive delegation,
 workflow language, mission ledger, scheduler, or external agent adapter.
 
-The supported host is local npm Pi 1.0.x in interactive mode. Sub-agents receive
+The supported host is stable local npm Pi 1.x (>=1.0.0, <2.0.0) on Node in
+interactive mode. Minor and patch upgrades remain supported; prereleases and
+new major versions require compatibility review. Sub-agents receive
 only package-owned tools and Pi builtins; no ambient extensions, MCP servers,
 skill catalog, or copied agent conversation. Required capabilities or policies
 that this boundary cannot provide must block the task rather than be dropped.

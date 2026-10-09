@@ -29,7 +29,9 @@ same five dynamic workflow tasks using different subagents packages. See the
 pi install npm:@gagansd/pi-subagents
 ```
 
-Then `/reload`. Built for Pi **1.0.x**.
+Then `/reload`. Supports stable Pi **1.x** (`>=1.0.0 <2.0.0`), including **1.1.x**,
+using the local npm installation on Node in interactive mode. Prereleases, Bun,
+and print/RPC/standalone hosts are not supported.
 
 ## Features
 
