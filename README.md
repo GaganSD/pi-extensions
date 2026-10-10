@@ -20,7 +20,7 @@
 
 <h1 align="center">pi-extensions</h1>
 
-<p align="center"><strong>High-performance, context-efficient extensions and tools for the <a href="https://pi.dev">Pi</a> agent harness.</strong></p>
+<p align="center"><strong>High-performance, context-efficient tools for the <a href="https://pi.dev">Pi</a> agent harness.</strong></p>
 
 <p align="center">
   <a href="https://github.com/GaganSD/pi-extensions/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/GaganSD/pi-extensions/ci.yml?branch=main&style=flat-square&label=CI&color=10b981&labelColor=18181b" alt="CI Status" /></a>
@@ -29,7 +29,6 @@
   <br />
   <a href="https://pi.dev"><img src="https://img.shields.io/badge/pi-%3E%3D1.0.0-27272a?style=flat-square&labelColor=18181b" alt="Pi >= 1.0.0" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-27272a?style=flat-square&labelColor=18181b" alt="License: MIT" /></a>
-  <a href="./benchmarks/README.md"><img src="https://img.shields.io/badge/benchmarks-verified-10b981?style=flat-square&labelColor=18181b" alt="Benchmarks Verified" /></a>
 </p>
 
 ---
