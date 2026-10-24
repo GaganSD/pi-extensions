@@ -397,10 +397,13 @@ export class ComposerEditor extends CustomEditor {
     keybindings: KeybindingsManager,
     source: () => ComposerSource,
     options?: ConstructorParameters<typeof CustomEditor>[3],
+    effortBorderColor = false,
   ) {
     super(tui, theme, keybindings, options);
     this.source = source;
-    // Pi assigns thinking-level colors onto editor.borderColor. Ignore those writes.
+    // Pi assigns thinking-level colors onto editor.borderColor. Ignore those writes
+    // unless the user opted into effort-colored frames via `/slate effort-border`.
+    if (effortBorderColor) return;
     const paint = (text: string) => chromePaint(this.source().theme)(text);
     Object.defineProperty(this, "borderColor", {
       configurable: true,

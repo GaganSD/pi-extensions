@@ -107,6 +107,7 @@ type SlateConfig = SurfaceConfig & {
   logo?: LogoStyle;
   progress?: ProgressStyle;
   toolStyle?: "default" | "claudecode";
+  effortBorderColor?: boolean;
   sidebarSections: SidebarFolds;
 };
 
@@ -158,6 +159,7 @@ function loadConfig(configPath: string): { config: SlateConfig; raw: Record<stri
       ...(messageLength === undefined ? {} : { messageLength }),
       ...(modelDisplay === undefined ? {} : { modelDisplay }),
       showPid: value.showPid === true,
+      ...(value.effortBorderColor === true ? { effortBorderColor: true } : {}),
       ...(value.logo === "minimal" || value.logo === "original" ? { logo: value.logo } : {}),
       ...(value.toolStyle === "default" ? { toolStyle: "default" as const } : {}),
       ...(isProgressStyle(value.progress) ? { progress: value.progress } : {}),
@@ -579,6 +581,7 @@ export default function piSlate(pi: ExtensionAPI): void {
             autocompleteMaxVisible: 8,
             embedWorkingStatus: true,
           },
+          config.effortBorderColor === true,
         );
         if (previousDown) activeEditor.onDownBoundary = previousDown;
         // Images wrap first so composer-selection stays outermost: select-all
@@ -1117,7 +1120,7 @@ export default function piSlate(pi: ExtensionAPI): void {
 
       let kind = parsed.kind;
       if (kind === "menu") {
-        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Header logo", "Progress indicator", "Message length", "Theme", "File a bug"]);
+        const setting = await ctx.ui.select("Slate", ["Session dashboard", "Surfaces", "Density", "Composer metadata", "Sidebar width", "Focused", "PID display", "Effort border color", "Header logo", "Progress indicator", "Message length", "Theme", "File a bug"]);
         if (setting === "Session dashboard") { await sessionMenu(ctx); return; }
         if (setting === "Surfaces") {
           const names = await ctx.ui.input("Surfaces (names separated by spaces, full, or none; reload required)", formatSurfaces(config.surfaces));
@@ -1127,7 +1130,8 @@ export default function piSlate(pi: ExtensionAPI): void {
           apply({ ...config, surfaces: choice.value }, `Slate surfaces saved: ${formatSurfaces(choice.value)}. Run /reload (reload required).`, ctx);
           return;
         }
-        if (setting === "Density") kind = "density";
+        if (setting === "Effort border color") kind = "effort-border";
+        else if (setting === "Density") kind = "density";
         else if (setting === "Composer metadata") kind = "footer";
         else if (setting === "Sidebar width") kind = "width-menu";
         else if (setting === "Focused") kind = "focused";
@@ -1180,6 +1184,16 @@ export default function piSlate(pi: ExtensionAPI): void {
       if (kind === "pid") {
         const on = parsed.kind === "pid" && parsed.value !== undefined ? parsed.value : !config.showPid;
         apply({ ...config, showPid: on }, on ? "PID display on" : "PID display off", ctx);
+        return;
+      }
+
+      if (kind === "effort-border") {
+        const on = parsed.kind === "effort-border" && parsed.value !== undefined ? parsed.value : config.effortBorderColor !== true;
+        apply(
+          on ? { ...config, effortBorderColor: true } : { ...config, effortBorderColor: undefined },
+          on ? "Effort border color on. Run /reload (reload required)." : "Effort border color off. Run /reload (reload required).",
+          ctx,
+        );
         return;
       }
 
