@@ -15,7 +15,7 @@ export type SidebarPrompt = { name: string; source: string; description?: string
 export type SidebarMcp = { name: string; enabled: boolean | null; source: string };
 export type SidebarResources = { skills: SidebarSkill[]; commands: SidebarCommand[]; prompts: SidebarPrompt[]; mcp: SidebarMcp[]; mcpError?: string };
 export type SidebarSession = {
-  id: string; pid: number; cwd: string; model: string; thinking: string;
+  id: string; name?: string; pid: number; cwd: string; model: string; thinking: string;
   tokens: number | null; percent: number | null; contextWindow: number | null;
   estimated: boolean; rate: number | null; startedAt: number; lastTurnMs: number | null;
   working: boolean; turns: number; messages: number; usage: SidebarUsage;

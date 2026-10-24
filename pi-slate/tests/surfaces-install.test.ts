@@ -358,9 +358,10 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   f.manager.appendMessage({ role: "user", content: "hi", timestamp: 0 });
   f.manager.appendMessage({ role: "assistant", api: "anthropic-messages", provider: "anthropic", model: "fixture", timestamp: 1, stopReason: "stop", content: [{ type: "text", text: "done" }], usage: { input: 100, output: 20, cacheRead: 300, cacheWrite: 50, totalTokens: 470, cost: { input: .1, output: .2, cacheRead: .03, cacheWrite: .02, total: .35 } } });
   await f.emit("session_info_changed");
-  assert.doesNotMatch(rail(), /Dashboard test|Unnamed session|Untitled session/);
+  assert.match(rail(), /Dashboard test/);
+  assert.doesNotMatch(rail(), /Unnamed session|Untitled session/);
   assert.ok(rail().includes(`Session ${f.manager.getSessionId().slice(0, 8)} · PID ${process.pid}`));
-  assert.doesNotMatch(railOf(f).sessionDetails(), /Dashboard test/);
+  assert.match(railOf(f).sessionDetails(), /Title: Dashboard test/);
   assert.ok(railOf(f).sessionDetails().startsWith(`Session ${f.manager.getSessionId()} · PID ${process.pid}`)); assert.match(rail(), /450\s+In/); assert.match(rail(), /Uncached\s+100/); assert.match(rail(), /\$0.35/);
   assert(!/Summary|Activity Preview|Context\s*\n/.test(rail()));
   f.extraCommands.push({ name: "skill:review", source: "skill", sourceInfo: { path: "/skills/review/SKILL.md", scope: "user" } });
@@ -381,6 +382,33 @@ test("dashboard uses live branch facts and session-scoped tasks; commands preser
   await f.emit("session_start", {}, next); assert.doesNotMatch(rail(), /Tasks\s+\d/);
   f.eventBus.emit("pi:background-tasks", payload); assert.doesNotMatch(rail(), /Tasks\s+\d/, "late old-owner snapshot stays invisible");
   await f.emit("session_shutdown", {}, next); assert.equal(f.bus.get("pi:background-tasks")!.size, 0);
+});
+
+test("session titles restore, repaint on rename events, and clear when switching sessions", async t => {
+  const f = await fixture(t, JSON.stringify({ surfaces: ["sidebar"], focused: false }));
+  const sidebar = railOf(f);
+  const rows = () => sidebar.render(40).map(unstyled);
+  t.mock.method(f.tui, "requestRender", () => f.calls.push("title-render"));
+  f.manager.appendSessionInfo("自动生成的会话标题");
+  await f.emit("session_info_changed", { name: "自动生成的会话标题" });
+  assert(rows().some(row => row.includes("自动生成的会话标题")));
+  assert.ok(f.calls.includes("title-render"), "rename schedules a repaint without waiting for another turn");
+  f.manager.appendSessionInfo("手动固定的标题");
+  await f.emit("session_info_changed", { name: "手动固定的标题" });
+  assert(rows().some(row => row.includes("手动固定的标题")));
+  assert(!rows().some(row => row.includes("自动生成的会话标题")));
+  assert.match(sidebar.sessionDetails(), /Title: 手动固定的标题/);
+
+  await f.emit("session_start"); // Reload/resume keeps the stored title.
+  assert(rows().some(row => row.includes("手动固定的标题")));
+  const restored = SessionManager.inMemory(f.ctx.cwd);
+  restored.appendSessionInfo("已恢复的标题");
+  await f.emit("session_start", {}, { ...f.ctx, sessionManager: restored });
+  assert(rows().some(row => row.includes("已恢复的标题")));
+  assert(!rows().some(row => row.includes("手动固定的标题")));
+  await f.emit("session_start", {}, { ...f.ctx, sessionManager: SessionManager.inMemory(f.ctx.cwd) });
+  assert(!rows().some(row => row.includes("已恢复的标题")));
+  assert.match(sidebar.sessionDetails(), /Title: —/);
 });
 
 test("fold saves merge current preferences and preserve externally corrupted settings", async t => {

@@ -50,23 +50,84 @@ test("quiet session rail merges usage into context and hides empty shelves", () 
   assert.match(sidebar.sessionDetails(), /Cache read: 48k/);
 });
 
-test("session identity copies the full ID and never substitutes a session name", () => {
+test("session identity keeps the ID while a separate title copies the full name", () => {
   const { sidebar } = fixture();
   const copied: string[] = [];
   const id = "01234567-89ab-cdef-0123-456789abcdef";
-  sidebar.setSession({ ...session, id });
+  const name = "Slate 的会话标题";
+  sidebar.setSession({ ...session, id, name });
   sidebar.setActions({ copy: (value) => copied.push(value), openFile() {} });
-  assert.equal(plain(sidebar.render(40))[1], "Session 01234567 · PID 8421");
+  const lines = plain(sidebar.render(40));
+  assert.equal(lines[1], name, "title is the first content row");
+  assert.equal(lines[2], "Session 01234567 · PID 8421", "identity follows the title");
   sidebar.handleMouse(mouse(row(sidebar, "Session 01234567")));
-  assert.deepEqual(copied, [id]);
+  sidebar.handleMouse(mouse(row(sidebar, name)));
+  assert.deepEqual(copied, [id, name]);
   assert.ok(sidebar.sessionDetails().startsWith(`Session ${id} · PID 8421\n`));
+  assert.match(sidebar.sessionDetails(), /Title: Slate 的会话标题/);
   sidebar.setSession({ ...session, id: "" });
-  assert.equal(plain(sidebar.render(40))[1], "Session — · PID 8421");
+  assert.equal(plain(sidebar.render(40))[1], "", "unnamed sessions retain the title spacer");
+  assert.equal(plain(sidebar.render(40))[2], "Session — · PID 8421");
+  assert.match(sidebar.sessionDetails(), /Title: —/);
+});
+
+test("long titles stay bounded, copy without ellipsis, and refresh on same-session renames", () => {
+  const { sidebar } = fixture();
+  const copied: string[] = [];
+  const name = "中文会话 👩‍💻 café —— ".repeat(10).trim();
+  sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
+  sidebar.setSession({ ...session, name: `\x1b[31m${name}\x1b[0m\n` });
+  const before = sidebar.render(28);
+  const title = plain(before)[1]!;
+  assert.match(title, /…$/);
+  assert(before.every(line => visibleWidth(line) <= 28));
+  assert(!before.some(line => line.includes("\x1b[31m") || line.includes("\n")), "untrusted title styling and line breaks are removed");
+  sidebar.handleMouse(mouse(1, { width: 28 }));
+  assert.deepEqual(copied, [name], "copy uses the complete sanitized title, not its painted ellipsis");
+  assert(sidebar.sessionDetails().includes(`Title: ${name}\n`));
+  sidebar.setSession({ ...session, name: "改名后的会话" });
+  const after = sidebar.render(28);
+  assert.notEqual(after, before, "renaming invalidates cached rows even with the same clock and ID");
+  assert.equal(plain(after)[1], "改名后的会话");
+  sidebar.setSession({ ...session, name: " \n\x1b[2J" });
+  assert.equal(plain(sidebar.render(28))[1], "");
+  assert.equal(sidebar.handleMouse(mouse(1, { width: 28 })), undefined, "an empty title has no stale copy hit");
+  assert.deepEqual(copied, [name]);
+});
+
+test("top title uses bold theme accent and follows theme changes independently of the identity", () => {
+  const { sidebar } = fixture();
+  const name = "特别的标题 👩‍💻 café";
+  const copied: string[] = [];
+  const titleTheme = (accent: number) => ({
+    fg: (tone: string, text: string) => `\x1b[${tone === "accent" ? accent : tone === "mdHeading" ? 33 : 37}m${text}\x1b[0m`,
+    bold: (text: string) => `\x1b[1m${text}\x1b[22m`,
+  }) as Theme;
+  let current = titleTheme(36);
+  sidebar.setThemeProvider(() => current);
+  sidebar.setSession({ ...session, name });
+  sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
+  for (const width of [8, 28, 40, 80]) {
+    const lines = sidebar.render(width);
+    assert.match(lines[1]!, /\x1b\[36m/, "title uses accent rather than body text or heading color");
+    assert.match(lines[1]!, /\x1b\[1m/, "title is bold");
+    assert.match(lines[2]!, /\x1b\[33m/, "Session ID retains its heading color");
+    assert(lines.every(line => visibleWidth(line) <= width));
+  }
+  const before = sidebar.render(40);
+  current = titleTheme(35);
+  const after = sidebar.render(40);
+  assert.notEqual(after, before, "theme changes refresh the cached title");
+  assert.match(after[1]!, /\x1b\[35m/);
+  assert.doesNotMatch(after[1]!, /\x1b\[36m/);
+  assert.match(after[1]!, /\x1b\[1m/);
+  sidebar.handleMouse(mouse(1));
+  assert.deepEqual(copied, [name], "copy contains no styling");
 });
 
 test("all sizes allocate exact bounded rows, including zero, Unicode, and tiny terminals", () => {
   const { sidebar, terminal } = fixture();
-  sidebar.setSession({ ...session, id: "长会话 👩‍💻 café\n\x1b[2J", model: "非常长的模型名字".repeat(8) });
+  sidebar.setSession({ ...session, id: "长会话 👩‍💻 café\n\x1b[2J", name: "标题 👩‍💻 café\n\x1b[2J".repeat(8), model: "非常长的模型名字".repeat(8) });
   sidebar.setView(image()); sidebar.setTasks([task(0), task(1), task(2), task(3)]);
   for (let height = 0; height <= 60; height++) {
     terminal.rows = height;
@@ -94,8 +155,9 @@ test("usage is a single stable label/value lane; full accounting stays in detail
   assert.match(sidebar.sessionDetails(), /~82 tokens\/sec/);
 });
 
-test("session identity occupies one row and the 11-row header matches its slots", () => {
+test("title precedes the session identity and the 11-row header matches its slots", () => {
   const { sidebar } = fixture();
+  sidebar.setSession({ ...session, name: "Slate session title" });
   assert.equal(sessionSidebarSlots(60, 0, false).header, 11);
   assert.equal(sessionSidebarSlots(30, 0, false).header, 11);
   assert.equal(sessionSidebarSlots(29, 0, false).header, 4, "compact header also releases the removed rows");
@@ -104,7 +166,8 @@ test("session identity occupies one row and the 11-row header matches its slots"
   assert.match(lines.at(-1)!, /^└─+┘$/, "bottom bar");
   const hairline = lines.findIndex((line, i) => i > 0 && i < lines.length - 1 && /^├─+┤$/.test(line));
   assert.equal(hairline, 11, "hairline closes an 11-row header under the top bar");
-  assert.equal(lines[1], "Session session- · PID 8421");
+  assert.equal(lines[1], "Slate session title");
+  assert.equal(lines[2], "Session session- · PID 8421");
   assert(/^Context [━─]+ │ 16%$/.test(lines[5]!), "single context meter row");
   assert(lines[6]!.includes("31.6k / 200k · $0.12 · ~82/s"), "merged occupancy line");
   assert(lines[8]!.includes("61.4k In") && lines[8]!.includes("Cached 48k"));
@@ -375,11 +438,18 @@ test("rejected MCP entries count as Errors without dumping the reason", () => {
   assert(!lines.some(line => line.includes("rejected entries") || line.includes("config error")));
 });
 
-test("reset discards old images, task rows and hit targets without changing fold preference", () => {
-  const { sidebar } = fixture(); sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image()); sidebar.setTasks([task(0)]);
-  sidebar.render(40); sidebar.reset();
+test("reset discards old titles, images, task rows and hit targets without changing fold preference", () => {
+  const { sidebar } = fixture();
+  const copied: string[] = [];
+  sidebar.setActions({ copy: value => copied.push(value), openFile() {} });
+  sidebar.setSession({ ...session, name: "Old title" });
+  sidebar.setFolds({ mcp: true, skills: false, prompts: true }); sidebar.setView(image()); sidebar.setTasks([task(0)]);
+  const titleRow = row(sidebar, "Old title");
+  sidebar.reset();
+  assert.equal(sidebar.handleMouse(mouse(titleRow)), undefined, "reset clears the old title hit before another paint");
+  assert.deepEqual(copied, []);
   assert.equal(sidebar.currentViewId(), undefined); assert.deepEqual(sidebar.getFolds(), { mcp: true, skills: false, prompts: true });
-  assert(!plain(sidebar.render(40)).some(line => line.includes("job-0") || line.includes("server-0")));
+  assert(!plain(sidebar.render(40)).some(line => line.includes("Old title") || line.includes("job-0") || line.includes("server-0")));
   sidebar.dispose(); sidebar.dispose();
 });
 
