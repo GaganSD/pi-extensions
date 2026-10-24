@@ -303,7 +303,7 @@ export const SLATE_VERSION = JSON.parse(
 ).version as string;
 
 export const SLATE_USAGE =
-  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
+  "Usage: /slate session [mcp|skills|commands|tasks|image] | surfaces [set <names...>|full|none] | density [comfortable|compact] | footer [standard|minimal] | width [default|narrow|medium|wide|<percent>] | focused [on|off] | pid [on|off] | effort-border [on|off] | logo [original|minimal] | progress [waves|dna-helix|snake|cylon-scanner] | message-length [default|all|<count>] | theme [default|tokyo-night|quiet|mauve|sapphire|peach|teal] | style [default|quiet|mauve|sapphire|peach|teal] | bug [file|open]";
 
 export function withCurrent(label: string, current: boolean): string {
   return current ? `${label} (current)` : label;
@@ -338,6 +338,9 @@ const SLATE_COMPLETIONS = [
   "pid",
   "pid on",
   "pid off",
+  "effort-border",
+  "effort-border on",
+  "effort-border off",
   "logo",
   "logo original",
   "logo minimal",
@@ -369,6 +372,7 @@ export type SlateArgs =
   | { ok: true; kind: "width"; width?: number }
   | { ok: true; kind: "focused"; value?: boolean }
   | { ok: true; kind: "pid"; value?: boolean }
+  | { ok: true; kind: "effort-border"; value?: boolean }
   | { ok: true; kind: "logo"; value?: LogoStyle }
   | { ok: true; kind: "progress"; value?: ProgressStyle }
   | { ok: true; kind: "message-length-menu" }
@@ -447,6 +451,11 @@ export function parseSlateArgs(raw: string): SlateArgs {
   if (head === "pid") {
     if (!tail) return { ok: true, kind: "pid" };
     if (tail === "on" || tail === "off") return { ok: true, kind: "pid", value: tail === "on" };
+    return { ok: false };
+  }
+  if (head === "effort-border") {
+    if (!tail) return { ok: true, kind: "effort-border" };
+    if (tail === "on" || tail === "off") return { ok: true, kind: "effort-border", value: tail === "on" };
     return { ok: false };
   }
   if (head === "logo") {

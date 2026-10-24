@@ -477,3 +477,21 @@ test("a tall prompt scrolls by wheel and leaves a short prompt to the transcript
   assert.equal(scrollComposerByLines(editor, -1), false);
 });
 
+
+test("effort border color option lets Pi's thinking-level border colors through", () => {
+  const tui = { terminal: { rows: 24, columns: 80 }, requestRender() {} } as TUI;
+  const editorTheme = { borderColor: (text: string) => text } as EditorTheme;
+  const srcTheme = { fg: (_name: string, text: string) => text, italic: (text: string) => text } as Theme;
+  const source = () => ({ project: "slate", branch: null, model: undefined, footer: "standard" as const, theme: srcTheme });
+  const effortPaint = (text: string) => `<${text}>`;
+
+  // Default: Slate owns the frame and ignores Pi's borderColor writes.
+  const locked = new ComposerEditor(tui, editorTheme, new KeybindingsManager(), source);
+  locked.borderColor = effortPaint;
+  assert.notEqual(locked.borderColor("x"), "<x>");
+
+  // Opt-in: Pi's thinking-level colors reach the composer frame again.
+  const open = new ComposerEditor(tui, editorTheme, new KeybindingsManager(), source, undefined, true);
+  open.borderColor = effortPaint;
+  assert.equal(open.borderColor("x"), "<x>");
+});

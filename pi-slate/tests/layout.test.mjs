@@ -238,6 +238,15 @@ test("/slate args route density, footer, and width", () => {
   assert.deepEqual(parseSlateArgs("pid on"), { ok: true, kind: "pid", value: true });
   assert.deepEqual(parseSlateArgs("pid off"), { ok: true, kind: "pid", value: false });
   assert.deepEqual(parseSlateArgs("pid nope"), { ok: false });
+  assert.deepEqual(parseSlateArgs("effort-border"), { ok: true, kind: "effort-border" });
+  assert.deepEqual(parseSlateArgs("effort-border on"), { ok: true, kind: "effort-border", value: true });
+  assert.deepEqual(parseSlateArgs("effort-border off"), { ok: true, kind: "effort-border", value: false });
+  assert.deepEqual(parseSlateArgs("effort-border nope"), { ok: false });
+  assert.deepEqual(slateArgumentCompletions("effort-border"), [
+    { value: "effort-border", label: "effort-border" },
+    { value: "effort-border on", label: "effort-border on" },
+    { value: "effort-border off", label: "effort-border off" },
+  ]);
   assert.deepEqual(slateArgumentCompletions("pid"), [
     { value: "pid", label: "pid" },
     { value: "pid on", label: "pid on" },
