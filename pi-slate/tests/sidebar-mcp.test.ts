@@ -21,11 +21,13 @@ for (const [packageDir, version] of packages) {
     catch { if (packageDir !== getPackageDir()) { t.skip("operator host not installed here"); return; } throw new Error("pinned parser unavailable"); }
     const host = await loadSidebarMcpHost(packageDir, version); assert(host);
     const cache = new SidebarMcpFiles(); cache.setHost(host);
+    assert.deepEqual(cache.snapshot(agentDir, cwd, true, []), { mcp: [] }, "missing configuration files are not an MCP error");
     const fixtures = [
+      [{}, {}],
       [{ x: { command: "server" } }, { x: { enabled: false } }],
       [{ x: { command: "server" } }, { x: { enabled: false, env: { SECRET: "SECRET" } } }],
       [{ x: { command: "server" } }, { x: { command: "replacement", args: 123 } }],
-      [{ x: { command: "server" }, y: { command: "collision" } }, {}],
+      [{ "web-search": { command: "server" }, web_search: { command: "collision" } }, {}],
       [{ x: { url: "https://example.com", headers: { token: 123 } }, y: { url: "https://example.com", oauth: { callbackPort: -1, clientSecret: "SECRET" } } }, {}],
       [{}, { x: { url: "https://example.com", auth: { provider: "fixture" } } }],
       [{ x: { command: "server", enabled: false, exposure: "codemode-deferred" } }, {}],
@@ -36,15 +38,23 @@ for (const [packageDir, version] of packages) {
       cache.clear();
       const loaded = native.loadMcpConfig({ agentDir, cwd, projectTrusted: true });
       const result = cache.snapshot(agentDir, cwd, true, []);
-      if (loaded.errors.length) continue;
       const configured = new Set([...Object.keys(global), ...Object.keys(project)]);
       const nativeRows = loaded.servers.filter(row => configured.has(row.name)).map(row => [row.name, row.config.enabled !== false]).sort();
-      if (!nativeRows.length) continue;
+      assert.equal(Boolean(result.mcpError), loaded.errors.length > 0);
       assert.deepEqual(
         result.mcp.filter(row => row.enabled !== null && configured.has(row.name)).map(row => [row.name, row.enabled]).sort(),
         nativeRows,
       );
       assert(!JSON.stringify(result).includes("SECRET"));
+    }
+    if (version === "1.4.0") {
+      await writeFile(join(agentDir, "mcp.json"), '\uFEFF{"mcpServers":{"bom":{"command":"server"}}}');
+      await writeFile(join(cwd, ".pi/mcp.json"), '\uFEFF{"mcpServers":{"bom":{"enabled":false}}}'); cache.clear();
+      const loaded = native.loadMcpConfig({ agentDir, cwd, projectTrusted: true });
+      assert.deepEqual(loaded.errors, []);
+      const result = cache.snapshot(agentDir, cwd, true, []);
+      assert.equal(result.mcpError, undefined);
+      assert.deepEqual(result.mcp.map(row => [row.name, row.enabled]), loaded.servers.map(row => [row.name, row.config.enabled !== false]));
     }
     await writeFile(join(agentDir, "mcp.json"), '{"mcpServers":{}}');
     await writeFile(join(cwd, ".pi/mcp.json"), '{"mcpServers":{"registered":{"enabled":false}}}'); cache.clear();
@@ -52,8 +62,10 @@ for (const [packageDir, version] of packages) {
   });
 }
 test("unavailable host adapter never fabricates enabled/disabled state", async () => {
-  assert.equal(await loadSidebarMcpHost("/missing", "unknown"), undefined);
-  assert.equal(await loadSidebarMcpHost(getPackageDir(), "1.2.0"), undefined);
+  assert.equal(await loadSidebarMcpHost("/missing", "1.4.0"), undefined);
+  for (const version of ["unknown", "1.2.0", "1.4.1", "2.0.0"]) {
+    assert.equal(await loadSidebarMcpHost(getPackageDir(), version), undefined);
+  }
   const cache = new SidebarMcpFiles();
   const result = cache.snapshot("/missing", "/missing", false, [{ name: "registered", config: { command: "server" } }]);
   assert.equal(result.mcp[0]!.enabled, null); assert.match(result.mcpError!, /unavailable/);

@@ -124,6 +124,26 @@ test("disabled/invalid entries remain visible and errors never include credentia
   assert.deepEqual(parseMcpFile(undefined), { servers: {} });
 });
 
+test("MCP parsing follows the host's BOM support and still rejects malformed JSON", () => {
+  const text = '\uFEFF{"mcpServers":{"server":{"command":"server"}}}';
+  assert.deepEqual(parseMcpFile(text, true), parseMcpFile(text.slice(1)));
+  assert.equal(parseMcpFile(text).error, "MCP config unreadable", "older hosts do not support a BOM");
+  assert.equal(parseMcpFile('\uFEFF{"mcpServers":[]}', true).error, "MCP config invalid");
+  assert.equal(parseMcpFile('\uFEFF{"token":"SECRET",bad}', true).error, "MCP config unreadable");
+  assert.equal(parseMcpFile('\uFEFF\uFEFF{}', true).error, "MCP config unreadable");
+});
+
+test("MCP file cache invalidates parsed files when host BOM support changes", async t => {
+  const root = await mkdtemp(join(tmpdir(), "slate-mcp-bom-")); t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, "mcp.json"), '\uFEFF{"mcpServers":{"server":{"command":"server"}}}');
+  const cache = new SidebarMcpFiles(); cache.setHost({ ...host, stripBom: false });
+  assert.equal(cache.snapshot(root, root, false, []).mcpError, "MCP config unreadable");
+  cache.setHost({ ...host, stripBom: true });
+  assert.deepEqual(cache.snapshot(root, root, false, []), { mcp: [{ name: "server", source: "global", enabled: true }] });
+  cache.setHost({ ...host, stripBom: false });
+  assert.equal(cache.snapshot(root, root, false, []).mcpError, "MCP config unreadable");
+});
+
 test("MCP states follow native enabled flags and supported transports, not ignored legacy keys", () => {
   const result = sidebarMcp([], parseMcpFile(JSON.stringify({ mcpServers: {
     legacy: { command: "server", disabled: true }, off: { command: "server", enabled: false },
@@ -141,7 +161,7 @@ test("MCP file cache follows changes/removal and refuses untrusted project confi
   await writeFile(join(cwd, ".pi", "mcp.json"), '{"mcpServers":{"a":{"enabled":false}}}');
   const cache = new SidebarMcpFiles(); cache.setHost(host);
   assert.equal(cache.snapshot(agent, cwd, false, []).mcp[0]!.enabled, true);
-  assert.equal(cache.snapshot(agent, cwd, true, []).mcp[0]!.enabled, false, "pinned 1.3.0 merges partial project overrides");
+  assert.equal(cache.snapshot(agent, cwd, true, []).mcp[0]!.enabled, false, "modern hosts merge partial project overrides");
   await writeFile(global, '{"mcpServers":{"b":{"command":"b"}}}');
   assert.equal(cache.snapshot(agent, cwd, false, []).mcp[0]!.name, "b");
   await rm(global); assert.deepEqual(cache.snapshot(agent, cwd, false, []).mcp, []);

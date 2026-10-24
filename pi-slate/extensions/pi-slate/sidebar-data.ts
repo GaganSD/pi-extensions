@@ -191,10 +191,11 @@ export class SidebarSkills {
 }
 
 type McpFile = { servers: Record<string, unknown>; error?: string };
-export function parseMcpFile(text: string | undefined): McpFile {
+export function parseMcpFile(text: string | undefined, stripBom = false): McpFile {
   if (text === undefined) return { servers: {} };
   try {
-    const raw = record(JSON.parse(text));
+    // Match the verified host's file parser; older Pi versions reject a BOM.
+    const raw = record(JSON.parse(stripBom && text.startsWith("\uFEFF") ? text.slice(1) : text));
     const servers = record(raw?.mcpServers);
     if (!raw || (raw.mcpServers !== undefined && !servers)) return { servers: {}, error: "MCP config invalid" };
     return { servers: servers ?? {} };
@@ -249,7 +250,7 @@ function resolveMcp(
 export class SidebarMcpFiles {
   private cached = new Map<string, { key: string; value: McpFile }>();
   private host?: SidebarMcpHost;
-  setHost(host: SidebarMcpHost | undefined): void { this.host = host; }
+  setHost(host: SidebarMcpHost | undefined): void { this.host = host; this.clear(); }
   read(path: string): McpFile {
     try {
       const stat = statSync(path);
@@ -257,7 +258,7 @@ export class SidebarMcpFiles {
       const key = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.size}`;
       const old = this.cached.get(path);
       if (old?.key === key) return old.value;
-      const value = parseMcpFile(readFileSync(path, "utf8"));
+      const value = parseMcpFile(readFileSync(path, "utf8"), this.host?.stripBom);
       this.cached.set(path, { key, value });
       return value;
     } catch (error) {

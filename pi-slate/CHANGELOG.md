@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Support Pi 1.4.0's native MCP configuration validation, removing the sidebar's false `1 Error` when no servers are configured. Accept BOM-prefixed MCP configuration files as Pi 1.4.0 does; unsupported host versions still report unknown state.
+
 ## 0.1.17
 
 Slimmer README with fast-loading screenshots and session lifecycle stability fixes.
