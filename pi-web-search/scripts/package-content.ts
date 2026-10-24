@@ -56,11 +56,29 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 		};
 		const scanner = createScanner(true, undefined, contents);
 		let declaration: "import" | "export" | undefined;
-		for (let token = scanner.scan(); token !== SyntaxKind.EndOfFile; token = scanner.scan()) {
+		// Template substitutions require rescanning; otherwise following comments
+		// can be mistaken for source tokens and the scanner can stall on a hash.
+		const templates: number[] = [];
+		const nextToken = () => {
+			let token = scanner.scan();
+			if (token === SyntaxKind.TemplateHead) templates.push(0);
+			else if (templates.length && token === SyntaxKind.OpenBraceToken) templates[templates.length - 1]++;
+			else if (templates.length && token === SyntaxKind.CloseBraceToken) {
+				if (templates[templates.length - 1] > 0) templates[templates.length - 1]--;
+				else {
+					token = scanner.reScanTemplateToken(false);
+					if (token === SyntaxKind.TemplateTail) templates.pop();
+				}
+			}
+			if (token !== SyntaxKind.EndOfFile && scanner.getTokenEnd() === scanner.getTokenStart() && contents[scanner.getTokenStart()] === "#") token = scanner.reScanHashToken();
+			assert.ok(token === SyntaxKind.EndOfFile || scanner.getTokenEnd() > scanner.getTokenStart(), `${path}: source scanner made no progress`);
+			return token;
+		};
+		for (let token = nextToken(); token !== SyntaxKind.EndOfFile; token = nextToken()) {
 			if (token === SyntaxKind.ImportKeyword) {
-				const next = scanner.scan();
+				const next = nextToken();
 				if (next === SyntaxKind.OpenParenToken) {
-					const argument = scanner.scan();
+					const argument = nextToken();
 					assert.ok(argument === SyntaxKind.StringLiteral, `${path}: dynamic imports must use literal packaged paths`);
 					checkImport(scanner.getTokenValue());
 					continue;
@@ -77,7 +95,7 @@ export function validatePackageContent(manifest: PackageManifest, files: Map<str
 				continue;
 			}
 			if (token === SyntaxKind.FromKeyword && declaration !== undefined) {
-				const next = scanner.scan();
+				const next = nextToken();
 				assert.ok(next === SyntaxKind.StringLiteral, `${path}: import and export specifiers must be string literals`);
 				checkImport(scanner.getTokenValue());
 				declaration = undefined;

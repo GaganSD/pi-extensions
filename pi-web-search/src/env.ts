@@ -9,7 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 /** Retrieval credentials only. Pi owns all classifier authentication. */
-export type CredentialProviderId = "exa" | "parallel" | "github";
+export type CredentialProviderId = "exa" | "parallel" | "github" | "brave";
 
 /**
  * Environment aliases per credential, highest precedence first. Every nonblank
@@ -23,6 +23,7 @@ export const CREDENTIAL_ENV_ALIASES: Record<
 	exa: ["EXA_API_KEY"],
 	parallel: ["PARALLEL_API_KEY"],
 	github: ["GITHUB_TOKEN", "GH_TOKEN"],
+	brave: ["BRAVE_API_KEY", "BRAVE_SEARCH_API_KEY"],
 };
 
 export const CREDENTIAL_PROVIDER_IDS = Object.keys(
@@ -104,6 +105,10 @@ export function exaApiKey(
 	options?: CredentialResolverOptions,
 ): string | undefined {
 	return resolveCredential("exa", options)?.key;
+}
+
+export function braveApiKey(options?: CredentialResolverOptions): string | undefined {
+	return resolveCredential("brave", options)?.key;
 }
 
 export function parallelApiKey(

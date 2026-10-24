@@ -41,7 +41,7 @@ test("completions cover the new command surface", () => {
 	]);
 	assert.deepEqual(webSearchCompletions("pro").map((item) => item.value), ["provider"]);
 	assert.deepEqual(webSearchCompletions("provider ").map((item) => item.value), [
-		"exa", "parallel", "grep", "sourcegraph", "github",
+		"exa", "parallel", "grep", "sourcegraph", "github", "brave",
 	]);
 	assert.deepEqual(webSearchCompletions("provider github ").map((item) => item.value), []);
 	assert.deepEqual(webSearchCompletions("classifier ").map((item) => item.value), ["none"]);

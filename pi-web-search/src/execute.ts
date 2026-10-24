@@ -4,10 +4,14 @@ import type {
 	ExtensionContext,
 	ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
+import { evidenceOwner, evidenceStore } from "./evidence.ts";
+import { previewEvidence, uniqueEvidence } from "./providers/results.ts";
 import { type WebSearchDetails, formatWebSearchResult } from "./format.ts";
 import { augmentResults, type AugmentedStreamResult } from "./jev/augment.ts";
 import { resolveSettings } from "./providers/config.ts";
-import { withTimeout } from "./providers/http.ts";
+import { awaitWithSignal, withTimeout } from "./providers/http.ts";
+import { jinaFetch } from "./providers/jina.ts";
+import { reuseTransport } from "./providers/reuse.ts";
 import {
 	type RunSearchOptions,
 	type SearchRequest,
@@ -29,6 +33,7 @@ export type SearchScope = ProviderFamily | "both";
 
 export interface ExecuteSearchParams {
 	query: string;
+	fetchOnly?: boolean;
 	urls?: string[];
 	scope: SearchScope;
 	parallel: boolean;
@@ -143,7 +148,7 @@ export async function executeSearch(
 		}
 
 		const query = trimQuery(params.query);
-		if (query.length === 0) {
+		if (query.length === 0 && !params.fetchOnly) {
 			throw providerError("unknown", "query must not be empty.");
 		}
 
@@ -156,6 +161,9 @@ export async function executeSearch(
 		if (signal?.aborted) {
 			throw abortedError(signal.reason);
 		}
+		if (params.fetchOnly && urls.urls.length === 0) {
+			throw providerError("unknown", "Supply a query or at least one valid HTTP(S) URL.");
+		}
 		progress.emit(params.progress);
 
 		const family = params.scope === "both" ? undefined : params.scope;
@@ -163,6 +171,8 @@ export async function executeSearch(
 		try {
 			const req: SearchRequest = {
 				query,
+				fetchOnly: params.fetchOnly,
+				reuseScope: options.transports || options.loadTransports ? undefined : evidenceOwner(ctx),
 				urls: urls.urls.length > 0 ? urls.urls : undefined,
 				signal: composed.signal,
 				onUpdate: (partial) => {
@@ -180,7 +190,9 @@ export async function executeSearch(
 				? skippedSources(params.scope, availability)
 				: [];
 
-			const raw = params.parallel
+			const raw = params.fetchOnly && (options.fetchUrls || (!options.transports && !options.loadTransports))
+				? await runUrlOnly(req, options, availability)
+				: params.parallel
 				? await runParallelSearch(req, { ...options, family, availability })
 				: await runSearch(req, { ...options, family: family ?? "web", availability });
 
@@ -219,8 +231,13 @@ export async function executeSearch(
 			}
 
 			progress.finish();
+			// Store only post-policy evidence. Suppressed passages must never reappear.
+			const unique = previewEvidence(uniqueEvidence(judged), Number.MAX_SAFE_INTEGER, urls.urls);
+			const owner = evidenceOwner(ctx);
+			const continuation = owner ? evidenceStore.put(owner, unique) : undefined;
+			const preview = previewEvidence(unique, resolved.maxResults, urls.urls, !!continuation);
 			const formatted = formatWebSearchResult({
-				...judged,
+				...preview,
 				// Local policy notices are not upstream evidence. Add them after
 				// judging so suppression can redact untrusted provider diagnostics
 				// without hiding scope/config/argument guidance.
@@ -228,10 +245,10 @@ export async function executeSearch(
 					...resolved.notices,
 					...urls.warnings,
 					...(dropped ? [dropped] : []),
-					...(judged.warnings ?? []),
+					...(preview.warnings ?? []),
 				],
 				jevStatus: jevStatus(wantJudge, judged),
-			});
+			}, undefined, continuation);
 			if (judged.classifierUsage) {
 				formatted.usage = judged.classifierUsage;
 			}
@@ -242,6 +259,21 @@ export async function executeSearch(
 	} catch (error) {
 		progress.finish();
 		return formatSearchError(params.tool, error);
+	}
+}
+
+/** Keep URL-only reads keyless and independent of the selected search provider. */
+async function runUrlOnly(req: SearchRequest, options: RunSearchOptions, availability: Partial<Record<ProviderKind, boolean>>): Promise<StreamResult> {
+	try {
+		const pending = reuseTransport("jina", req, options.fetchUrls ?? jinaFetch);
+		return req.signal ? await awaitWithSignal(pending, req.signal) : await pending;
+	} catch (error) {
+		if (req.signal?.aborted || !isProviderError(error) || !error.retryable) throw error;
+		// Brave also delegates extraction to Jina: never retry it through that path.
+		const chain = [req.settings.web.provider, ...req.settings.web.fallback];
+		if (chain.every((kind) => kind === "brave")) throw error;
+		const result = await runSearch(req, { ...options, family: "web", availability: { ...availability, brave: false } });
+		return { ...result, warnings: [`Jina URL extraction failed (${error.code}); used fallback.`, ...(result.warnings ?? [])] };
 	}
 }
 

@@ -148,9 +148,18 @@ export function normalizeHttpError(
 		return providerError("rate_limited", `HTTP 429 too many requests${suffix}`, {
 			status,
 			retryable: true,
+			retryAfterMs: retryAfterMs(response.headers.get("retry-after")),
 		});
 	}
 	return providerError("http_error", `HTTP ${status}${suffix}`, { status });
+}
+
+/** Only the provider HTTP header, never arbitrary prose, can specify cooldown. */
+export function retryAfterMs(value: string | null, now = Date.now()): number | undefined {
+	if (!value?.trim()) return undefined;
+	const seconds = Number(value);
+	const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - now;
+	return Number.isFinite(delay) && delay >= 0 ? Math.min(delay, 60_000) : undefined;
 }
 
 export interface ComposedSignal {

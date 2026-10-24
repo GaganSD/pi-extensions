@@ -16,7 +16,7 @@ export const EXCERPT_MAX_CHARS = 400;
 
 /** Structured excerpts stay useful to scripts without persisting upstream documents. */
 export const STRUCTURED_EXCERPT_MAX_CHARS = 4_000;
-export const STRUCTURED_EXCERPT_TOTAL_CHARS = 32_000;
+export const STRUCTURED_EXCERPT_TOTAL_CHARS = 12_000;
 export const PROVIDER_TEXT_MAX_CHARS = 8_000;
 const METADATA_MAX_CHARS = 1_000;
 const METADATA_TOTAL_CHARS = 16_000;
@@ -28,10 +28,14 @@ export const SOURCES_HEADING = "## Sources";
 export const WARNINGS_HEADING = "## Warnings";
 export const COVERAGE_HEADING = "## Coverage";
 
-const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("sourcegraph"), Type.Literal("github")]);
+const ProviderSchema = Type.Union([Type.Literal("exa"), Type.Literal("parallel"), Type.Literal("grep"), Type.Literal("sourcegraph"), Type.Literal("github"), Type.Literal("brave"), Type.Literal("jina")]);
 
 /** One declared data contract for renderers, scripts, and failure results. */
 const DetailsSchema = Type.Object({
+	resultId: Type.Optional(Type.String()),
+	storedCount: Type.Optional(Type.Integer({ minimum: 0 })),
+	storedClipped: Type.Optional(Type.Boolean()),
+	passage: Type.Optional(Type.Object({ index: Type.Integer(), offset: Type.Integer(), nextOffset: Type.Optional(Type.Integer()), totalChars: Type.Integer(), matches: Type.Optional(Type.Integer()) })),
 	provider: Type.Optional(ProviderSchema),
 	providers: Type.Optional(Type.Array(ProviderSchema)),
 	requestId: Type.Optional(Type.String()),
@@ -107,6 +111,7 @@ export function formatResult(
 export function formatWebSearchResult(
 	result: StreamResult,
 	limits?: TruncationLimits,
+	continuation?: Pick<WebSearchDetails, "resultId" | "storedCount" | "storedClipped">,
 ): AgentToolResult<WebSearchDetails> {
 	result = compactResult(result);
 	const sources = result.sources ?? [];
@@ -137,7 +142,9 @@ export function formatWebSearchResult(
 		);
 	}
 
+	if (continuation?.resultId) sections.push(`More evidence: search_read({resultId: "${continuation.resultId}", index: 0}). ${continuation.storedCount} stored result(s), zero-based indexes; memory only, expires after 10 minutes. Stored text is provider-returned evidence, not guaranteed full pages.${continuation.storedClipped ? " Local storage limits also clipped evidence." : ""}`);
 	return formatResult(sections.join("\n\n"), {
+		...continuation,
 		provider: result.providerKind,
 		...(result.providers ? { providers: result.providers } : {}),
 		requestId: result.requestId,
@@ -169,10 +176,11 @@ function compactResult(result: StreamResult): StreamResult {
 		clippedMetadata ||= clipped.length < value.length;
 		return clipped;
 	};
-	const searchResults = (result.searchResults ?? []).map((entry) => {
+	const entries = result.searchResults ?? [];
+	const searchResults = entries.map((entry, index) => {
 		const compact: SearchResultDetail = { ...entry };
 		if (entry.citedText !== undefined) {
-			compact.citedText = clipText(entry.citedText, Math.min(STRUCTURED_EXCERPT_MAX_CHARS, excerptBudget));
+			compact.citedText = clipText(entry.citedText, Math.min(STRUCTURED_EXCERPT_MAX_CHARS, Math.floor(excerptBudget / (entries.length - index))));
 			excerptBudget -= compact.citedText.length;
 			if (compact.citedText.length < entry.citedText.length) clippedExcerpts++;
 		}
@@ -181,7 +189,7 @@ function compactResult(result: StreamResult): StreamResult {
 			if (typeof value === "string") {
 				// Keep recognized provenance tags even if large titles consumed the
 				// metadata budget: code rendering depends on these fixed-size tags.
-				compact[key] = key === "source" && ["exa", "parallel", "grep", "sourcegraph", "github"].includes(value)
+				compact[key] = key === "source" && ["exa", "parallel", "grep", "sourcegraph", "github", "brave", "jina"].includes(value)
 					? value : metadata(value);
 			}
 		}
@@ -281,7 +289,7 @@ function buildExcerpt(result: SearchResultDetail): string {
 	if (!citedText) {
 		return "";
 	}
-	const isCode = result.source === "grep" || result.source === "sourcegraph" || result.source === "github";
+	const isCode = result.source?.split(", ").some((source) => ["grep", "sourcegraph", "github"].includes(source));
 	if (isCode) {
 		const clipped = citedText.replace(/\s+$/u, "").slice(0, EXCERPT_MAX_CHARS);
 		return clipped.length > 0 ? `\`\`\`\n${clipped}\n\`\`\`` : "";

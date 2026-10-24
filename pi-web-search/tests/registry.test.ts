@@ -62,9 +62,13 @@ test("a missing PARALLEL_API_KEY retains the keyless native Parallel fallback", 
 	const previousParallel = process.env.PARALLEL_API_KEY;
 	const previousGitHub = process.env.GITHUB_TOKEN;
 	const previousGh = process.env.GH_TOKEN;
+	const previousBrave = process.env.BRAVE_API_KEY;
+	const previousBraveSearch = process.env.BRAVE_SEARCH_API_KEY;
 	delete process.env.PARALLEL_API_KEY;
 	delete process.env.GITHUB_TOKEN;
 	delete process.env.GH_TOKEN;
+	delete process.env.BRAVE_API_KEY;
+	delete process.env.BRAVE_SEARCH_API_KEY;
 	try {
 		assert.deepEqual(providerAvailability(), {
 			exa: true,
@@ -72,6 +76,7 @@ test("a missing PARALLEL_API_KEY retains the keyless native Parallel fallback", 
 			grep: true,
 			sourcegraph: true,
 			github: false,
+			brave: false,
 		});
 		// Code sources are keyless/available but must never join a web chain.
 		assert.deepEqual(resolveProviderChain(settings), ["exa", "parallel"]);
@@ -79,6 +84,8 @@ test("a missing PARALLEL_API_KEY retains the keyless native Parallel fallback", 
 		restoreEnv("PARALLEL_API_KEY", previousParallel);
 		restoreEnv("GITHUB_TOKEN", previousGitHub);
 		restoreEnv("GH_TOKEN", previousGh);
+		restoreEnv("BRAVE_API_KEY", previousBrave);
+		restoreEnv("BRAVE_SEARCH_API_KEY", previousBraveSearch);
 	}
 });
 

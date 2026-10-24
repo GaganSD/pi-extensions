@@ -115,7 +115,7 @@ test("enabling stored credentials reads the given auth file until disabled", asy
 
 test("the alias table documents every supported provider id", () => {
 	assert.deepEqual(CREDENTIAL_ENV_ALIASES.github, ["GITHUB_TOKEN", "GH_TOKEN"]);
-	assert.deepEqual(Object.keys(CREDENTIAL_ENV_ALIASES), ["exa", "parallel", "github"]);
+	assert.deepEqual(Object.keys(CREDENTIAL_ENV_ALIASES), ["exa", "parallel", "github", "brave"]);
 	assert.ok(Object.values(CREDENTIAL_ENV_ALIASES).flat().every((name) => !["TYPESAFE_API_KEY", "JEV_API_KEY", "AI_GATEWAY_API_KEY", "OPENROUTER_API_KEY"].includes(name)));
 });
 

@@ -143,11 +143,7 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 				settingsManager, modelRuntime, sessionManager: SessionManager.inMemory(root) }));
 			await session.bindExtensions({});
 			const native = `mcp__${PARALLEL_MCP_SERVER}__web_search`;
-			const readyBy = Date.now() + 5000;
-			while (!session.getCallableToolNames().includes(native) && Date.now() < readyBy) {
-				await new Promise((resolve) => setTimeout(resolve, 20));
-			}
-			assert.ok(session.getCallableToolNames().includes(native), "local native MCP must connect");
+			// Do not wait manually: web_search.reachesTools must await cold MCP startup.
 			const query = "fixture question";
 			const args = { query, urls: ["https://example.test/document"] };
 			// A seeded assistant tool call allows Pi to run the real tool/nested MCP pipeline without model credentials.
@@ -167,11 +163,22 @@ for (const mode of ["anonymous", "stub", "openrouter-stored", "openrouter-runtim
 			}
 			const ordinary = await ctx.executeTool("web_search", args);
 			assert.equal(ordinary.isError, false, JSON.stringify(ordinary.result));
-			const ordinaryData = ordinary.result.structuredContent as { provider?: string; searchResults?: { type?: string; url?: string }[] };
+			assert.ok(session.getCallableToolNames().includes(native), "outer reachability awaited MCP startup");
+			const ordinaryData = ordinary.result.structuredContent as { resultId?: string; provider?: string; searchResults?: { type?: string; url?: string }[] };
 			assert.equal(ordinaryData.provider, "parallel");
 			assert.ok(ordinaryData.searchResults?.some((hit) =>
 				hit.type === "extract" && hit.url === args.urls[0]));
 			assert.equal(classifyCalls, 0, "ordinary search never judges");
+			assert.ok(ordinaryData.resultId, "search returns a local continuation handle");
+			const beforeRead = await readFile(callsPath, "utf8");
+			session.setActiveToolsByName([...session.getActiveToolNames(), "codemode"]);
+			const codemode = session.agent.state.tools.find((tool) => tool.name === "codemode")!;
+			assert.ok(codemode);
+			// Codemode is model-only, so exercise its host-wrapped direct execute entrypoint.
+			const continued = await codemode.execute("continuation-code", { code: `const value = await tools.search_read({ resultId: ${JSON.stringify(ordinaryData.resultId)}, index: 0 }); text({ count: value.resultCount, url: value.searchResults[0].url });` }, AbortSignal.timeout(6000));
+			assert.equal(continued.isError ?? false, false, JSON.stringify(continued));
+			assert.match(JSON.stringify(continued.content), /example.test/);
+			assert.equal(await readFile(callsPath, "utf8"), beforeRead, "continuation makes no MCP/network call");
 			if (judge) {
 				const judged = await ctx.executeTool("multi_search", { query, scope: "web" });
 				assert.equal(judged.isError, false, JSON.stringify(judged.result));

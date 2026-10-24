@@ -167,7 +167,7 @@ async function keyedSearch(
 
 	// Search and the caller's URL fetches are independent, so run them
 	// concurrently; a fetch failure never discards the search results.
-	const searchPromise = postJson<unknown>(EXA_SEARCH_URL, {
+	const searchPromise = req.fetchOnly ? Promise.resolve({ results: [] }) : postJson<unknown>(EXA_SEARCH_URL, {
 		headers,
 		body: {
 			query: req.query,
@@ -215,12 +215,14 @@ async function keyedSearch(
 			if (isProviderError(fetchOutcome.error) && fetchOutcome.error.code === "aborted") {
 				throw fetchOutcome.error;
 			}
+			if (req.fetchOnly) throw fetchOutcome.error;
 			warnings.push(describeError("URL fetch", fetchOutcome.error));
 		} else {
 			try {
 				const contents = asObject(fetchOutcome.value, EXA_CONTENTS_URL);
 				results.push(...requestedContents(toContentsResults(contents.results).map(contentsDetail), fetched.urls, warnings));
 			} catch (error) {
+				if (req.fetchOnly) throw error;
 				warnings.push(describeError("URL fetch", error));
 			}
 		}
@@ -305,7 +307,7 @@ async function keylessSearch(
 			signal: req.signal,
 		},
 		async (client) => {
-			const searchPromise = client.callTool("web_search_exa", {
+			const searchPromise = req.fetchOnly ? Promise.resolve("") : client.callTool("web_search_exa", {
 				query: req.query,
 				numResults: req.settings.maxResults,
 				objective: exaObjective(req.query),
@@ -342,7 +344,7 @@ async function keylessSearch(
 				: searchOutcome.value.trim().length > 0
 					? [{ source: PROVIDER_NAME, citedText: searchOutcome.value, type: "unparsed" }]
 					: [];
-			if (parsed.length === 0) {
+			if (parsed.length === 0 && !req.fetchOnly) {
 				warnings.push(base.length > 0 ? "Exa search returned unparsed content." : "Exa search returned no content.");
 			}
 			if (!fetchPromise) {
@@ -354,6 +356,7 @@ async function keylessSearch(
 				if (isProviderError(fetchOutcome.error) && fetchOutcome.error.code === "aborted") {
 					throw fetchOutcome.error;
 				}
+				if (req.fetchOnly) throw fetchOutcome.error;
 				warnings.push(describeError("URL fetch", fetchOutcome.error));
 				return base;
 			}
@@ -363,6 +366,7 @@ async function keylessSearch(
 			// still falls through to the unparsed-preservation branch below.
 			const pages = parseExaFetchText(fetchOutcome.value);
 			if (pages.results.length === 0 && isRateLimitRefusal(fetchOutcome.value, false)) {
+				if (req.fetchOnly) throw providerError("rate_limited", "Exa URL fetch was rate limited.");
 				warnings.push("Exa URL fetch was refused by the keyless endpoint (rate limit); no page content was returned.");
 			}
 			warnings.push(...pages.warnings);

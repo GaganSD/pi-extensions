@@ -1,7 +1,8 @@
 import type { AgentToolUpdateCallback, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
-import { githubToken, parallelApiKey } from "../env.ts";
+import { braveApiKey, githubToken, parallelApiKey } from "../env.ts";
 import { type ResolvedSettings } from "./config.ts";
 import { awaitWithSignal } from "./http.ts";
+import { reuseTransport } from "./reuse.ts";
 import { mergeStreamResults } from "./results.ts";
 import {
 	DEFAULT_CHAIN,
@@ -16,6 +17,10 @@ import {
 
 export interface SearchRequest {
 	query: string;
+	/** URL retrieval without a search request. */
+	fetchOnly?: boolean;
+	/** Session identity enables bounded reuse for direct HTTP transports only. */
+	reuseScope?: string;
 	urls?: string[];
 	signal?: AbortSignal;
 	onUpdate?: AgentToolUpdateCallback;
@@ -36,6 +41,8 @@ export interface RunSearchOptions {
 	availability?: Partial<Record<ProviderKind, boolean>>;
 	/** Overrides how the default transports are loaded. */
 	loadTransports?: () => Promise<ProviderTransportMap>;
+	/** URL extractor override for offline tests; production uses keyless Jina Reader. */
+	fetchUrls?: SearchTransport;
 	/** The tool scope; omitted only for cross-family research. */
 	family?: ProviderFamily;
 }
@@ -50,6 +57,7 @@ export function providerAvailability(
 	const code = family !== "web";
 	return {
 		exa: true,
+		brave: family !== "code" && braveApiKey() !== undefined,
 		parallel: true,
 		grep: code,
 		sourcegraph: code,
@@ -67,7 +75,7 @@ export function listRunnableProviders(
 	family?: ProviderFamily,
 ): ProviderKind[] {
 	const families = family ? [family] : ["web", "code"] as const;
-	const preferred = families.flatMap((scope) => [settings[scope].provider, ...settings[scope].fallback, ...DEFAULT_CHAIN[scope]]);
+	const preferred = families.flatMap((scope) => [settings[scope].provider, ...settings[scope].fallback, ...DEFAULT_CHAIN[scope], ...(scope === "web" ? ["brave" as const] : [])]);
 	const chain: ProviderKind[] = [];
 	for (const kind of preferred) {
 		if (
@@ -154,7 +162,7 @@ export async function runSearch(
 			continue;
 		}
 		try {
-			const result = await runTransport(transport, req);
+			const result = await runTransport((request) => reuseTransport(kind, request, transport), req);
 			const hits = result.searchResults?.length ?? 0;
 			const more = i < chain.length - 1 && options.family === "code";
 			if (hits === 0 && more) {
@@ -321,7 +329,7 @@ export async function runParallelSearch(
 			if (!transport) {
 				throw missingCredentials(kind, `No transport is registered for ${kind}.`);
 			}
-			return { kind, result: await runTransport(transport, req) };
+			return { kind, result: await runTransport((request) => reuseTransport(kind, request, transport), req) };
 		}),
 	);
 
@@ -376,12 +384,13 @@ function describeNoCredentials(target: ProviderFamily = "web"): string {
  * so the chain skips that provider instead of failing the whole search.
  */
 async function loadDefaultTransports(): Promise<ProviderTransportMap> {
-	const [exa, parallel, grep, sourcegraph, github] = await Promise.all([
+	const [exa, parallel, grep, sourcegraph, github, brave] = await Promise.all([
 		import("./exa.ts").catch(() => undefined),
 		import("./parallel.ts").catch(() => undefined),
 		import("./grep.ts").catch(() => undefined),
 		import("./sourcegraph.ts").catch(() => undefined),
 		import("./github.ts").catch(() => undefined),
+		import("./brave.ts").catch(() => undefined),
 	]);
 	const map: ProviderTransportMap = {};
 	const assign = (kind: ProviderKind, fn: unknown) => {
@@ -394,5 +403,6 @@ async function loadDefaultTransports(): Promise<ProviderTransportMap> {
 	assign("grep", grep?.grepSearch);
 	assign("sourcegraph", sourcegraph?.sourcegraphSearch);
 	assign("github", github?.githubSearch);
+	assign("brave", brave?.braveSearch);
 	return map;
 }

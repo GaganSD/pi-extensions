@@ -40,6 +40,7 @@ test("headless settings uses host messages rather than corrupting stdout", async
 });
 
 interface RegisteredTool {
+	exposure?: string;
 	name: string;
 	description: string;
 	promptSnippet?: string;
@@ -122,7 +123,7 @@ async function loadExtension(
 }
 
 function names(registration: Pick<Registration, "tools" | "commands">): string[] {
-	return registration.tools.map((tool) => tool.name);
+	return registration.tools.filter((tool) => !tool.exposure || tool.exposure === "direct").map((tool) => tool.name);
 }
 
 const ctx = {} as unknown as ExtensionContext;
@@ -133,7 +134,8 @@ test("a missing config registers web_search and code_search, not multi_search", 
 		assert.deepEqual(names({ tools, commands }), ["web_search", "code_search"]);
 		assert.ok(commands.some((command) => command.name === "web-search"));
 		assert.equal(commands.some((command) => command.name === "web-search-settings"), false);
-		for (const tool of tools) {
+		assert.equal(tools.find((tool) => tool.name === "search_read")?.exposure, "codemode");
+		for (const tool of tools.filter((tool) => tool.name !== "search_read")) {
 			assert.ok(tool.promptSnippet, `${tool.name} must set promptSnippet`);
 			assert.ok(
 				tool.promptGuidelines?.length,
@@ -149,12 +151,12 @@ test("a missing config registers web_search and code_search, not multi_search", 
 
 test("all tools declare the modern Pi data and permission contracts", async () => {
 	await loadExtension(JSON.stringify({ research: { enabled: true } }), ({ tools }) => {
-		assert.equal(tools.length, 3);
+		assert.equal(tools.length, 4);
 		for (const tool of tools) {
 			assert.deepEqual(tool.outputSchema, SearchOutputSchema);
 			assert.equal(tool.namespace?.name, "search");
 			assert.deepEqual(tool.annotations, {
-				readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true,
+				readOnlyHint: true, destructiveHint: false, idempotentHint: tool.name === "search_read", openWorldHint: tool.name !== "search_read",
 			});
 		}
 	});
@@ -215,7 +217,7 @@ test("registered web_search forwards the live tool context through the native pi
 				} } };
 			},
 		} as unknown as ExtensionContext;
-		const result = await tools[0].execute("call-1", { query: "native path" }, undefined, undefined, runtime);
+		const result = await tools.find((tool) => tool.name === "web_search")!.execute("call-1", { query: "native path" }, undefined, undefined, runtime);
 		assert.deepEqual(seen, [`mcp__${PARALLEL_MCP_SERVER}__web_search`]);
 		assert.equal(result.isError, false);
 		assert.equal(result.details.searchResults?.[0].citedText, "citation");

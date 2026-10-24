@@ -7,6 +7,7 @@ This file is a navigation index for agents, not an API specification. Paths are 
 ## Documentation
 
 - [Package README](README.md): install, tools, defaults, optional setup, config, and code-search notes.
+- [Efficiency and continuation](docs/efficiency.md): URL-only fetch, local evidence handles, preview budgets, reuse/cooldowns, and context benchmarks.
 - [Multi-source search and Jev](docs/research.md): judgment settings, exact Pi classifier pin, and fail-open behavior.
 
 ## Source contracts
@@ -14,6 +15,8 @@ This file is a navigation index for agents, not an API specification. Paths are 
 - [Tool registration](src/index.ts): tools, first-run welcome, and `/web-search`.
 - [Configuration resolver](src/providers/config.ts): accepted settings and defaults.
 - [Provider orchestration](src/providers/index.ts): ordinary chains versus research fan-out.
+- [Brave](src/providers/brave.ts): optional keyed REST search, compact snippets only.
+- [Jina Reader](src/providers/jina.ts): keyless URL-only extraction; no search routing or extra tools.
 - [Sourcegraph](src/providers/sourcegraph.ts): keyless stream search.
 - [GitHub](src/providers/github.ts): authenticated REST; token or `gh auth`.
 - [Jev classifier](src/jev/api.ts): Pi model registry typed classification.

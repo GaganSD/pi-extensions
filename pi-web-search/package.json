@@ -36,6 +36,7 @@
   "scripts": {
     "test": "node --experimental-strip-types scripts/test.ts",
     "typecheck": "tsc --noEmit",
+    "bench:context": "node --experimental-strip-types scripts/footprint.ts",
     "lint": "node ../node_modules/eslint/bin/eslint.js . --max-warnings=0",
     "test:unit": "node ../scripts/test-package.mjs pi-web-search unit",
     "test:integration": "node ../scripts/test-package.mjs pi-web-search integration",

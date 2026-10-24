@@ -24,12 +24,23 @@ export async function parallelSearch(req: SearchRequest): Promise<StreamResult> 
 	}
 	const metadata = requestMetadata(runtime);
 	const searchQueries = [req.query];
-	const raw = await callNative(runtime, SEARCH_TOOL, {
-		objective: req.query,
-		search_queries: searchQueries,
-		...metadata,
-	}, req.signal);
-	const search = readPayload(raw, "web_search");
+	// Observe both promises immediately; search and URL extraction are independent.
+	const [searchOutcome, fetchOutcome] = await Promise.allSettled([
+		req.fetchOnly ? Promise.resolve<Record<string, unknown>>({ results: [] }) : callNative(runtime, SEARCH_TOOL, {
+			objective: req.query,
+			search_queries: searchQueries,
+			...metadata,
+		}, req.signal).then((raw) => readPayload(raw, "web_search")),
+		req.urls?.length ? callNative(runtime, FETCH_TOOL, {
+			urls: req.urls.slice(0, MAX_FETCH_URLS),
+			objective: req.query.slice(0, 200) || "Extract the requested pages.",
+			search_queries: req.fetchOnly ? [] : searchQueries,
+			full_content: false,
+			...metadata,
+		}, req.signal).then((raw) => readPayload(raw, "web_fetch")) : Promise.resolve(undefined),
+	]);
+	if (searchOutcome.status === "rejected") throw searchOutcome.reason;
+	const search = searchOutcome.value;
 	const hits = requireResults(search, "web_search").slice(0, req.settings.maxResults);
 	const searchResults = hits.map((hit) => toDetail(hit));
 	const sources = hits.map(toSource);
@@ -37,20 +48,15 @@ export async function parallelSearch(req: SearchRequest): Promise<StreamResult> 
 
 	if (req.urls?.length) {
 		try {
-			const fetched = readPayload(await callNative(runtime, FETCH_TOOL, {
-				urls: req.urls.slice(0, MAX_FETCH_URLS),
-				objective: req.query.slice(0, 200),
-				search_queries: searchQueries,
-				full_content: false,
-				...metadata,
-			}, req.signal), "web_fetch");
+			if (fetchOutcome.status === "rejected") throw fetchOutcome.reason;
+			const fetched = fetchOutcome.value!;
 			for (const entry of requireResults(fetched, "web_fetch")) {
 				searchResults.push(toDetail(entry, "extract"));
 				sources.push(toSource(entry));
 			}
 			warnings.push(...normalizeWarnings(fetched.warnings), ...normalizeErrorUrls(fetched.errors));
 		} catch (error) {
-			if (req.signal?.aborted || (isProviderError(error) && error.code === "aborted")) throw error;
+			if (req.fetchOnly || req.signal?.aborted || (isProviderError(error) && error.code === "aborted")) throw error;
 			warnings.push(`parallel fetch failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}

@@ -30,6 +30,9 @@ import {
 	webSearch,
 } from "./web_search.ts";
 import { maybeShowWelcome } from "./welcome.ts";
+import { evidenceOwner, evidenceStore } from "./evidence.ts";
+import { SearchReadSchema, searchRead } from "./search_read.ts";
+import { clearRetrievalCache } from "./providers/reuse.ts";
 
 /** Fail closed on unsupported or malformed host versions. */
 export function assertSupportedPiVersion(version: string): void {
@@ -55,17 +58,33 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		await maybeShowWelcome(ctx);
 	});
 
+	pi.on("session_shutdown", (_event, ctx) => {
+		const owner = evidenceOwner(ctx);
+		if (owner) { evidenceStore.clear(owner); clearRetrievalCache(owner); }
+	});
+
+	// Stable, script-discoverable continuation: no extra default tool declaration.
+	pi.registerTool({
+		name: "search_read", label: "Read Search Evidence",
+		description: "Read stored search evidence locally: omit index to list; select index and offset or find to read passages. No network requests. Handles expire after 10 minutes or reload.",
+		parameters: SearchReadSchema, outputSchema: SearchOutputSchema,
+		exposure: "codemode",
+		namespace: { name: "search", description: "Cited public web and code retrieval." },
+		annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+		execute: async (_id, params, signal, _update, ctx) => searchRead(params, ctx, signal),
+	});
+
 	pi.registerTool<typeof WebSearchSchema, WebSearchDetails>({
 		name: "web_search",
 		label: "Web Search",
+		reachesTools: () => [`mcp__${PARALLEL_MCP_SERVER}`],
 		description:
-			"Search web pages and documentation. Optionally retrieve excerpts from supplied URLs alongside the search.",
+			"Search web pages, or fetch supplied URLs without a query. Returns cited previews and a handle for more evidence.",
 		promptSnippet:
 			"Search the public web (documentation, prose, current events) and optionally retrieve supplied URLs.",
 		promptGuidelines: [
-			"Use `web_search` for documentation, prose, and current events on the public web.",
 			"Use local `rg`/`grep` for files in the workspace; use `code_search` for literal code across public repositories.",
-			"To read a specific web page, call `web_search` with the URL in `urls`; `read` cannot open URLs.",
+			"For a known page, call `web_search` with `urls` only; omit `query` to skip search. More evidence is available through codemode's `search_read` using the returned resultId.",
 		],
 		parameters: WebSearchSchema,
 		outputSchema: SearchOutputSchema,
@@ -97,7 +116,6 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		promptSnippet:
 			"Search public source code for a literal identifier or snippet; supports repo:/language: qualifiers.",
 		promptGuidelines: [
-			"Use `code_search` for a literal identifier or code snippet in public repositories, not for prose questions.",
 			"`code_search` understands `repo:<owner/name>` and `language:<name>`; other GitHub-specific qualifiers are provider-dependent and are not translated into grep.app filters.",
 		],
 		parameters: CodeSearchSchema,
@@ -134,6 +152,7 @@ export default function webSearchExtension(pi: ExtensionAPI) {
 		pi.registerTool<typeof MultiSearchSchema, WebSearchDetails>({
 			name: "multi_search",
 			label: "Multi Search",
+			reachesTools: (input) => input.scope === "code" ? [] : [`mcp__${PARALLEL_MCP_SERVER}`],
 			description:
 				"Search multiple available sources concurrently in an explicit scope. May apply optional ranking and safety classification.",
 			promptSnippet:

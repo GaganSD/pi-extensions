@@ -72,6 +72,12 @@ test("package-content verifies static, re-exported, and dynamic local import clo
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'import type { X } from "./missing.ts";')), /missing local import/);
 });
 
+test("package-content scanner progresses through hashes and template substitutions without hiding imports", () => {
+	const prefix = 'const pattern = /#/; const value = `prefix ${ { nested: `inner ${1}` }.nested } suffix`;\n/** `# Heading` documentation */\n';
+	assert.doesNotThrow(() => validate(({ files }) => files.set("src/value.ts", prefix + 'export const ok = 1;')));
+	assert.throws(() => validate(({ files }) => files.set("src/value.ts", prefix + 'import "./missing.ts";')), /missing local import/);
+});
+
 test("package-content rejects imports outside published source and nonliteral dynamic imports", () => {
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'export * from "../tests/helper.ts";')), /import escapes published source/);
 	assert.throws(() => validate(({ files }) => files.set("src/value.ts", 'const path = "./nested/other.ts"; import(path);')), /dynamic imports must use literal/);

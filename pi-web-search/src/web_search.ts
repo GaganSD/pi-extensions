@@ -10,11 +10,11 @@ import type { WebSearchDetails } from "./format.ts";
 import type { RunSearchOptions } from "./providers/index.ts";
 
 export const WebSearchSchema = Type.Object({
-	query: Type.String({
+	query: Type.Optional(Type.String({
 		minLength: 1,
 		maxLength: MAX_QUERY_CHARS,
 		description: "Web question or search terms (docs, prose, current events)",
-	}),
+	})),
 	urls: Type.Optional(
 		Type.Array(Type.String(), {
 			description: "Web page URLs to fetch and read.",
@@ -37,7 +37,8 @@ export async function webSearch(
 	const urlCount = params.urls?.length ?? 0;
 	return executeSearch(
 		{
-			query: params.query,
+			query: params.query ?? "",
+			fetchOnly: params.query === undefined,
 			urls: params.urls,
 			scope: "web",
 			parallel: false,
@@ -47,7 +48,7 @@ export async function webSearch(
 			acceptedParams: ["query", "urls"],
 			progress:
 				urlCount > 0
-					? `Searching and analyzing ${urlCount} URL(s)...`
+					? `${params.query === undefined ? "Fetching" : "Searching and analyzing"} ${urlCount} URL(s)...`
 					: `Searching for "${params.query}"...`,
 		},
 		signal,

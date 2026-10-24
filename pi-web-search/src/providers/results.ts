@@ -1,5 +1,5 @@
 import type {
-	ProviderKind,
+	EvidenceProvider,
 	SearchResultDetail,
 	Source,
 	StreamResult,
@@ -16,8 +16,48 @@ export function sourcesFromResults(results: SearchResultDetail[]): Source[] {
 	return sources;
 }
 
+/** Exact evidence deduplication, not URL-only dedup: distinct passages stay distinct. */
+export function uniqueEvidence(result: StreamResult): StreamResult {
+	const seen = new Map<string, SearchResultDetail>();
+	const searchResults: SearchResultDetail[] = [];
+	for (const hit of result.searchResults ?? []) {
+		// Keep fragments and query strings: they can identify code lines or different pages.
+		const key = JSON.stringify([hit.url, hit.citedText, hit.type]);
+		if (!hit.url || !seen.has(key)) {
+			searchResults.push({ ...hit });
+			if (hit.url) seen.set(key, searchResults[searchResults.length - 1]);
+		} else {
+			const existing = seen.get(key)!;
+			const providers = new Set([...(existing.source ?? "").split(", "), ...(hit.source ?? "").split(", ")].filter(Boolean));
+			existing.source = [...providers].join(", ");
+		}
+	}
+	return { ...result, searchResults };
+}
+
+/** One global preview count; URL evidence is prioritized rather than silently lost. */
+export function previewEvidence(result: StreamResult, maxResults: number, urls: string[] = [], continuation = false): StreamResult {
+	const all = result.searchResults ?? [];
+	const requested = new Set(urls.map(documentKey));
+	const priority = all.filter((hit) => hit.url && requested.has(documentKey(hit.url)) && ["extract", "content"].includes(hit.type ?? ""));
+	const prioritized = new Set(priority);
+	const rest = all.filter((hit) => !prioritized.has(hit));
+	const searchResults = [...priority, ...rest].slice(0, maxResults);
+	const selected = new Set(searchResults.flatMap((hit) => hit.url ? [hit.url] : []));
+	const omitted = all.length - searchResults.length;
+	return {
+		...result, searchResults,
+		sources: all.length ? (result.sources ?? []).filter((source) => selected.has(source.url)) : result.sources,
+		warnings: [...(result.warnings ?? []), ...(omitted ? [`${omitted} additional result(s) omitted from the preview; ${continuation ? "use search_read with the resultId for stored evidence" : "retrieve cited URLs again for more evidence"}.`] : [])],
+	};
+}
+
+function documentKey(value: string): string {
+	try { const url = new URL(value); url.hash = ""; return url.href; } catch { return value; }
+}
+
 export interface ProviderContribution {
-	kind: ProviderKind;
+	kind: EvidenceProvider;
 	result: StreamResult;
 }
 
@@ -43,7 +83,7 @@ export function mergeStreamResults(
 	const warnings: string[] = [...extraWarnings];
 	const usage: { name: string; count: number }[] = [];
 	const requestIds: string[] = [];
-	const kinds: ProviderKind[] = [];
+	const kinds: EvidenceProvider[] = [];
 
 	for (const { kind, result } of parts) {
 		kinds.push(kind);

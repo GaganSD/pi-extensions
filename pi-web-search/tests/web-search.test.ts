@@ -91,7 +91,7 @@ test("the tool schema exposes only query and urls, and bounds the query", () => 
 	const urls = WebSearchSchema.properties.urls as { maxItems?: number };
 	const query = WebSearchSchema.properties.query as { maxLength?: number };
 	assert.deepEqual(Object.keys(WebSearchSchema.properties), ["query", "urls"]);
-	assert.equal(WebSearchSchema.required?.includes("query"), true);
+	assert.equal((WebSearchSchema.required as string[] | undefined)?.includes("query") ?? false, false);
 	assert.equal(urls.maxItems, 20);
 	assert.equal(query.maxLength, MAX_QUERY_CHARS);
 	// The crafted Exa objective must stay below the server's 4096-char limit.

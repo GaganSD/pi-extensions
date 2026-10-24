@@ -15,7 +15,8 @@ const sourceRoot = resolve(dirname(script), "..");
 if (process.argv[2] !== "--child") {
 	const artifact = resolve(process.argv[2] ?? sourceRoot);
 	withTemporaryDirectory("pi-web-search-live space-", (root) => {
-		const env = { ...isolatedEnvironment(root), PI_OFFLINE: "1", NODE_TEST_CONTEXT: "live-smoke" };
+		const env = { ...isolatedEnvironment(root), PI_OFFLINE: "1", NODE_TEST_CONTEXT: "live-smoke",
+			...(process.env.PI_WEB_SEARCH_SMOKE_FILTER ? { PI_WEB_SEARCH_SMOKE_FILTER: process.env.PI_WEB_SEARCH_SMOKE_FILTER } : {}) };
 		process.stdout.write(runCommand(process.execPath,
 			["--experimental-strip-types", script, "--child", artifact], root, env));
 	});
@@ -43,6 +44,8 @@ if (process.argv[2] !== "--child") {
 		const cases: Array<{ name: string; tool: string; provider?: string; config: object; args: Record<string, string | string[]> }> = [
 			{ name: "default web and URL extraction", tool: "web_search", provider: "exa", config: {},
 				args: { query: "Node.js AbortSignal.timeout documentation", urls: ["https://nodejs.org/api/globals.html"] } },
+			{ name: "URL-only keyless Jina extraction", tool: "web_search", provider: "jina", config: {},
+				args: { urls: ["https://example.com"] } },
 			{ name: "default code", tool: "code_search", provider: "grep", config: {}, args: { query: "useSyncExternalStore" } },
 			{ name: "scoped Sourcegraph", tool: "code_search", provider: "sourcegraph", config: { code: { provider: "sourcegraph", fallback: [] } },
 				args: { query: "createServer repo:nodejs/node" } },
@@ -51,7 +54,9 @@ if (process.argv[2] !== "--child") {
 			{ name: "multi-source code", tool: "multi_search", config: { research: { enabled: true } },
 				args: { query: "useSyncExternalStore", scope: "code" } },
 		];
-		for (const [index, sample] of cases.entries()) {
+		const selected = cases.filter((sample) => !process.env.PI_WEB_SEARCH_SMOKE_FILTER || sample.name.includes(process.env.PI_WEB_SEARCH_SMOKE_FILTER));
+		assert.ok(selected.length, "Smoke filter matched no cases");
+		for (const [index, sample] of selected.entries()) {
 			save({ ...sample.config, timeoutMs: 15_000 });
 			const id = `live-smoke-${index}`;
 			session.sessionManager.appendMessage({ role: "assistant", content: [{ type: "toolCall", id, name: sample.tool, arguments: sample.args }],
@@ -63,7 +68,7 @@ if (process.argv[2] !== "--child") {
 			const ctx = session.extensionRunner.createToolContext(id, AbortSignal.timeout(20_000));
 			const response = await ctx.executeTool(sample.tool, sample.args);
 			const data = response.result.structuredContent as {
-				provider?: string; resultCount?: number; warnings?: string[]; error?: unknown;
+				resultId?: string; provider?: string; resultCount?: number; warnings?: string[]; error?: unknown;
 				searchResults?: Array<{ url?: string; type?: string; citedText?: string }>;
 			};
 			console.log(JSON.stringify({ check: sample.name, ms: Date.now() - started, provider: data.provider,
@@ -75,6 +80,12 @@ if (process.argv[2] !== "--child") {
 				const requested = sample.args.urls;
 				assert.ok(data.searchResults?.some((hit) => hit.url && requested.includes(hit.url) &&
 					["extract", "content"].includes(hit.type ?? "") && hit.citedText), "URL extraction missing");
+			}
+			if (sample.name.startsWith("URL-only")) {
+				assert.ok(data.resultId, "URL-only extraction must offer local continuation");
+				const continued = await ctx.executeTool("search_read", { resultId: data.resultId, index: 0 });
+				assert.equal(continued.isError, false, "local continuation failed");
+				console.log(JSON.stringify({ check: "local evidence continuation", status: "passed" }));
 			}
 			if (sample.name === "scoped Sourcegraph") {
 				assert.ok(data.searchResults?.every((hit) => hit.url?.startsWith("https://github.com/nodejs/node/blob/")));

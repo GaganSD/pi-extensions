@@ -50,6 +50,7 @@ export const PROVIDER_AUTH: Record<
 	grep: { key: "none", summary: "keyless" },
 	sourcegraph: { key: "none", summary: "keyless" },
 	github: { key: "required", summary: "token or gh auth", keyUrl: "https://github.com/settings/tokens" },
+	brave: { key: "required", summary: "REST search; optional provider", keyUrl: "https://api-dashboard.search.brave.com/app/keys" },
 };
 
 export function parseWebSearchArgs(args: string): WebSearchAction {

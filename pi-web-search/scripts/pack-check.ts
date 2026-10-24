@@ -15,6 +15,7 @@ function sourcePaths(directory: string, prefix = "src"): string[] {
 
 withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	const env = isolatedEnvironment(root);
+	console.log("Packing source-only artifact...");
 	const output = JSON.parse(runNpmCommand(
 		["pack", "--json", "--ignore-scripts", "--offline", "--pack-destination", root], packageRoot, env));
 	// npm 10/11 return an array; npm 12 keys the same metadata by package name.
@@ -56,18 +57,24 @@ withTemporaryDirectory("pi-web-search-pack space-", (root) => {
 	const consumer = join(root, "consumer");
 	mkdirSync(consumer);
 	writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "pack-check-consumer", private: true }));
+	console.log("Installing artifact in an isolated offline consumer...");
 	runNpmCommand(["install", archive, "--omit=dev", "--ignore-scripts", "--offline", "--package-lock=false"], consumer, env);
 	assert.deepEqual(readdirSync(join(consumer, "node_modules")).filter((path) => !path.startsWith(".")), ["@gagansd"], "Installing the tarball must not install host peers");
 	assert.equal(manifest.name, "@gagansd/pi-web-search");
 	assert.deepEqual(manifest.pi.extensions, ["./src/index.ts"]);
 	const installed = join(consumer, "node_modules", manifest.name);
+	console.log("Smoke-loading installed artifact through Pi...");
 	process.stdout.write(runCommand(process.execPath, ["--experimental-strip-types", join(packageRoot, "scripts/artifact-smoke.ts"), installed], packageRoot, env));
 	// Tests/fixtures stay out of the publication, but run against the extracted src.
 	cpSync(join(packageRoot, "tests"), join(artifact, "tests"), {
 		recursive: true,
 		filter: (path) => path !== join(packageRoot, "tests/package"),
 	});
+	// Benchmark helpers are test-only and are deliberately absent from the tarball.
+	mkdirSync(join(artifact, "scripts"));
+	for (const helper of ["footprint.ts", "validation.ts"]) cpSync(join(packageRoot, "scripts", helper), join(artifact, "scripts", helper));
 	symlinkSync(resolve(packageRoot, "node_modules"), join(artifact, "node_modules"), "junction");
+	console.log("Running extracted-source regression tests...");
 	process.stdout.write(runCommand(process.execPath,
 		["--experimental-strip-types", join(packageRoot, "scripts/test.ts"), join(artifact, "tests")], packageRoot, env));
 	console.log(`Package content validated: ${paths.length} files, ${metadata.unpackedSize} unpacked bytes; extracted-source regression tests passed.`);
