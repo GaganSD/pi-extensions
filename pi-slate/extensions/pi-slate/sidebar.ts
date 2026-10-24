@@ -21,7 +21,7 @@ export type SidebarActions = {
   persistFold?(section: keyof SidebarFolds, expanded: boolean): SidebarFolds | undefined;
 };
 const EMPTY_SESSION: SidebarSession = {
-  id: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
+  id: "", name: "", pid: process.pid, cwd: "", model: "—", thinking: "—", tokens: null,
   percent: null, contextWindow: null, estimated: false, rate: null, startedAt: 0,
   lastTurnMs: null, working: false, turns: 0, messages: 0,
   usage: { input: null, output: null, total: null, cacheRead: null, cacheWrite: null, cost: null },
@@ -100,7 +100,11 @@ export class Sidebar implements Component {
     this.hidden = hidden; if (this.splitActive) this.tui?.requestRender(true);
   }
   setActions(actions: SidebarActions): void { this.actions = actions; }
-  setSession(session: SidebarSession): void { this.session = { ...session, usage: { ...session.usage } }; this.changed(); }
+  setSession(session: SidebarSession): void {
+    // Keep the full plain-text title for copying/details; truncate only its painted row.
+    this.session = { ...session, name: sidebarText(session.name, session.name?.length), usage: { ...session.usage } };
+    this.changed();
+  }
   setResources(resources: SidebarResources): void {
     this.resources = { ...resources, mcp: resources.mcp.map(x => ({ ...x })), skills: resources.skills.map(x => ({ ...x })), commands: resources.commands.map(x => ({ ...x })), prompts: resources.prompts.map(x => ({ ...x })) };
     this.changed();
@@ -148,7 +152,7 @@ export class Sidebar implements Component {
     const s = this.session;
     const uncached = sidebarUncached(s.usage);
     const hit = s.usage.input !== null && s.usage.cacheRead !== null && s.usage.input > 0 ? `${Math.round(s.usage.cacheRead / s.usage.input * 100)}%` : "—";
-    return [`Session ${sidebarText(s.id) || "—"} · PID ${s.pid}`, `Model: ${s.model} · ${s.thinking}`,
+    return [`Session ${sidebarText(s.id) || "—"} · PID ${s.pid}`, `Title: ${s.name || "—"}`, `Model: ${s.model} · ${s.thinking}`,
       `Context: ${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}${s.estimated ? " (estimated)" : ""}`,
       `Wall time (this runtime): ${sidebarDuration(s.startedAt > 0 ? this.now() - s.startedAt : null)}`,
       `Last turn: ${sidebarDuration(s.lastTurnMs)}`, `Turns: ${s.turns} · Messages: ${s.messages}`,
@@ -238,6 +242,7 @@ export class Sidebar implements Component {
     const percent = s.percent !== null && Number.isFinite(s.percent) ? s.percent : null;
     const tone = percent !== null && percent >= 80 ? "warning" : "accent";
     const identity = `Session ${sidebarText(s.id).slice(0, 8) || "—"} · PID ${s.pid}`;
+    const name = s.name || "";
     const occupancy = `${s.estimated ? "~" : ""}${formatCompactTokenCount(s.tokens)} / ${formatCompactTokenCount(s.contextWindow)}`
       + ` · ${sidebarCost(s.usage.cost)} · ${sidebarRate(s.rate)}`;
     const meter = ((): string => {
@@ -255,8 +260,8 @@ export class Sidebar implements Component {
     const stat = (label: string, value: string): string => `${this.paint("muted", label)} ${this.paint("text", value)}`;
     const statRight = (label: string, value: string): string => `${this.paint("text", value)} ${this.paint("muted", label)}`;
     return [
+      { text: this.heading(truncateToWidth(name, width, "…"), "accent"), action: name ? () => this.actions?.copy(name) : undefined },
       { text: this.heading(visibleWidth(identity) > width ? this.pair(`Session ${sidebarText(s.id).slice(0, 8) || "—"}`, `· PID ${s.pid}`, width) : identity), action: () => { if (s.id) this.actions?.copy(s.id); } },
-      { text: "" },
       { text: this.pair(this.paint("text", sidebarText(s.model)), this.paint("dim", sidebarText(s.thinking)), width) },
       { text: "" },
       { text: meter },
@@ -373,7 +378,7 @@ export class Sidebar implements Component {
     const l = truncateToWidth(left, Math.max(0, width - visibleWidth(r) - 1), "…");
     return `${l}${" ".repeat(Math.max(0, width - visibleWidth(l) - visibleWidth(r)))}${r}`;
   }
-  private heading(text: string): string { const painted = this.paint("mdHeading", text); return this.theme?.bold?.(painted) ?? painted; }
+  private heading(text: string, tone: "mdHeading" | "accent" = "mdHeading"): string { const painted = this.paint(tone, text); return this.theme?.bold?.(painted) ?? painted; }
   private paint(tone: "text" | "muted" | "dim" | "accent" | "success" | "warning" | "error" | "mdHeading", text: string): string { return this.theme?.fg(tone, text) ?? text; }
   private isDoubleClick(event: TuiMouseEvent, target: string): boolean {
     if (event.clickCount !== undefined) return event.clickCount === 2;
